@@ -62,6 +62,13 @@ def preview(text: Any, limit: int = PROMPT_PREVIEW_CHARS) -> str:
     return one_line if len(one_line) <= limit else one_line[: limit - 1] + "…"
 
 
+def str_field(payload: dict[str, Any], key: str) -> str:
+    """``payload[key]`` if it is a string, else "". Payloads are untrusted and
+    real ones carry undocumented fields, so never assume a type."""
+    val = payload.get(key)
+    return val if isinstance(val, str) else ""
+
+
 class Adapter(Protocol):
     name: str
     capabilities: Capabilities

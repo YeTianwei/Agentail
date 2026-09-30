@@ -2,8 +2,11 @@
 
 Hook payloads arrive as JSON on stdin. Field names and event names follow the
 Claude Code hooks reference (https://code.claude.com/docs/en/hooks, checked
-2026-09-30); see docs/agent-hooks-notes.md section 1.
-TODO(M1): replace the hand-written fixtures in tests/fixtures/claude with recorded ones.
+2026-09-30); see docs/agent-hooks-notes.md section 1. Real payloads recorded
+with Claude Code 2.1.285 (tests/fixtures/claude/recorded-2.1.285.jsonl) carry
+more fields than documented (prompt_id, scratchpad_dir, effort,
+background_tasks, ...): unknown fields are ignored, and fields we read are
+used only if they have the expected type.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ from agentail.adapters.base import (
     Capabilities,
     EventKind,
     preview,
+    str_field,
 )
 from agentail.protocol import HookMessage
 
@@ -45,11 +49,11 @@ _NOTIFICATION_TYPES = {
 
 def _classify_notification(payload: dict) -> Attention | None:
     """Return the attention kind, or None for informational notifications."""
-    ntype = payload.get("notification_type")
-    if isinstance(ntype, str) and ntype:
+    ntype = str_field(payload, "notification_type")
+    if ntype:
         return _NOTIFICATION_TYPES.get(ntype)
     # Older versions without notification_type: fall back to the message text.
-    msg = str(payload.get("message", "")).lower()
+    msg = str_field(payload, "message").lower()
     if "permission" in msg:
         return Attention.PERMISSION
     if "waiting for your input" in msg or "idle" in msg:
@@ -66,11 +70,11 @@ class ClaudeAdapter:
 
     def decode(self, msg: HookMessage, host: str) -> AgentEvent | None:
         payload = msg.payload() or {}
-        event_name = str(payload.get("hook_event_name") or msg.event)
+        event_name = str_field(payload, "hook_event_name") or msg.event
         kind = _KINDS.get(event_name)
         if kind is None:
             return None
-        session_id = str(payload.get("session_id") or "")
+        session_id = str_field(payload, "session_id")
         if not session_id:
             return None
         attention = None
@@ -84,8 +88,8 @@ class ClaudeAdapter:
             host=host,
             session_id=session_id,
             ts=msg.ts,
-            cwd=str(payload.get("cwd") or msg.cwd),
-            tool=str(payload.get("tool_name") or ""),
+            cwd=str_field(payload, "cwd") or msg.cwd,
+            tool=str_field(payload, "tool_name"),
             prompt_preview=preview(payload.get("prompt")),
             attention=attention,
             message=preview(payload.get("message"), 200),

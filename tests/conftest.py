@@ -5,6 +5,21 @@ from pathlib import Path
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def isolated_home(monkeypatch):
+    """Every test runs with a throwaway HOME and XDG dirs, so nothing can reach the
+    real ~/.claude, ~/.codex, ~/.agentail or the user's runtime dir."""
+    with tempfile.TemporaryDirectory(prefix="ah-", dir="/tmp") as d:
+        home = Path(d)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("CODEX_HOME", raising=False)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+        monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+        monkeypatch.setenv("XDG_RUNTIME_DIR", str(home / "run"))
+        assert Path.home() == home
+        yield home
+
+
 @pytest.fixture
 def short_tmp():
     """AF_UNIX paths are limited to ~107 bytes; pytest's tmp_path can be too long."""
