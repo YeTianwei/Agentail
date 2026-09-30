@@ -12,8 +12,8 @@
 | `protocol.py` 线协议 v1 | ✅ 完成并有测试 |
 | `daemon/ingest.py` socket 监听 | ✅ 完成并有测试(目录 0700、socket 0600、坏消息不影响服务) |
 | `daemon/state.py` 状态机 | ✅ 完成并有测试(按 (主机, agent, session) 区分、乱序容忍、离线、清理) |
-| `adapters/claude.py` | 🟡 已实现,字段名待 M0 核实 |
-| `adapters/codex.py` | 🟡 占位实现,等 M0 确认 Codex hook 格式 |
+| `adapters/claude.py` | ✅ 字段名已按官方文档核对(M0-b,见 `agent-hooks-notes.md`);待 M1 用真实录制替换手写 fixture |
+| `adapters/codex.py` | 🟡 占位实现;实现建议见 `agent-hooks-notes.md` §3.2,M2 完成 |
 | `install/claude_config.py` 合并/移除 | ✅ 完成并有测试(幂等、保留用户条目、可完全还原) |
 | `daemon/main.py` + `agentail daemon --print-events --record` | ✅ 可运行 |
 | `install/local.py`、`install/remote.py`、`install/codex_config.py` | ⬜ 只有接口说明 |

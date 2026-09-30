@@ -24,7 +24,7 @@ class EventKind(enum.StrEnum):
 class Attention(enum.StrEnum):
     IDLE = "idle"  # waiting for user input
     PERMISSION = "permission"  # a permission prompt is open in the terminal
-    OTHER = "other"
+    OTHER = "other"  # some other dialog needs the user (e.g. an MCP elicitation form)
 
 
 @dataclass(frozen=True)
