@@ -1,5 +1,5 @@
-"""Uses hand-written fixtures (tests/fixtures/claude/synthetic.jsonl).
-TODO(M2): add recorded fixtures from `agentail daemon --record` and test them too."""
+"""Uses hand-written fixtures (tests/fixtures/claude/synthetic.jsonl) and a sanitized
+recording from `agentail daemon --record` (tests/fixtures/claude/recorded-*.jsonl, M1)."""
 
 import json
 from pathlib import Path
@@ -9,9 +9,11 @@ import pytest
 from agentail.adapters.base import Attention, EventKind
 from agentail.adapters.claude import ClaudeAdapter
 from agentail.daemon.state import Status, Store
-from agentail.protocol import HookMessage
+from agentail.protocol import HookMessage, parse_line
 
 FIXTURES = Path(__file__).parent / "fixtures" / "claude" / "synthetic.jsonl"
+# Recorded with Claude Code 2.1.285 during M1: one prompt, one reply.
+RECORDED = Path(__file__).parent / "fixtures" / "claude" / "recorded-2.1.285.jsonl"
 
 
 def _msg(event, payload, ts=1):
@@ -70,6 +72,20 @@ def test_synthetic_session_state_sequence():
     s = next(iter(st.sessions.values()))
     assert s.active_tools == 0 and s.tool == ""
     assert s.status is Status.ENDED
+
+
+def test_recorded_session():
+    a = ClaudeAdapter()
+    st = Store()
+    kinds, statuses = [], []
+    for line in RECORDED.read_bytes().splitlines():
+        ev = a.decode(parse_line(line), host="local")
+        kinds.append(ev.kind)
+        statuses.append(st.apply(ev).session.status)
+    assert kinds == [EventKind.PROMPT_SUBMIT, EventKind.STOP]
+    assert statuses == [Status.RUNNING, Status.WAITING_INPUT]
+    s = next(iter(st.sessions.values()))
+    assert s.cwd == "/tmp/m1-test"
 
 
 @pytest.mark.parametrize(
