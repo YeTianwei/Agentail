@@ -7,8 +7,8 @@ Agentail installs a tiny hook into Claude Code and Codex. Each hook event travel
 socket (through an `ssh -R` tunnel for remote servers) to a daemon on your desktop, which tracks
 every session and tells you when a turn is done or an agent needs you.
 
-> Status: early development (v0.0.1). The hook, protocol, socket ingest and state machine work;
-> installers, SSH tunnels and the panel are in progress. See [docs/PLAN.md](docs/PLAN.md).
+> Status: early development (v0.0.1). Local monitoring of Claude Code and Codex works from the
+> command line; SSH tunnels and the panel are in progress. See [docs/PLAN.md](docs/PLAN.md).
 
 ## Design goals
 
@@ -19,14 +19,16 @@ every session and tells you when a turn is done or an agent needs you.
 - **Safe by default**: environment whitelist, payloads rendered as plain text, configs merged and
   backed up, never overwritten.
 
-## Try the pieces that exist today
+## Try it on this machine
 
 ```bash
 pip install -e '.[dev]'
-agentail daemon --print-events
-# in another terminal:
-echo '{"session_id":"s1","hook_event_name":"Stop"}' | \
-  python3 "$(agentail hook-path)" --agent claude --event Stop --sock "$(agentail paths | sed -n 's/^local socket: //p')"
+agentail install-local --dry-run   # show what would change in ~/.claude/settings.json, ~/.codex/hooks.json
+agentail install-local             # backs up and merges; Codex then asks you to trust the new hooks
+agentail daemon                    # terminal A
+agentail tail                      # terminal B: live session changes
+agentail status                    # one-shot table of sessions and hosts
+agentail uninstall-local           # restores the original config files
 ```
 
 ## Docs
