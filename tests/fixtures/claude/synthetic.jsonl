@@ -1,0 +1,7 @@
+{"event": "SessionStart", "ts": 1, "payload": {"session_id": "abc", "hook_event_name": "SessionStart", "cwd": "/w", "source": "startup"}}
+{"event": "UserPromptSubmit", "ts": 2, "payload": {"session_id": "abc", "hook_event_name": "UserPromptSubmit", "cwd": "/w", "prompt": "run the tests"}}
+{"event": "PreToolUse", "ts": 3, "payload": {"session_id": "abc", "hook_event_name": "PreToolUse", "cwd": "/w", "tool_name": "Bash", "tool_input": {"command": "pytest"}}}
+{"event": "Notification", "ts": 4, "payload": {"session_id": "abc", "hook_event_name": "Notification", "message": "Claude needs your permission to use Bash"}}
+{"event": "PostToolUse", "ts": 5, "payload": {"session_id": "abc", "hook_event_name": "PostToolUse", "tool_name": "Bash"}}
+{"event": "Stop", "ts": 6, "payload": {"session_id": "abc", "hook_event_name": "Stop"}}
+{"event": "SessionEnd", "ts": 7, "payload": {"session_id": "abc", "hook_event_name": "SessionEnd", "reason": "exit"}}

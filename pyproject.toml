@@ -1,0 +1,39 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "agentail"
+dynamic = ["version"]
+description = "Watch AI coding agents (Claude Code, Codex, ...) running locally and on remote SSH servers, from your Linux desktop."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Tianwei Ye" }]
+requires-python = ">=3.11"
+dependencies = ["tomlkit>=0.12"]
+
+[project.optional-dependencies]
+ui = ["PyGObject>=3.42"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5"]
+
+[project.scripts]
+agentail = "agentail.cli:main"
+
+[tool.hatch.version]
+path = "src/agentail/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agentail"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["src/agentail/resources/agentail-hook.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
