@@ -6,7 +6,7 @@ hosts (remote files are fetched, merged locally, backed up and written back).
 Our entries are recognised by ``paths.HOOK_MARKER`` in the command string, so
 install is idempotent and removal never touches the user's own hooks.
 
-Expected shape (TODO(M0): re-check against current Claude Code docs):
+Expected shape (verified against https://code.claude.com/docs/en/hooks, 2026-09-30):
 
     {"hooks": {"PreToolUse": [{"matcher": "", "hooks": [
         {"type": "command", "command": "...", "timeout": 5}]}]}}

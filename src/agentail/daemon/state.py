@@ -69,9 +69,9 @@ def _next_status(ev: AgentEvent) -> Status | None:
     if ev.kind is EventKind.STOP:
         return Status.WAITING_INPUT
     if ev.kind is EventKind.ATTENTION:
-        if ev.attention is Attention.PERMISSION:
-            return Status.NEEDS_ATTENTION
-        return Status.WAITING_INPUT
+        if ev.attention is Attention.IDLE:
+            return Status.WAITING_INPUT
+        return Status.NEEDS_ATTENTION
     if ev.kind is EventKind.SESSION_END:
         return Status.ENDED
     return None

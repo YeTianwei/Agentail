@@ -1,12 +1,12 @@
 """Codex CLI adapter (v1: status only).
 
-TODO(M0): the Codex hook mechanism must be verified before this is finished:
-  * where hooks are configured (config.toml vs a hooks file vs a plugin),
-  * which events exist (expected: SessionStart, UserPromptSubmit, Stop),
-  * the payload fields (session id, cwd, prompt),
-  * whether hooks must be trusted via ``/hooks`` before they run
-    (reported by zincnan/AgentBeacon: Codex skips untrusted hooks by default),
-  * fallback: the ``notify`` program (one command only; chain any existing one).
+TODO(M2): implement per docs/agent-hooks-notes.md sections 2 and 3.2 (verified
+against the openai/codex sources, 2026-09-30). In short: hooks are configured in
+~/.codex/hooks.json with the same shape as Claude's; user hooks only run after
+the user trusts them in Codex; the payload has ``session_id``, ``cwd`` and
+``prompt``; there is no Notification event (use PermissionRequest), and user
+interrupts fire ``Interrupt``. The legacy ``notify`` program gets its JSON as the
+last argv argument (``thread-id``, ``input-messages``), not on stdin.
 Until then decode() accepts a few plausible field names and relies on the
 ``--event`` flag written by the installer.
 """

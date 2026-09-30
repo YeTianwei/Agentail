@@ -44,3 +44,12 @@ def test_host_offline_and_sweep():
     assert len(st.mark_host_offline("gpu1")) == 1
     changes = st.sweep(now=1 + STALE_AFTER_S + 1)
     assert [c.key.session_id for c in changes] == ["s2"]
+
+
+def test_attention_kinds_map_to_status():
+    st = Store()
+    st.apply(ev(EventKind.PROMPT_SUBMIT, 1))
+    c = st.apply(ev(EventKind.ATTENTION, 2, attention=Attention.OTHER))
+    assert c.session.status is Status.NEEDS_ATTENTION and c.notify == "attention"
+    c = st.apply(ev(EventKind.ATTENTION, 3, attention=Attention.IDLE))
+    assert c.session.status is Status.WAITING_INPUT

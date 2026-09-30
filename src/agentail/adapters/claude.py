@@ -1,9 +1,9 @@
 """Claude Code adapter.
 
-Hook payloads arrive as JSON on stdin. Field names below follow the Claude Code
-hooks documentation as understood when this skeleton was written.
-TODO(M0): verify every field name against the current Claude Code version and
-replace the hand-written fixtures in tests/fixtures/claude with recorded ones.
+Hook payloads arrive as JSON on stdin. Field names and event names follow the
+Claude Code hooks reference (https://code.claude.com/docs/en/hooks, checked
+2026-09-30); see docs/agent-hooks-notes.md section 1.
+TODO(M1): replace the hand-written fixtures in tests/fixtures/claude with recorded ones.
 """
 
 from __future__ import annotations
@@ -22,30 +22,39 @@ _KINDS = {
     "UserPromptSubmit": EventKind.PROMPT_SUBMIT,
     "PreToolUse": EventKind.TOOL_START,
     "PostToolUse": EventKind.TOOL_END,
+    "PostToolUseFailure": EventKind.TOOL_END,
     "Notification": EventKind.ATTENTION,
     "Stop": EventKind.STOP,
+    "StopFailure": EventKind.STOP,  # turn ended by an API error
     "SubagentStop": EventKind.SUBAGENT_STOP,
     "SessionEnd": EventKind.SESSION_END,
     "PreCompact": EventKind.OTHER,
 }
 
+# Documented ``notification_type`` values. Types not listed here (auth_success,
+# elicitation_complete, agent_completed, quota_* ...) are informational and do
+# not change the session state.
+_NOTIFICATION_TYPES = {
+    "permission_prompt": Attention.PERMISSION,
+    "idle_prompt": Attention.IDLE,
+    "elicitation_dialog": Attention.OTHER,
+    "elicitation_url_dialog": Attention.OTHER,
+    "agent_needs_input": Attention.OTHER,
+}
 
-def _classify_notification(payload: dict) -> Attention:
-    # TODO(M0): newer versions may send an explicit type field; prefer it.
-    for key in ("notification_type", "type"):
-        val = payload.get(key)
-        if isinstance(val, str):
-            low = val.lower()
-            if "permission" in low:
-                return Attention.PERMISSION
-            if "idle" in low or "input" in low:
-                return Attention.IDLE
+
+def _classify_notification(payload: dict) -> Attention | None:
+    """Return the attention kind, or None for informational notifications."""
+    ntype = payload.get("notification_type")
+    if isinstance(ntype, str) and ntype:
+        return _NOTIFICATION_TYPES.get(ntype)
+    # Older versions without notification_type: fall back to the message text.
     msg = str(payload.get("message", "")).lower()
     if "permission" in msg:
         return Attention.PERMISSION
     if "waiting for your input" in msg or "idle" in msg:
         return Attention.IDLE
-    return Attention.OTHER
+    return None
 
 
 class ClaudeAdapter:
@@ -64,7 +73,11 @@ class ClaudeAdapter:
         session_id = str(payload.get("session_id") or "")
         if not session_id:
             return None
-        attention = _classify_notification(payload) if kind is EventKind.ATTENTION else None
+        attention = None
+        if kind is EventKind.ATTENTION:
+            attention = _classify_notification(payload)
+            if attention is None:
+                kind = EventKind.OTHER
         return AgentEvent(
             kind=kind,
             agent=self.name,
