@@ -146,3 +146,40 @@ def test_hook_events_registered():
 def test_missing_session_id_dropped():
     m = _msg("Stop", {"hook_event_name": "Stop"})
     assert ClaudeAdapter().decode(m, "local") is None
+
+
+def test_recorded_payload_has_undocumented_fields_that_are_ignored():
+    """Claude Code 2.1.285 sends more than the docs list; decoding must not depend on them."""
+    lines = RECORDED.read_bytes().splitlines()
+    payloads = [parse_line(line).payload() for line in lines]
+    extra = set().union(*payloads) - {
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "permission_mode",
+        "hook_event_name",
+        "prompt",
+        "stop_hook_active",
+    }
+    assert {"prompt_id", "scratchpad_dir", "effort", "last_assistant_message"} <= extra
+    a = ClaudeAdapter()
+    stop = a.decode(parse_line(lines[1]), host="local")
+    assert stop.kind is EventKind.STOP and stop.prompt_preview == "" and stop.message == ""
+
+
+def test_unknown_and_mistyped_fields_are_ignored():
+    payload = {
+        "session_id": "s",
+        "hook_event_name": "PreToolUse",
+        "tool_name": {"not": "a string"},
+        "cwd": 7,
+        "effort": {"level": "high"},
+        "background_tasks": [],
+        "brand_new_field": [1, {"x": None}],
+    }
+    e = ClaudeAdapter().decode(_msg("PreToolUse", payload), "local")
+    assert e.kind is EventKind.TOOL_START and e.tool == "" and e.cwd == "/w"
+    bad_type = {"session_id": "s", "hook_event_name": "Notification", "notification_type": 3}
+    e = ClaudeAdapter().decode(_msg("Notification", bad_type), "local")
+    assert e.kind is EventKind.OTHER
+    assert ClaudeAdapter().decode(_msg("Stop", {"session_id": ["s"]}), "local") is None

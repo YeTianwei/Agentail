@@ -27,7 +27,7 @@ and empty stdin. `agentail-hook.py --ping --sock PATH` exits 0 if the send succe
 The **source host is the socket the message arrived on** (`local.sock` → `local`,
 `hosts/<alias>.sock` → `<alias>`). Nothing in the message can change it.
 
-## 2. UI protocol (daemon → UI clients), milestone M2
+## 2. UI protocol (daemon → UI clients), since M2
 
 Socket: `$XDG_RUNTIME_DIR/agentail/ui.sock`. Newline-delimited JSON, daemon → client only.
 
@@ -52,5 +52,11 @@ SESSION = {"key": {"host", "agent", "session_id"}, "status": "running|waiting_in
 HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_failed|stopped", "detail"}
 ```
 
+`SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not
+sent). Until M3 adds tunnels, hosts from `hosts.toml` are reported with `"state": "stopped"`.
+All strings in `SESSION` come from hook payloads and are untrusted: render as plain text and strip
+control characters before writing to a terminal (`agentail tail` / `status` do).
+
 Clients hold no state of their own; after a reconnect they rebuild from the next snapshot.
-A client that cannot keep up is disconnected rather than slowing the daemon.
+A client that cannot keep up (more than 1024 queued messages) is disconnected rather than slowing
+the daemon. Clients never send anything; the daemon only reads to detect disconnects.

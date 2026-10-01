@@ -49,6 +49,11 @@ def state_dir() -> Path:
     return Path(base) / APP
 
 
+def agentail_home() -> Path:
+    """~/.agentail on this machine: the installed hook script and install manifest."""
+    return Path.home() / f".{APP}"
+
+
 def ensure_private_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     os.chmod(path, 0o700)

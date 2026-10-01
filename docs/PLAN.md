@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(脚手架提交时)
+## 0. 当前状态(M2 之后)
 
 | 模块 | 状态 |
 |---|---|
@@ -12,16 +12,18 @@
 | `protocol.py` 线协议 v1 | ✅ 完成并有测试 |
 | `daemon/ingest.py` socket 监听 | ✅ 完成并有测试(目录 0700、socket 0600、坏消息不影响服务) |
 | `daemon/state.py` 状态机 | ✅ 完成并有测试(按 (主机, agent, session) 区分、乱序容忍、离线、清理) |
-| `adapters/claude.py` | ✅ 字段名已按官方文档核对(M0-b,见 `agent-hooks-notes.md`);待 M1 用真实录制替换手写 fixture |
-| `adapters/codex.py` | 🟡 占位实现;实现建议见 `agent-hooks-notes.md` §3.2,M2 完成 |
+| `adapters/claude.py` | ✅ 字段名已按官方文档核对(M0-b);M1 真实录制(2.1.285)已加入测试,未知字段一律忽略、字段类型不对也忽略 |
+| `adapters/codex.py` | ✅ M2:按 `agent-hooks-notes.md` §3.2 实现(8 个事件,PermissionRequest → 需要授权,Interrupt → 回合结束);待 👤 真机验证 |
 | `install/claude_config.py` 合并/移除 | ✅ 完成并有测试(幂等、保留用户条目、可完全还原) |
-| `daemon/main.py` + `agentail daemon --print-events --record` | ✅ 可运行 |
-| `install/local.py`、`install/remote.py`、`install/codex_config.py` | ⬜ 只有接口说明 |
+| `daemon/main.py` + `agentail daemon --print-events --record` | ✅ 可运行;`--record` 不再录制 ping;同一 ui.sock 上拒绝启动第二个 daemon |
+| `install/local.py`、`install/codex_config.py` | ✅ M2:`install-local` / `uninstall-local`(`--dry-run`、备份、原子写入、manifest 还原原文件);Codex 写 `~/.codex/hooks.json` |
+| `install/remote.py` | ⬜ 只有接口说明(M3) |
 | `daemon/tunnels.py` | ⬜ 常量与 argv 构造已写,`run()` 待实现 |
-| `daemon/uiapi.py`、`ui/*` | ⬜ 只有接口说明 |
+| `daemon/uiapi.py` + `agentail tail` / `status` | ✅ M2:快照 + 增量,每客户端有界队列,慢客户端直接断开 |
+| `ui/*` | ⬜ 只有接口说明(M4) |
 | `scripts/m0-check-host.sh` | ✅ 服务器实测脚本(只读 + 一个临时 socket) |
 
-本地验证:`pip install -e '.[dev]' && pytest && ruff check .`
+本地验证:`pip install -e '.[dev]' && python -m pytest && ruff check . && ruff format --check .`
 
 ---
 
@@ -95,6 +97,7 @@ agentail paths                                           # 看 local.sock 路径
 2. `daemon/uiapi.py`:`UiServer`,协议见 `docs/protocol.md`;慢客户端丢弃而不是阻塞 daemon。
 3. `agentail tail`(实时打印事件/状态变化)和 `agentail status`(当前会话表 + 主机状态),都是 ui.sock 的客户端。
 4. 按 M0-b 结论实现 `adapters/codex.py`、`install/codex_config.py`(tomlkit;顶层键插在第一个表之前;`notify` 已存在时串联)。
+   *实际实现(M2)*:按 `agent-hooks-notes.md` §3.3 的结论改为写 `~/.codex/hooks.json`,`config.toml` 只读不写(只用来提示 `features.hooks = false` 或内联 `[hooks]`),所以没有用到 tomlkit;`notify` 串联按 §3.3 建议暂不做。
 5. 测试:安装/卸载往返(用临时 HOME)、UiServer 快照 + 增量、Codex 配置合并。
 
 > 提示词(M2):

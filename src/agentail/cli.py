@@ -10,10 +10,6 @@ from pathlib import Path
 from agentail import __version__, paths
 
 _TODO = {
-    "tail": "M2: stream decoded events from the running daemon (ui.sock)",
-    "status": "M2: show sessions and host tunnel states",
-    "install-local": "M2: install hooks for local Claude Code / Codex",
-    "uninstall-local": "M2: remove local hooks",
     "add-host": "M3: set up a remote host over SSH",
     "remove-host": "M3: remove a remote host",
     "ui": "M4: start the GTK panel",
@@ -35,6 +31,24 @@ def _build_parser() -> argparse.ArgumentParser:
         help="append raw hook messages to DIR/<agent>/<source>.jsonl",
     )
 
+    t = sub.add_parser("tail", help="print session changes from the running daemon")
+    t.add_argument("--json", action="store_true", help="print raw UI protocol messages")
+    st = sub.add_parser("status", help="print current sessions and hosts")
+    st.add_argument("--json", action="store_true", help="print the raw snapshot")
+
+    i = sub.add_parser(
+        "install-local", help="install hooks for Claude Code / Codex on this machine"
+    )
+    i.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
+    i.add_argument(
+        "--agent",
+        action="append",
+        choices=["claude", "codex"],
+        help="agent to install for (repeatable; default: every agent with a config dir)",
+    )
+    u = sub.add_parser("uninstall-local", help="remove agentail hooks from this machine")
+    u.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
+
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -55,12 +69,25 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.daemon.main import run_daemon
 
         return run_daemon(print_events=args.print_events, record_dir=args.record)
+    if args.command in ("tail", "status"):
+        from agentail import client
+
+        return getattr(client, args.command)(as_json=args.json)
+    if args.command == "install-local":
+        from agentail.install.local import install_local
+
+        return install_local(agents=args.agent, dry_run=args.dry_run)
+    if args.command == "uninstall-local":
+        from agentail.install.local import uninstall_local
+
+        return uninstall_local(dry_run=args.dry_run)
     if args.command == "paths":
         print(f"runtime dir : {paths.runtime_dir()}")
         print(f"local socket: {paths.local_sock()}")
         print(f"ui socket   : {paths.ui_sock()}")
         print(f"host sockets: {paths.host_sock_dir()}/<alias>.sock")
         print(f"hosts file  : {paths.hosts_file()}")
+        print(f"hook script : {paths.agentail_home() / paths.HOOK_FILENAME} (installed copy)")
         return 0
     if args.command == "hook-path":
         print(paths.hook_script_source())
