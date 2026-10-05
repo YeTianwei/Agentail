@@ -165,6 +165,8 @@ def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
     if mtype == "notify":
         host, agent, sid = _key(msg.get("key"))
         return f"{stamp} {host}/{agent}/{_short(sid)} ** {clean(msg.get('kind'))} **"
+    if mtype == "host_remove":
+        return f"{stamp} host {clean(msg.get('alias'))}: removed"
     if mtype == "host_status" and isinstance(msg.get("host"), dict):
         h = msg["host"]
         detail = clean(h.get("detail"))

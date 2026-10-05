@@ -33,3 +33,12 @@ def runtime_env(short_tmp, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(short_tmp / "cfg"))
     os.makedirs(short_tmp / "run", exist_ok=True)
     return short_tmp
+
+
+@pytest.fixture
+def fake_ssh(short_tmp):
+    from fakessh import FakeSsh
+
+    root = short_tmp / "ssh"
+    root.mkdir()
+    return FakeSsh(root)

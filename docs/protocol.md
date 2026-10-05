@@ -43,6 +43,7 @@ Then any number of:
 {"type": "session_update", "session": SESSION}
 {"type": "session_remove", "key": {"host": "gpu1", "agent": "claude", "session_id": "..."}}
 {"type": "host_status", "host": HOST}
+{"type": "host_remove", "alias": "gpu1"}
 {"type": "notify", "kind": "turn_done|attention", "key": {...}}
 ```
 
@@ -53,7 +54,10 @@ HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_fa
 ```
 
 `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not
-sent). Until M3 adds tunnels, hosts from `hosts.toml` are reported with `"state": "stopped"`.
+sent). A host from `hosts.toml` without a `remote_sock` (never set up by `add-host`) is reported
+with `"state": "stopped"`. `connected` means an end-to-end ping from the server arrived through the
+tunnel. When a tunnel drops, that host's sessions become `stale`; when a host is removed from
+`hosts.toml`, a `host_remove` is sent and its sessions are removed.
 All strings in `SESSION` come from hook payloads and are untrusted: render as plain text and strip
 control characters before writing to a terminal (`agentail tail` / `status` do).
 

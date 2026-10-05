@@ -108,3 +108,87 @@ async def test_configured_hosts_are_listed(runtime_env):
     finally:
         daemon.stop()
         await asyncio.wait_for(task, 5)
+
+
+async def _wait(pred, timeout=10.0):
+    for _ in range(int(timeout / 0.02)):
+        if pred():
+            return
+        await asyncio.sleep(0.02)
+    raise AssertionError("timed out")
+
+
+async def test_multi_host_end_to_end(runtime_env, fake_ssh, monkeypatch):
+    """add-host x2 against the fake ssh, tunnels, hook events from both "servers"."""
+    import os
+    import signal
+
+    from agentail.daemon.state import SessionKey, Status
+    from agentail.install.remote import add_host, remove_host
+
+    homes = {}
+    for alias in ("gpu1", "gpu2"):
+        homes[alias] = fake_ssh.add_host(alias)
+        (homes[alias] / ".claude").mkdir()
+    daemon = Daemon(
+        ssh=str(fake_ssh.path),
+        tunnel_opts=dict(backoff_min=0.05, backoff_max=0.2, ping_first=0.05),
+        hosts_poll=0.05,
+    )
+    task = await _start(daemon)
+    try:
+        for alias in ("gpu1", "gpu2"):
+            # Both "servers" are this machine: give each its own remote socket.
+            rsock = str(runtime_env / f"r-{alias}.sock")
+            monkeypatch.setattr(paths, "remote_sock_preferred", lambda uid, s=rsock: s)
+            lines = []
+            rc = await asyncio.to_thread(add_host, alias, ssh=str(fake_ssh.path), out=lines.append)
+            assert rc == 0 and f"{alias}: connected" in lines[-1], lines
+        assert {daemon.hosts[a]["state"] for a in ("gpu1", "gpu2")} == {"connected"}
+        text = client.format_status(daemon.snapshot())
+        assert "gpu1" in text and "connected" in text
+
+        # The same session id on both servers stays two sessions.
+        for alias, home in homes.items():
+            settings = json.loads((home / ".claude" / "settings.json").read_text())
+            cmd = settings["hooks"]["UserPromptSubmit"][0]["hooks"][0]["command"]
+            payload = {"session_id": "same", "hook_event_name": "UserPromptSubmit", "prompt": alias}
+            proc = await asyncio.create_subprocess_shell(
+                cmd, stdin=subprocess.PIPE, env=dict(os.environ, HOME=str(home))
+            )
+            await proc.communicate(json.dumps(payload).encode())
+        k1, k2 = SessionKey("gpu1", "claude", "same"), SessionKey("gpu2", "claude", "same")
+        await _wait(lambda: k1 in daemon.store.sessions and k2 in daemon.store.sessions)
+        assert daemon.store.sessions[k1].prompt_preview == "gpu1"
+        assert daemon.store.sessions[k2].prompt_preview == "gpu2"
+
+        # Tunnel to gpu1 dies: its sessions go stale, gpu2 is unaffected, then it reconnects.
+        os.kill(fake_ssh.forward_pid("gpu1"), signal.SIGKILL)
+        await _wait(lambda: daemon.store.sessions[k1].status is Status.STALE)
+        assert daemon.store.sessions[k2].status is Status.RUNNING
+        await _wait(lambda: daemon.hosts["gpu1"]["state"] == "connected")
+
+        # remove-host: the daemon notices hosts.toml, stops the tunnel, drops the sessions.
+        lines = []
+        rc = await asyncio.to_thread(remove_host, "gpu2", ssh=str(fake_ssh.path), out=lines.append)
+        assert rc == 0, lines
+        await _wait(lambda: "gpu2" not in daemon.hosts and k2 not in daemon.store.sessions)
+        assert "gpu2" not in daemon.remotes and not (homes["gpu2"] / ".agentail").exists()
+    finally:
+        daemon.stop()
+        await asyncio.wait_for(task, 10)
+    assert not daemon.remotes
+
+
+async def test_host_without_remote_sock_is_stopped(runtime_env):
+    from agentail.config import Host, save_host
+
+    save_host(Host(alias="old"))
+    daemon = Daemon(hosts_poll=0.05)
+    task = await _start(daemon)
+    try:
+        assert daemon.hosts["old"]["state"] == "stopped"
+        assert "add-host old" in daemon.hosts["old"]["detail"]
+    finally:
+        daemon.stop()
+        await asyncio.wait_for(task, 10)

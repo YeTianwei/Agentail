@@ -50,11 +50,11 @@ class InstallError(Exception):
 # ---- file helpers ----------------------------------------------------------
 
 
-def _sha256(data: bytes) -> str:
+def sha256(data: bytes) -> str:
     return "sha256:" + hashlib.sha256(data).hexdigest()
 
 
-def _dump(doc: dict[str, Any]) -> str:
+def dump_json(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
 
 
@@ -92,7 +92,7 @@ def make_backup(path: Path) -> Path:
     return backup
 
 
-def _load_json(path: Path, text: str) -> dict[str, Any]:
+def load_json(path: Path, text: str) -> dict[str, Any]:
     if not text.strip():
         return {}
     try:
@@ -104,7 +104,7 @@ def _load_json(path: Path, text: str) -> dict[str, Any]:
     return doc
 
 
-def _diff(path: Path, old: str | None, new: str | None) -> str:
+def unified_diff(path: Path, old: str | None, new: str | None) -> str:
     return "".join(
         difflib.unified_diff(
             (old or "").splitlines(keepends=True),
@@ -174,7 +174,7 @@ def _load_manifest() -> dict[str, Any]:
 
 def _save_manifest(manifest: dict[str, Any]) -> None:
     paths.ensure_private_dir(paths.agentail_home())
-    atomic_write(_manifest_path(), _dump(manifest).encode("utf-8"))
+    atomic_write(_manifest_path(), dump_json(manifest).encode("utf-8"))
 
 
 def _read(path: Path) -> str | None:
@@ -198,7 +198,7 @@ class _InstallPlan:
 
     @property
     def changed(self) -> bool:
-        return self.old_text is None or _load_json(self.target.path, self.new_text) != self.old_doc
+        return self.old_text is None or load_json(self.target.path, self.new_text) != self.old_doc
 
 
 def install_local(agents: list[str] | None = None, dry_run: bool = False, out: Out = print) -> int:
@@ -216,12 +216,12 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
         plans = []
         for t in selected:
             old_text = _read(t.path)
-            old_doc = _load_json(t.path, old_text or "")
+            old_doc = load_json(t.path, old_text or "")
             try:
                 new_doc = t.merge(old_doc)
             except ValueError as exc:
                 raise InstallError(f"{t.path}: {exc}") from exc
-            plans.append(_InstallPlan(t, old_text, old_doc, _dump(new_doc)))
+            plans.append(_InstallPlan(t, old_text, old_doc, dump_json(new_doc)))
     except InstallError as exc:
         out(f"error: {exc}")
         out("Nothing was changed.")
@@ -235,7 +235,7 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
         out(f"hook script: {dest} ({'would be written' if hook_changed else 'up to date'})")
         for p in plans:
             if p.changed:
-                out(_diff(p.target.path, p.old_text, p.new_text).rstrip("\n"))
+                out(unified_diff(p.target.path, p.old_text, p.new_text).rstrip("\n"))
             else:
                 out(f"{p.target.agent}: {p.target.path} already up to date")
         out("(dry run: nothing was written)")
@@ -255,22 +255,16 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
             out(f"{t.agent}: {t.path} already up to date")
             continue
         backup = make_backup(t.path) if p.old_text is not None else None
-        prev = files.get(str(t.path))
-        old_sha = _sha256(p.old_text.encode("utf-8")) if p.old_text is not None else None
-        if not hookjson.has_hooks(p.old_doc):
-            # The file is still the user's own: that is what uninstall restores.
-            entry = {
-                "agent": t.agent,
-                "existed": p.old_text is not None,
-                "pristine": str(backup) if backup else None,
-            }
-        elif isinstance(prev, dict) and prev.get("written_sha256") == old_sha:
-            entry = dict(prev)  # our own earlier write; keep its pristine copy
-        else:
-            entry = {"agent": t.agent, "existed": True, "pristine": None}
         data = p.new_text.encode("utf-8")
+        entry = manifest_entry(
+            t.agent,
+            p.old_text,
+            p.old_doc,
+            files.get(str(t.path)),
+            str(backup) if backup else None,
+            data,
+        )
         atomic_write(t.path, data)
-        entry["written_sha256"] = _sha256(data)
         files[str(t.path)] = entry
         out(f"{t.agent}: updated {t.path}" + (f" (backup: {backup})" if backup else " (created)"))
     _save_manifest(manifest)
@@ -298,25 +292,72 @@ class _UninstallPlan:
     new_text: str | None  # None for delete
 
 
-def _plan_uninstall(path: Path, entry: dict[str, Any] | None) -> _UninstallPlan | None:
-    old_text = _read(path)
-    if old_text is None:
-        return None
-    if isinstance(entry, dict) and entry.get("written_sha256") == _sha256(old_text.encode("utf-8")):
+def manifest_entry(
+    agent: str,
+    old_text: str | None,
+    old_doc: dict[str, Any],
+    prev: Any,
+    backup: str | None,
+    written: bytes,
+) -> dict[str, Any]:
+    """Manifest record for a config file we are about to overwrite with ``written``.
+
+    Shared by install-local and add-host (where paths are on the server).
+    """
+    old_sha = sha256(old_text.encode("utf-8")) if old_text is not None else None
+    if not hookjson.has_hooks(old_doc):
+        # The file is still the user's own: that is what uninstall restores.
+        entry = {"agent": agent, "existed": old_text is not None, "pristine": backup}
+    elif isinstance(prev, dict) and prev.get("written_sha256") == old_sha:
+        entry = dict(prev)  # our own earlier write; keep its pristine copy
+    else:
+        entry = {"agent": agent, "existed": True, "pristine": None}
+    entry["written_sha256"] = sha256(written)
+    return entry
+
+
+def uninstall_action(
+    label: str,
+    old_text: str,
+    entry: Any,
+    read_pristine: Callable[[str], str | None],
+) -> tuple[str, str | None] | None:
+    """What uninstall does to a config file: ("restore"|"write", text), ("delete", None)
+    or None (nothing of ours in it). ``read_pristine`` returns a backup's text or None.
+
+    Shared by uninstall-local and remove-host.
+    """
+    if isinstance(entry, dict) and entry.get("written_sha256") == sha256(old_text.encode("utf-8")):
         # Untouched since our last write: put back exactly what was there before.
-        pristine = entry.get("pristine")
         if not entry.get("existed"):
-            return _UninstallPlan(path, old_text, "delete", None)
-        if pristine and Path(pristine).is_file():
-            return _UninstallPlan(path, old_text, "restore", _read(Path(pristine)))
-    doc = _load_json(path, old_text)
+            return "delete", None
+        pristine = entry.get("pristine")
+        if pristine:
+            text = read_pristine(pristine)
+            if text is not None:
+                return "restore", text
+    doc = load_json(Path(label), old_text)
     new_doc = hookjson.remove_hooks(doc)
     if new_doc == doc:
         return None
     existed = entry.get("existed", False) if isinstance(entry, dict) else False
     if not new_doc and not existed:
-        return _UninstallPlan(path, old_text, "delete", None)
-    return _UninstallPlan(path, old_text, "write", _dump(new_doc))
+        return "delete", None
+    return "write", dump_json(new_doc)
+
+
+def _read_if_file(path: str) -> str | None:
+    return _read(Path(path)) if Path(path).is_file() else None
+
+
+def _plan_uninstall(path: Path, entry: dict[str, Any] | None) -> _UninstallPlan | None:
+    old_text = _read(path)
+    if old_text is None:
+        return None
+    action = uninstall_action(str(path), old_text, entry, _read_if_file)
+    if action is None:
+        return None
+    return _UninstallPlan(path, old_text, action[0], action[1])
 
 
 def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
@@ -335,7 +376,7 @@ def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
     dest = hook_dest()
     if dry_run:
         for p in plans:
-            out(_diff(p.path, p.old_text, p.new_text).rstrip("\n"))
+            out(unified_diff(p.path, p.old_text, p.new_text).rstrip("\n"))
         if not plans:
             out("No agentail hooks found in agent config files.")
         if dest.exists():

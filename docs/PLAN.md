@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M2 及其本机验证之后)
+## 0. 当前状态(M3 代码完成,待 👤 真实服务器验证)
 
 | 模块 | 状态 |
 |---|---|
@@ -17,9 +17,11 @@
 | `install/claude_config.py` 合并/移除 | ✅ 完成并有测试(幂等、保留用户条目、可完全还原) |
 | `daemon/main.py` + `agentail daemon --print-events --record` | ✅ 可运行;`--record` 不再录制 ping;同一 ui.sock 上拒绝启动第二个 daemon |
 | `install/local.py`、`install/codex_config.py` | ✅ M2:`install-local` / `uninstall-local`(`--dry-run`、备份、原子写入、manifest 还原原文件);Codex 写 `~/.codex/hooks.json`;hook 命令带 `2>/dev/null \|\| true`,脚本被删后旧会话也不会被阻塞 |
-| `install/remote.py` | ⬜ 只有接口说明(M3) |
-| `daemon/tunnels.py` | ⬜ 常量与 argv 构造已写,`run()` 待实现 |
+| `install/remote.py` + `sshexec.py` | ✅ M3:`add-host` / `remove-host`(`--dry-run`、`--local-only`);一次 ssh 探测;本地合并、远程备份 + 原子写入、服务器端 manifest 逐字节还原;共享 NFS HOME 用 `~/.agentail/home-id` 识别,只装一次、删最后一台时才卸;所有远程命令是固定 `sh -c` 脚本 + quote 过的参数 |
+| `daemon/tunnels.py` | ✅ M3:`TunnelSupervisor`(先 `rm -f` 再 `-R`;CONNECTING → 端到端 ping 到达才 CONNECTED → 断线 BACKOFF 1s..60s,稳定 60s 重置;认证失败 AUTH_FAILED 不重试;断线回调把该主机会话标 stale) |
 | `daemon/uiapi.py` + `agentail tail` / `status` | ✅ M2:快照 + 增量,每客户端有界队列,慢客户端直接断开 |
+| `daemon/main.py` 多主机 | ✅ M3:每台主机一个 listener + 隧道;每 2 秒检查 hosts.toml,`add-host` / `remove-host` 不用重启 daemon;新增 UI 消息 `host_remove` |
+| 测试用假 ssh(`tests/fakessh.py`) | ✅ 在本机临时目录里"远程"执行命令,`-R` 用真实 socket 中转;场景:正常、认证失败、立即退出、运行中断开 |
 | `ui/*` | ⬜ 只有接口说明(M4) |
 | `scripts/m0-check-host.sh` | ✅ 服务器实测脚本(只读 + 一个临时 socket) |
 
@@ -119,7 +121,27 @@ agentail paths                                           # 看 local.sock 路径
 > 提示词(M3):
 > 阅读 CLAUDE.md、docs/PLAN.md、docs/research-and-design.md 第 7 节、docs/m0-verification.md。完成 PLAN.md 中 M3 的 1–4 项。你无法连接真实服务器:所有 ssh 调用必须可注入并用假 ssh 脚本测试。远程命令只能用 argv 列表构造,任何来自载荷或配置的字符串都要 shlex.quote。在分支 m3-multi-host 上提交并开 PR,PR 描述里列出我需要在真实服务器上做的验证步骤。
 
-👤 合并后:对两台服务器 `agentail add-host`;两台 + 本地同时跑 agent,`agentail status` 能正确区分;拔网线 / 休眠唤醒 / `kill` ssh 进程后能自动恢复;`remove-host` 后远程配置恢复原样。
+👤 合并后在真实服务器上验证(gpu0–gpu12 共享 NFS HOME `/data/twye`,uid 10006):
+
+```bash
+agentail daemon --print-events                  # 终端 A,一直开着
+agentail tail                                    # 终端 B
+
+# 1. 先只读预览(探测 + 读取配置,不写任何东西)
+agentail add-host gpu7 --dry-run
+# 2. 真正安装;daemon 在跑时会等到 "gpu7: connected (end-to-end ping received)"
+agentail add-host gpu7
+agentail add-host gpu8                           # 共享 HOME:应显示 "already up to date" 和 "shares its $HOME"
+agentail status                                  # gpu7 / gpu8 都是 connected
+# 3. 在 gpu7、gpu8 和本机各跑一次 claude(gpu7 再跑一次 codex,先 /hooks 信任),
+#    status 里三处会话分开显示
+# 4. 恢复测试:在服务器上 `pkill -f 'agentail.sock'` 或本机 kill 对应 ssh 进程;
+#    拔网线 / 休眠唤醒。应看到 backoff → connected,断开期间该主机会话变 stale
+# 5. remove-host gpu8(应提示共享 HOME、不动远程配置),再 remove-host gpu7,
+#    确认 ~/.claude/settings.json、~/.codex/hooks.json 逐字节恢复、~/.agentail 被删
+```
+
+重点看:`add-host` 探测出的 python 路径(应为 `/usr/bin/python3`);远程 hook 命令在 Claude 的 `sh -c` 和 Codex 的 `$SHELL -lc` 下都能找到 `~/.agentail/agentail-hook.py`;已知限制:登录 shell 是 csh/tcsh 的服务器上多行远程脚本可能失败(M0 的 13 台都是 bash)。
 
 ### M4 界面 ☁️ + 👤
 

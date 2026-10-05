@@ -138,6 +138,14 @@ class Store:
                 changes.append(Change(key=key, session=s))
         return changes
 
+    def drop_host(self, host: str) -> list[Change]:
+        """Forget every session of a host that was removed from hosts.toml."""
+        changes = []
+        for key in [k for k in self.sessions if k.host == host]:
+            del self.sessions[key]
+            changes.append(Change(key=key, session=None))
+        return changes
+
     def sweep(self, now: float) -> list[Change]:
         """Periodic housekeeping: mark silent sessions stale, drop old ended ones."""
         changes = []

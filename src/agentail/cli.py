@@ -10,8 +10,6 @@ from pathlib import Path
 from agentail import __version__, paths
 
 _TODO = {
-    "add-host": "M3: set up a remote host over SSH",
-    "remove-host": "M3: remove a remote host",
     "ui": "M4: start the GTK panel",
 }
 
@@ -49,13 +47,31 @@ def _build_parser() -> argparse.ArgumentParser:
     u = sub.add_parser("uninstall-local", help="remove agentail hooks from this machine")
     u.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
 
+    ah = sub.add_parser("add-host", help="install hooks on an SSH host and add it to hosts.toml")
+    ah.add_argument("alias", help="Host alias from ~/.ssh/config")
+    ah.add_argument("--name", default="", help="display name")
+    ah.add_argument(
+        "--agent",
+        action="append",
+        choices=["claude", "codex"],
+        help="agent to install for (repeatable; default: every agent with a config dir there)",
+    )
+    ah.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
+    ah.add_argument("--no-wait", action="store_true", help="do not wait for the daemon to connect")
+    rh = sub.add_parser("remove-host", help="remove hooks from an SSH host and forget it")
+    rh.add_argument("alias")
+    rh.add_argument(
+        "--local-only",
+        action="store_true",
+        help="only drop it from hosts.toml (e.g. the server is gone)",
+    )
+    rh.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
+
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
     for name, help_text in _TODO.items():
-        sp = sub.add_parser(name, help=f"(not implemented yet) {help_text}")
-        if name in ("add-host", "remove-host"):
-            sp.add_argument("alias")
+        sub.add_parser(name, help=f"(not implemented yet) {help_text}")
     return p
 
 
@@ -81,6 +97,20 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install.local import uninstall_local
 
         return uninstall_local(dry_run=args.dry_run)
+    if args.command == "add-host":
+        from agentail.install.remote import add_host
+
+        return add_host(
+            args.alias,
+            name=args.name,
+            agents=args.agent,
+            dry_run=args.dry_run,
+            wait=not args.no_wait,
+        )
+    if args.command == "remove-host":
+        from agentail.install.remote import remove_host
+
+        return remove_host(args.alias, local_only=args.local_only, dry_run=args.dry_run)
     if args.command == "paths":
         print(f"runtime dir : {paths.runtime_dir()}")
         print(f"local socket: {paths.local_sock()}")
