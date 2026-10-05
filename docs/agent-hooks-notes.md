@@ -187,3 +187,13 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 1. Claude:Esc 中断时是否有 Stop;`idle_prompt` 的触发时长;真实 payload 录下来替换手写 fixture。
 2. Codex:hooks.json 安装后首次启动是否弹出审核;信任后 `SessionStart`/`UserPromptSubmit`/`Stop`/`Interrupt` 是否都能收到;`PermissionRequest` 的触发时机。
 3. 两边的版本号记到 `docs/m0-verification.md`。
+
+### 3.5 M2 本机实测结果(2026-10-05,Claude Code 2.1.289、codex-cli 0.160.0)
+
+- **Codex 信任**:装好 `hooks.json` 后,`codex exec` 一个事件都不发,也没有任何提示(未信任即静默跳过,与 2.3 一致)。在 TUI 里用 `/hooks` 批准后,Codex 往 `config.toml` 写入 `[hooks.state."/home/<user>/.codex/hooks.json:<event>:0:0"] trusted_hash = ...`,每个事件一条。
+  - `uninstall-local` 不会删这些条目(`config.toml` 只读不写)。条目指向的 hook 已不存在,不影响 Codex 运行,但 `config.toml` 不会逐字节恢复;这是 Codex 写的状态,不是我们写的。
+  - hash 覆盖命令字符串:安装器改了命令格式(比如本次加 `2>/dev/null || true`),重装后需要重新信任。
+- **Codex `PermissionRequest` 时机**:在授权提示出现时触发,用户回答之前(录制中 `PermissionRequest` 到同一工具的 `PostToolUse` 相隔约 6.4 秒,即批准耗时)。payload 没有 `tool_use_id`。录制见 `tests/fixtures/codex/recorded-0.160.0.jsonl`。
+- **Codex 其他观察**:所有事件都有 `model`、`permission_mode`,回合内事件有 `turn_id`;`SessionStart` 有 `source: "startup"`;`Stop` 有 `last_assistant_message`。失败的 `apply_patch` 只有 `PreToolUse` 没有 `PostToolUse`。
+- **Claude 设置热加载**:正在运行的 Claude 会话会热加载 `settings.json`,安装后无需重启即开始发事件;卸载后到重新加载之前,还会用旧命令调用已删除的脚本。`python3 missing.py` 退出码 2 被 Claude 当作阻塞错误(实测出现 `PostToolUse:Bash hook blocking error`)。修复:hook 命令末尾加 `2>/dev/null || true`(`install/hookjson.py`)。
+- 未测:Claude 的 Esc 中断与 `idle_prompt`;Codex 的 `Interrupt`、`SessionEnd`。

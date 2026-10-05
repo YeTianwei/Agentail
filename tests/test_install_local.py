@@ -10,7 +10,7 @@ import pytest
 
 from agentail import cli, paths
 from agentail.daemon.ingest import Listener
-from agentail.install.local import BACKUP_INFIX, install_local, uninstall_local
+from agentail.install.local import BACKUP_INFIX, install_local, local_python, uninstall_local
 
 # Deliberately not in json.dumps(indent=2) style: uninstall must restore these bytes.
 CLAUDE_ORIG = (
@@ -268,3 +268,28 @@ async def test_installed_command_reaches_the_daemon(agents_home, runtime_env):
         assert got and got[0].agent == "claude" and got[0].event == "Stop"
     finally:
         await lst.stop()
+
+
+@pytest.mark.parametrize("missing", ["script", "python"])
+def test_installed_command_is_silent_when_hook_is_gone(agents_home, missing):
+    """A session started before uninstall-local keeps running the old command.
+
+    Without the shell fallback `python3 missing.py` exits 2, which Claude Code
+    treats as "block this tool call" (seen during the M2 local verification).
+    """
+    assert _run(install_local, agents=["claude", "codex"])[0] == 0
+    cmds = [
+        json.loads((agents_home / d / f).read_text())["hooks"]["PreToolUse"][-1]["hooks"][0][
+            "command"
+        ]
+        for d, f in ((".claude", "settings.json"), (".codex", "hooks.json"))
+    ]
+    assert _run(uninstall_local)[0] == 0
+    for cmd in cmds:
+        if missing == "python":
+            cmd = cmd.replace(local_python(), "/nonexistent/python3", 1)
+            assert "/nonexistent/python3" in cmd
+        proc = subprocess.run(
+            cmd, shell=True, input=b'{"hook_event_name": "PreToolUse"}', capture_output=True
+        )
+        assert (proc.returncode, proc.stdout, proc.stderr) == (0, b"", b"")

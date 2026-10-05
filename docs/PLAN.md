@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M2 之后)
+## 0. 当前状态(M2 及其本机验证之后)
 
 | 模块 | 状态 |
 |---|---|
@@ -13,10 +13,10 @@
 | `daemon/ingest.py` socket 监听 | ✅ 完成并有测试(目录 0700、socket 0600、坏消息不影响服务) |
 | `daemon/state.py` 状态机 | ✅ 完成并有测试(按 (主机, agent, session) 区分、乱序容忍、离线、清理) |
 | `adapters/claude.py` | ✅ 字段名已按官方文档核对(M0-b);M1 真实录制(2.1.285)已加入测试,未知字段一律忽略、字段类型不对也忽略 |
-| `adapters/codex.py` | ✅ M2:按 `agent-hooks-notes.md` §3.2 实现(8 个事件,PermissionRequest → 需要授权,Interrupt → 回合结束);待 👤 真机验证 |
+| `adapters/codex.py` | ✅ M2:按 `agent-hooks-notes.md` §3.2 实现(8 个事件,PermissionRequest → 需要授权,Interrupt → 回合结束);已真机验证(codex-cli 0.160.0 录制已加入测试) |
 | `install/claude_config.py` 合并/移除 | ✅ 完成并有测试(幂等、保留用户条目、可完全还原) |
 | `daemon/main.py` + `agentail daemon --print-events --record` | ✅ 可运行;`--record` 不再录制 ping;同一 ui.sock 上拒绝启动第二个 daemon |
-| `install/local.py`、`install/codex_config.py` | ✅ M2:`install-local` / `uninstall-local`(`--dry-run`、备份、原子写入、manifest 还原原文件);Codex 写 `~/.codex/hooks.json` |
+| `install/local.py`、`install/codex_config.py` | ✅ M2:`install-local` / `uninstall-local`(`--dry-run`、备份、原子写入、manifest 还原原文件);Codex 写 `~/.codex/hooks.json`;hook 命令带 `2>/dev/null \|\| true`,脚本被删后旧会话也不会被阻塞 |
 | `install/remote.py` | ⬜ 只有接口说明(M3) |
 | `daemon/tunnels.py` | ⬜ 常量与 argv 构造已写,`run()` 待实现 |
 | `daemon/uiapi.py` + `agentail tail` / `status` | ✅ M2:快照 + 增量,每客户端有界队列,慢客户端直接断开 |
@@ -104,6 +104,8 @@ agentail paths                                           # 看 local.sock 路径
 > 阅读 CLAUDE.md、docs/PLAN.md、docs/agent-hooks-notes.md。完成 PLAN.md 中 M2 的 1–5 项。所有文件操作要在测试里用临时 HOME 验证,不得触碰真实的 ~/.claude 或 ~/.codex。保持 pytest 和 ruff 全绿。在分支 m2-local-install 上提交并开 PR,PR 描述里写清哪些需要我在本机验证。
 
 👤 合并后你在本机:`agentail install-local`,开 `agentail daemon` 和 `agentail tail`,分别跑一次 Claude Code 和 Codex,确认状态正确;再 `uninstall-local`,确认配置文件恢复原样。
+
+✅ 已完成(2026-10-05,Claude Code 2.1.289、codex-cli 0.160.0):两边状态流转正确;`uninstall-local` 后 `settings.json` 逐字节恢复;Codex 的 `PermissionRequest` 在授权提示时触发。发现并修复:卸载后旧会话调用已删除脚本退出码 2 → Claude 当作阻塞。细节见 `agent-hooks-notes.md` §3.5。注意 Codex 必须先在 `/hooks` 里信任 agentail 条目才会执行;信任条目写在 `config.toml`,卸载后会留下。
 
 ### M3 多主机 ☁️ + 👤
 

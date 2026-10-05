@@ -1,13 +1,17 @@
 import json
+from pathlib import Path
 
 import pytest
 
 from agentail.adapters.base import Attention, EventKind
 from agentail.adapters.codex import CodexAdapter
 from agentail.daemon.state import Status, Store
-from agentail.protocol import HookMessage
+from agentail.protocol import HookMessage, parse_line
 
 SID = "019a0000-0000-7000-8000-000000000001"
+# Recorded with codex-cli 0.160.0 during the M2 local verification: one prompt that
+# creates a file in /tmp; the sandboxed attempts fail and the third tool asks for approval.
+RECORDED = Path(__file__).parent / "fixtures" / "codex" / "recorded-0.160.0.jsonl"
 
 
 def _msg(event, payload, ts=1.0):
@@ -133,3 +137,45 @@ def test_legacy_notify_payload():
     e = CodexAdapter().decode(_msg("notify", payload), "local")
     assert e.kind is EventKind.STOP and e.session_id == "th1"
     assert e.prompt_preview == "second prompt"
+
+
+def test_recorded_session():
+    a = CodexAdapter()
+    st = Store()
+    events, statuses = [], []
+    for line in RECORDED.read_bytes().splitlines():
+        ev = a.decode(parse_line(line), host="local")
+        events.append((ev.kind, ev.tool))
+        statuses.append(st.apply(ev).session.status)
+    assert events == [
+        (EventKind.SESSION_START, ""),
+        (EventKind.PROMPT_SUBMIT, ""),
+        (EventKind.TOOL_START, "Bash"),
+        (EventKind.TOOL_END, "Bash"),
+        (EventKind.TOOL_START, "apply_patch"),  # no PostToolUse follows: the patch failed
+        (EventKind.TOOL_START, "mcp__node_repl__js"),
+        (EventKind.ATTENTION, "mcp__node_repl__js"),
+        (EventKind.TOOL_END, "mcp__node_repl__js"),
+        (EventKind.STOP, ""),
+    ]
+    assert statuses == [
+        Status.WAITING_INPUT,
+        *[Status.RUNNING] * 5,
+        Status.NEEDS_ATTENTION,
+        Status.RUNNING,
+        Status.WAITING_INPUT,
+    ]
+    s = next(iter(st.sessions.values()))
+    assert s.cwd == "/tmp" and s.prompt_preview == "在 /tmp 下创建一个文件"
+
+
+def test_recorded_permission_request_precedes_approval():
+    """PermissionRequest fires when the prompt is shown, not after the user answers.
+
+    In the recording the tool's PostToolUse arrives ~6 s after PermissionRequest:
+    the time the owner took to approve in the TUI.
+    """
+    msgs = [parse_line(line) for line in RECORDED.read_bytes().splitlines()]
+    req = next(m for m in msgs if m.event == "PermissionRequest")
+    post = [m for m in msgs if m.event == "PostToolUse"][-1]
+    assert post.ts - req.ts > 5

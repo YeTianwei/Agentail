@@ -22,7 +22,7 @@ def test_merge_keeps_user_hooks_and_is_idempotent():
     assert handler["type"] == "command" and handler["timeout"] <= 3
     assert handler["command"] == (
         "/usr/bin/python3 /home/u/.agentail/agentail-hook.py --agent codex --event Stop"
-        " --mode fire --sock /run/user/1000/agentail/local.sock"
+        " --mode fire --sock /run/user/1000/agentail/local.sock 2>/dev/null || true"
     )
     assert once["description"] == "my hooks"
     assert len(USER["hooks"]["Stop"]) == 1  # input untouched

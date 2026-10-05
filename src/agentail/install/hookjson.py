@@ -20,6 +20,14 @@ from agentail.paths import HOOK_MARKER
 
 
 def hook_command(python: str, hook_path: str, agent: str, event: str, sock: str) -> str:
+    """Shell command line for one hook entry.
+
+    Both agents run the string through a shell (Claude: ``sh -c``; Codex:
+    ``$SHELL -lc``). The ``2>/dev/null || true`` tail keeps the command
+    fail-open when the script or interpreter is missing: a session that started
+    before ``uninstall-local`` still runs the old command, and ``python3
+    missing.py`` exits 2, which Claude Code treats as "block this tool call".
+    """
     # hook_path may start with ~ which the shell expands; keep it unquoted then.
     hp = hook_path if hook_path.startswith("~/") else shlex.quote(hook_path)
     return " ".join(
@@ -34,6 +42,9 @@ def hook_command(python: str, hook_path: str, agent: str, event: str, sock: str)
             "fire",
             "--sock",
             shlex.quote(sock),
+            "2>/dev/null",
+            "||",
+            "true",
         ]
     )
 

@@ -7,8 +7,10 @@ openai/codex sources (hook input JSON schemas, commit bcd6d9a, checked
 * Common fields: ``session_id`` (the thread id), ``cwd``, ``hook_event_name``;
   ``UserPromptSubmit`` adds ``prompt``, tool events add ``tool_name``.
 * There is no Notification event: ``PermissionRequest`` is the only
-  "needs approval" signal. TODO(M0): verify it fires before the approval
-  prompt is shown (notes 3.4).
+  "needs approval" signal. It fires when the approval prompt is shown, before
+  the user answers (verified with codex-cli 0.160.0 on 2026-10-05,
+  tests/fixtures/codex/recorded-0.160.0.jsonl). Its payload has no
+  ``tool_use_id``.
 * A user interrupt fires ``Interrupt`` instead of ``Stop``.
 * Unknown fields are ignored; the installer does not use the legacy ``notify``
   program, but its ``agent-turn-complete`` shape (``thread-id``) still decodes.
