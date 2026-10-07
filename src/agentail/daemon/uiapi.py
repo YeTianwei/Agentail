@@ -1,4 +1,4 @@
-"""ui.sock: pushes state to UI processes (`agentail tail` / `status` in M2, the panel in M4).
+"""ui.sock: pushes state to UI processes (`agentail tail` / `status`, the top bar indicator).
 
 Protocol (docs/protocol.md, "UI protocol"): on connect the daemon sends one
 ``{"type": "snapshot", "sessions": [...], "hosts": [...]}`` line, then

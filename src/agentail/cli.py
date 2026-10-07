@@ -66,8 +66,7 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
-    ui = sub.add_parser("ui", help="show the desktop panel (GTK3, X11)")
-    ui.add_argument("--expanded", action="store_true", help="start with the session list open")
+    sub.add_parser("ui", help="show the top bar indicator (AppIndicator)")
     return p
 
 
@@ -120,14 +119,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "ui":
         try:
-            from agentail.ui.panel import run_ui
+            from agentail.ui.indicator import run_ui
         except (ImportError, ValueError) as exc:
             print(
-                f"agentail ui needs PyGObject with GTK 3 ({exc}).\n"
-                "Ubuntu: sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7; "
-                "a virtualenv must be created with --system-site-packages.",
+                f"agentail ui needs PyGObject, GTK 3 and AyatanaAppIndicator3 ({exc}).\n"
+                "Ubuntu: sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7 "
+                "gir1.2-ayatanaappindicator3-0.1; a virtualenv must be created with "
+                "--system-site-packages. GNOME also needs the AppIndicator extension "
+                "(enabled by default on Ubuntu).",
                 file=sys.stderr,
             )
             return 1
-        return run_ui(expanded=args.expanded)
+        return run_ui()
     raise AssertionError(f"unhandled command {args.command}")

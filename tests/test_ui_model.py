@@ -4,7 +4,15 @@ import re
 from pathlib import Path
 
 from agentail.ui import model
-from agentail.ui.model import RateLimiter, UiState, capsule, groups, notice_for, short_cwd
+from agentail.ui.model import (
+    RateLimiter,
+    UiState,
+    groups,
+    menu_entries,
+    notice_for,
+    short_cwd,
+    summary,
+)
 from agentail.ui.notify import Notifier, escape_body
 
 NOW = 10_000.0
@@ -40,8 +48,9 @@ def _state(sessions, hosts=None):
     return st
 
 
-def test_capsule_offline_and_counts():
-    assert capsule(UiState()).level == "offline"
+def test_summary_offline_and_counts():
+    off = summary(UiState())
+    assert (off.level, off.label) == ("offline", "")
     st = _state(
         [
             _s("local", "a", "running"),
@@ -50,29 +59,50 @@ def test_capsule_offline_and_counts():
             _s("gpu1", "d", "ended"),
         ]
     )
-    cap = capsule(st)
-    assert cap.text == "2 running · 1 waiting" and cap.level == "busy"
-    assert [(d.alias, d.level) for d in cap.dots] == [("gpu1", "ok")]  # no dot for local
+    summ = summary(st)
+    assert (summ.label, summ.level) == ("▶2 ⏸1", "busy")
+    assert summ.text == "2 running · 1 waiting" and summ.hosts_down == ()
     st.apply({"type": "session_update", "session": _s("local", "a", "needs_attention")})
-    cap = capsule(st)
-    assert cap.text.startswith("1 needs you") and cap.level == "attention"
-    assert capsule(_state([])).text == "no active sessions"
+    summ = summary(st)
+    assert summ.label == "⚠1 ▶1 ⏸1" and summ.level == "attention"
+    assert summary(_state([])).label == "" and summary(_state([])).level == "idle"
 
 
-def test_host_dots_follow_tunnel_state():
+def test_hosts_down_follow_tunnel_state():
     st = _state([])
-    for state, level in [
-        ("connecting", "pending"),
-        ("backoff", "pending"),
-        ("auth_failed", "error"),
-        ("stopped", "off"),
-        ("weird\x1b[31m", "off"),
+    for state, down in [
+        ("connected", False),
+        ("connecting", True),
+        ("backoff", True),
+        ("auth_failed", True),
+        ("stopped", False),  # never set up: not an outage
+        ("weird\x1b[31m", False),
     ]:
-        st.apply({"type": "host_status", "host": _host("gpu1", state, detail="why")})
-        (dot,) = capsule(st).dots
-        assert dot.level == level and "\x1b" not in dot.tooltip
+        st.apply({"type": "host_status", "host": _host("gpu1", state, detail="why\x1b")})
+        summ = summary(st)
+        assert bool(summ.hosts_down) is down, state
+        if down:
+            assert summ.label == "✕1" and "\x1b" not in summ.hosts_down[0]
     st.apply({"type": "host_remove", "alias": "gpu1"})
-    assert capsule(st).dots == ()
+    assert summary(st).hosts_down == ()
+
+
+def test_menu_entries():
+    st = _state(
+        [
+            _s("gpu1", "n", "needs_attention", tool="Bash", last=NOW - 30),
+            _s("local", "l", "waiting_input", prompt="my_long_task"),
+        ]
+    )
+    entries = [(e.kind, e.text) for e in menu_entries(st, NOW)]
+    assert entries == [
+        ("summary", "1 needs you · 1 waiting"),
+        ("host", "● this computer"),
+        ("session", "    ⏸ waiting · claude · …/proj/app · my_long_task · 5s"),
+        ("host", "● GPU one (gpu1) — connected"),
+        ("session", "    ⚠ needs you · claude · …/proj/app · [Bash] fix the bug · 30s"),
+    ]
+    assert [e.kind for e in menu_entries(UiState(), NOW)] == ["summary", "note"]
 
 
 def test_groups_order_and_rows():
@@ -111,7 +141,7 @@ def test_untrusted_strings_are_cleaned_and_bounded():
     (row,) = next(g for g in groups(st, NOW) if g.alias == "gpu1").rows
     assert "\x1b" not in row.detail and "\x07" not in row.detail and "\n" not in row.detail
     assert len(row.detail) <= model.DETAIL_LIMIT and len(row.cwd) <= model.CWD_LIMIT
-    assert row.status in model.STATUS_LABEL  # used as a CSS class
+    assert row.status in model.STATUS_LABEL
 
 
 def test_unknown_status_maps_to_fixed_css_class():
@@ -162,7 +192,7 @@ def test_rate_limiter():
 def test_disconnect_clears_state():
     st = _state([_s("local", "a", "running")])
     st.disconnect()
-    assert capsule(st).level == "offline" and groups(st, NOW) == []
+    assert summary(st).level == "offline" and groups(st, NOW) == []
 
 
 def test_escape_body():
@@ -182,10 +212,18 @@ def test_notify_send_fallback(monkeypatch):
     assert argv[5] == "--" and "&lt;i&gt;x" in argv[7] and "<" not in argv[7]
 
 
-def test_panel_never_renders_markup():
-    """Invariant 4: payload strings are plain text. The panel must not use markup APIs."""
-    src = (Path(model.__file__).parent / "panel.py").read_text()
+def test_indicator_never_renders_markup():
+    """Invariant 4: payload strings are plain text. The UI must not use markup APIs."""
+    src = (Path(model.__file__).parent / "indicator.py").read_text()
     code = re.sub(r'"""[\s\S]*?"""', "", src)  # ignore docstrings that mention it
     code = re.sub(r"#.*", "", code)  # and comments
     for banned in ("set_markup", "markup_escape", "use_markup", "set_label_markup", "Pango.parse"):
         assert banned not in code, banned
+
+
+def test_every_level_has_an_icon():
+    from agentail import paths
+
+    icons = paths.hook_script_source().parent / "icons"
+    for level in ("idle", "busy", "attention", "offline"):
+        assert (icons / f"agentail-{level}.svg").is_file(), level

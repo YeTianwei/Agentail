@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M4 完成,待 👤 肉眼确认交互)
+## 0. 当前状态(M4 完成,待 👤 确认菜单外观)
 
 | 模块 | 状态 |
 |---|---|
@@ -22,7 +22,7 @@
 | `daemon/uiapi.py` + `agentail tail` / `status` | ✅ M2:快照 + 增量,每客户端有界队列,慢客户端直接断开 |
 | `daemon/main.py` 多主机 | ✅ M3:每台主机一个 listener + 隧道;每 2 秒检查 hosts.toml,`add-host` / `remove-host` 不用重启 daemon;新增 UI 消息 `host_remove` |
 | 测试用假 ssh(`tests/fakessh.py`) | ✅ 在本机临时目录里"远程"执行命令,`-R` 用真实 socket 中转;场景:正常、认证失败、立即退出、运行中断开 |
-| `ui/*` + `agentail ui` | ✅ M4:`ui/model.py` 纯函数(胶囊文字、主机灯、按主机分组的列表、通知文案与限频)有测试;`ui/panel.py` GTK3 薄渲染层(DOCK 类型、置顶、所有工作区、不接受焦点、顶栏下方居中,左键展开 / 右键退出,`--expanded`);`ui/notify.py` libnotify,退路 `notify-send`;正文先转义。venv 需 `include-system-site-packages = true` 才能用系统的 `python3-gi` |
+| `ui/*` + `agentail ui` | ✅ M4:顶栏指示器(AppIndicator,Ubuntu 默认启用的扩展显示):图标按状态变化(idle / busy / 橙色 attention / offline),旁边紧凑文字如 `⚠1 ▶2 ⏸1 ✕1`,下拉菜单按主机列出会话;`ui/model.py` 纯函数有测试;`ui/notify.py` libnotify,退路 `notify-send`,正文先转义。最初做的顶部胶囊窗口已按你的意见删除(像 macOS 刘海,在 GNOME 上会盖住窗口、和通知抢位置、Wayland 下也用不了)。venv 需 `include-system-site-packages = true` |
 | `scripts/m0-check-host.sh` | ✅ 服务器实测脚本(只读 + 一个临时 socket) |
 
 本地验证:`pip install -e '.[dev]' && python -m pytest && ruff check . && ruff format --check .`
@@ -155,16 +155,14 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 
 ### M4 界面 ☁️ + 👤
 
-任务:`agentail ui`,GTK3 胶囊 + 按主机分组的列表 + 主机连接灯 + 系统通知,细节见 `ui/panel.py`、`ui/notify.py` 的文档字符串和设计文档第 9 节。把"UI 状态"(显示什么)写成纯函数并测试;GTK 部分保持薄。
+任务:`agentail ui`。*实际实现*:顶栏指示器(AyatanaAppIndicator3)+ 系统通知,而不是原计划的置顶胶囊窗口。显示逻辑全部在 `ui/model.py`(纯函数、有测试);`ui/indicator.py` 只做渲染;所有来自载荷的文字都是纯文本。
 
-> 提示词(M4):
-> 阅读 CLAUDE.md、docs/PLAN.md、docs/research-and-design.md 第 9 节。完成 M4:实现 agentail ui(PyGObject + Gtk 3.0)和桌面通知。把从快照计算显示内容的逻辑写成纯函数并测试;GTK 代码保持薄,无法在云端显示的部分写清手动验证步骤。所有来自载荷的字符串只能用 set_text 渲染。在分支 m4-ui 上提交并开 PR。
+✅ 已验证(2026-10-07,Ubuntu 24.04 GNOME 46 X11):图标和文字出现在顶栏右侧;本地会话运行时显示 `▶1`;模拟授权请求时图标变橙、显示 `⚠1`,并弹出 "claude needs you — this computer" 通知;回合结束弹出 "claude finished";daemon 停止时图标变虚线圈,重启后自动重连;通过 dbusmenu 读出的菜单内容正确。
+发现并绕过:GNOME 的 AppIndicator 扩展只在 label 变化时刷新,启动时设置的第一个值会丢,所以连接后会再发两次 label。已知外观问题:扩展只还原第一个下划线,菜单里 `a_b_c` 会显示成 `a_b__c`(上游 bug)。
 
-👤 合并后:在 GNOME + X11 上看位置、置顶、不抢焦点、通知是否正常;截图贴到 PR。
+👤 仍需你确认:点开菜单看排版是否可读;"needs you" 通知(critical,停留到手动关闭)是否合适;长时间运行是否稳定。
 
-✅ 已自动验证(2026-10-07,Ubuntu 24.04 GNOME X11,双屏 5120×1440):胶囊在主屏顶栏时钟正下方居中;浮在其他窗口之上;`xprop` 显示 `_NET_WM_WINDOW_TYPE_DOCK`、`_NET_WM_STATE_ABOVE/STICKY`、`Client accepts input: False`;`--expanded` 列表按主机分组、列对齐;本地 `claude -p` 结束时弹出 "claude finished — this computer";停掉 daemon 显示 "daemon not running",重启后自动重连。
-
-👤 仍需你确认:鼠标左键点胶囊展开/收起时,当前终端是否仍保持焦点;右键菜单 "Quit";"needs you" 通知(critical,会停留到手动关闭)是否合适;长时间运行是否稳定。
+v1 之后:GNOME Shell 扩展前端(可做自定义下拉面板,也支持 Wayland),直接读 `ui.sock`。
 
 ### M5 打磨 ☁️
 

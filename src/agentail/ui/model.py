@@ -1,11 +1,12 @@
-"""What the panel shows, computed from UI protocol messages (milestone M4).
+"""What the top bar indicator shows, computed from UI protocol messages (milestone M4).
 
-Pure Python, no GTK: the panel (``ui/panel.py``) only renders what these
-functions return, so everything that decides *what* is shown is tested here.
+Pure Python, no GTK: the top bar indicator (``ui/indicator.py``) only renders
+what these functions return, so everything that decides *what* is shown is
+tested here.
 
 Every string that came from the daemon is passed through ``client.clean`` (no
-control characters, bounded length) before it reaches a view object; the panel
-renders them with ``Gtk.Label.set_text`` only.
+control characters, bounded length) before it reaches a view object, and is
+rendered as plain text only.
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ STATUS_LABEL = {
 }
 _STATUS_ORDER = {s: i for i, s in enumerate(STATUS_LABEL)}
 
-# Host state -> dot level. Levels map to fixed CSS classes in the panel.
+# Host state -> level (ok | pending | error | off).
 _HOST_LEVEL = {
     "local": "ok",
     "connected": "ok",
@@ -90,31 +91,37 @@ class UiState:
         return clean(h.get("name"), 30) or alias
 
 
-# ---- capsule -------------------------------------------------------------------
+# ---- top bar summary -------------------------------------------------------------
+
+# Compact marks for the top bar label, in display order.
+LABEL_MARKS = (("needs_attention", "⚠"), ("running", "▶"), ("waiting_input", "⏸"))
+HOST_DOWN_MARK = "✕"
 
 
 @dataclass(frozen=True)
-class Dot:
-    alias: str
-    level: str  # ok | pending | error | off
-    tooltip: str
+class Summary:
+    level: str  # attention | busy | idle | offline: picks the indicator icon
+    label: str  # compact text next to the icon, e.g. "⚠1 ▶2"; "" shows the icon only
+    text: str  # one line for the top of the menu
+    hosts_down: tuple[str, ...]  # "gpu7: backoff (why)" for remote hosts not connected
 
 
-@dataclass(frozen=True)
-class Capsule:
-    text: str
-    level: str  # attention | busy | idle | offline: picks the capsule style
-    dots: tuple[Dot, ...]
-
-
-def capsule(state: UiState) -> Capsule:
+def summary(state: UiState) -> Summary:
     if not state.connected:
-        return Capsule("agentail: daemon not running", "offline", ())
+        return Summary("offline", "", "agentail daemon is not running", ())
     counts = {s: 0 for s in STATUS_LABEL}
     for s in state.sessions.values():
         status = s.get("status")
         if status in counts:
             counts[status] += 1
+    hosts_down = tuple(
+        _host_line(alias, h)
+        for alias, h in state.hosts.items()
+        if alias != "local" and _HOST_LEVEL.get(clean(h.get("state"))) in ("pending", "error")
+    )
+    marks = [f"{mark}{counts[s]}" for s, mark in LABEL_MARKS if counts[s]]
+    if hosts_down:
+        marks.append(f"{HOST_DOWN_MARK}{len(hosts_down)}")
     parts = [
         f"{counts[s]} {STATUS_LABEL[s]}"
         for s in ("needs_attention", "running", "waiting_input")
@@ -126,32 +133,23 @@ def capsule(state: UiState) -> Capsule:
         level = "busy"
     else:
         level = "idle"
-    dots = tuple(
-        Dot(
-            alias,
-            _HOST_LEVEL.get(clean(h.get("state")), "off"),
-            _host_tooltip(alias, h),
-        )
-        for alias, h in state.hosts.items()
-        if alias != "local"
-    )
-    return Capsule(" · ".join(parts) or "no active sessions", level, dots)
+    return Summary(level, " ".join(marks), " · ".join(parts) or "no active sessions", hosts_down)
 
 
-def _host_tooltip(alias: str, h: dict[str, Any]) -> str:
+def _host_line(alias: str, h: dict[str, Any]) -> str:
     text = f"{alias}: {clean(h.get('state'))}"
-    detail = clean(h.get("detail"), 120)
+    detail = clean(h.get("detail"), 80)
     return f"{text} ({detail})" if detail else text
 
 
-# ---- expanded list -----------------------------------------------------------------
+# ---- session list (the indicator menu) ---------------------------------------------
 
 
 @dataclass(frozen=True)
 class Row:
     agent: str
     session: str  # short id
-    status: str  # raw status, used as a CSS class suffix (fixed set)
+    status: str  # always a key of STATUS_LABEL
     status_label: str
     detail: str
     cwd: str
@@ -214,6 +212,42 @@ def _row(s: dict[str, Any], now: float) -> Row:
         cwd=short_cwd(clean(s.get("cwd"))),
         age=age_text(s.get("last_ts"), now),
     )
+
+
+STATUS_MARK = {
+    "needs_attention": "⚠",
+    "running": "▶",
+    "waiting_input": "⏸",
+    "stale": "?",
+    "ended": "✓",
+}
+HOST_MARK = {"ok": "●", "pending": "◌", "error": "✕", "off": "○"}
+MENU_TEXT_LIMIT = 110
+
+
+@dataclass(frozen=True)
+class MenuEntry:
+    kind: str  # summary | host | session | empty | note
+    text: str
+
+
+def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
+    """The indicator menu, top to bottom, as plain-text lines."""
+    summ = summary(state)
+    out = [MenuEntry("summary", summ.text)]
+    if not state.connected:
+        out.append(MenuEntry("note", "start it with: agentail daemon"))
+        return out
+    for g in groups(state, now):
+        state_text = "" if g.alias == "local" else f" — {g.state}"
+        out.append(MenuEntry("host", f"{HOST_MARK.get(g.level, '○')} {g.title}{state_text}"))
+        if not g.rows:
+            out.append(MenuEntry("empty", "    no sessions"))
+        for r in g.rows:
+            fields = [f"{STATUS_MARK[r.status]} {r.status_label}", r.agent, r.cwd, r.detail, r.age]
+            text = "    " + " · ".join(f for f in fields if f)
+            out.append(MenuEntry("session", clean(text, MENU_TEXT_LIMIT)))
+    return out
 
 
 # ---- notifications ---------------------------------------------------------------------

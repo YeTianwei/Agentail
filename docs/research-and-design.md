@@ -345,7 +345,7 @@ agent-island-linux/
 │  │  ├─ claude_config.py    # settings.json 合并/移除
 │  │  └─ codex_config.py     # config.toml 合并/移除(tomlkit)
 │  └─ ui/
-│     ├─ panel.py            # GTK3 胶囊 + 列表
+│     ├─ indicator.py        # 顶栏指示器(M4 实现时由胶囊改为指示器)
 │     └─ notify.py
 ├─ hook/island-hook.py       # 远程/本地共用;纯标准库,兼容 Python 3.6
 ├─ tests/
@@ -389,7 +389,7 @@ UI 连 `ui.sock` 后先收到一行 `{"type":"snapshot", ...}`,之后是 `{"type
 | **M1 链路** | `island-hook.py` + daemon 的 `ingest` + `island tail`(打印事件);本地 Claude Code 手工配 hook | 本地跑 Claude,终端里实时看到事件 |
 | **M2 适配器与状态机** | `adapters/claude.py`、`codex.py`、`state.py`;`--record` 录制夹具;单元测试 | 用夹具回放,状态序列正确 |
 | **M3 多主机** | `tunnels.py`、`add-host` / `remove-host`、配置合并、ping 检查;至少接两台服务器 | 两台服务器 + 本地同时跑 agent,`island status` 正确区分;拔网线/休眠后能自动恢复 |
-| **M4 界面** | GTK3 胶囊 + 列表 + 系统通知 + 主机连接灯 | 日常可用 |
+| **M4 界面** | 顶栏指示器 + 下拉会话列表 + 系统通知(原计划为 GTK3 胶囊) | 日常可用 |
 | **M5 打磨** | systemd user service 自启、`install-local`、stale 处理、README | 重启电脑后无需手动操作 |
 
 ### 12.6 测试清单
