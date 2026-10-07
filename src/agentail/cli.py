@@ -9,10 +9,6 @@ from pathlib import Path
 
 from agentail import __version__, paths
 
-_TODO = {
-    "ui": "M4: start the GTK panel",
-}
-
 
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="agentail", description=__doc__)
@@ -70,8 +66,8 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
-    for name, help_text in _TODO.items():
-        sub.add_parser(name, help=f"(not implemented yet) {help_text}")
+    ui = sub.add_parser("ui", help="show the desktop panel (GTK3, X11)")
+    ui.add_argument("--expanded", action="store_true", help="start with the session list open")
     return p
 
 
@@ -122,5 +118,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hook-path":
         print(paths.hook_script_source())
         return 0
-    print(f"agentail {args.command}: not implemented yet ({_TODO[args.command]})", file=sys.stderr)
-    return 2
+    if args.command == "ui":
+        try:
+            from agentail.ui.panel import run_ui
+        except (ImportError, ValueError) as exc:
+            print(
+                f"agentail ui needs PyGObject with GTK 3 ({exc}).\n"
+                "Ubuntu: sudo apt install python3-gi gir1.2-gtk-3.0 gir1.2-notify-0.7; "
+                "a virtualenv must be created with --system-site-packages.",
+                file=sys.stderr,
+            )
+            return 1
+        return run_ui(expanded=args.expanded)
+    raise AssertionError(f"unhandled command {args.command}")

@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M3 完成并在真实服务器上验证)
+## 0. 当前状态(M4 完成,待 👤 肉眼确认交互)
 
 | 模块 | 状态 |
 |---|---|
@@ -22,7 +22,7 @@
 | `daemon/uiapi.py` + `agentail tail` / `status` | ✅ M2:快照 + 增量,每客户端有界队列,慢客户端直接断开 |
 | `daemon/main.py` 多主机 | ✅ M3:每台主机一个 listener + 隧道;每 2 秒检查 hosts.toml,`add-host` / `remove-host` 不用重启 daemon;新增 UI 消息 `host_remove` |
 | 测试用假 ssh(`tests/fakessh.py`) | ✅ 在本机临时目录里"远程"执行命令,`-R` 用真实 socket 中转;场景:正常、认证失败、立即退出、运行中断开 |
-| `ui/*` | ⬜ 只有接口说明(M4) |
+| `ui/*` + `agentail ui` | ✅ M4:`ui/model.py` 纯函数(胶囊文字、主机灯、按主机分组的列表、通知文案与限频)有测试;`ui/panel.py` GTK3 薄渲染层(DOCK 类型、置顶、所有工作区、不接受焦点、顶栏下方居中,左键展开 / 右键退出,`--expanded`);`ui/notify.py` libnotify,退路 `notify-send`;正文先转义。venv 需 `include-system-site-packages = true` 才能用系统的 `python3-gi` |
 | `scripts/m0-check-host.sh` | ✅ 服务器实测脚本(只读 + 一个临时 socket) |
 
 本地验证:`pip install -e '.[dev]' && python -m pytest && ruff check . && ruff format --check .`
@@ -161,6 +161,10 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 > 阅读 CLAUDE.md、docs/PLAN.md、docs/research-and-design.md 第 9 节。完成 M4:实现 agentail ui(PyGObject + Gtk 3.0)和桌面通知。把从快照计算显示内容的逻辑写成纯函数并测试;GTK 代码保持薄,无法在云端显示的部分写清手动验证步骤。所有来自载荷的字符串只能用 set_text 渲染。在分支 m4-ui 上提交并开 PR。
 
 👤 合并后:在 GNOME + X11 上看位置、置顶、不抢焦点、通知是否正常;截图贴到 PR。
+
+✅ 已自动验证(2026-10-07,Ubuntu 24.04 GNOME X11,双屏 5120×1440):胶囊在主屏顶栏时钟正下方居中;浮在其他窗口之上;`xprop` 显示 `_NET_WM_WINDOW_TYPE_DOCK`、`_NET_WM_STATE_ABOVE/STICKY`、`Client accepts input: False`;`--expanded` 列表按主机分组、列对齐;本地 `claude -p` 结束时弹出 "claude finished — this computer";停掉 daemon 显示 "daemon not running",重启后自动重连。
+
+👤 仍需你确认:鼠标左键点胶囊展开/收起时,当前终端是否仍保持焦点;右键菜单 "Quit";"needs you" 通知(critical,会停留到手动关闭)是否合适;长时间运行是否稳定。
 
 ### M5 打磨 ☁️
 

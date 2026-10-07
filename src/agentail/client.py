@@ -65,17 +65,17 @@ def read_messages(sock: Path | None = None) -> Iterator[dict[str, Any]]:
 # ---- formatting -------------------------------------------------------------
 
 
-def _key(key: Any) -> tuple[str, str, str]:
+def key_tuple(key: Any) -> tuple[str, str, str]:
     if not isinstance(key, dict):
         return ("?", "?", "?")
     return (clean(key.get("host")), clean(key.get("agent")), clean(key.get("session_id")))
 
 
-def _short(session_id: str) -> str:
+def short_id(session_id: str) -> str:
     return session_id[:8]
 
 
-def _age(ts: Any, now: float) -> str:
+def age_text(ts: Any, now: float) -> str:
     if not isinstance(ts, int | float) or ts <= 0:
         return "-"
     secs = max(0, int(now - ts))
@@ -88,7 +88,7 @@ def _age(ts: Any, now: float) -> str:
     return f"{secs // 86400}d"
 
 
-def _detail(session: dict[str, Any]) -> str:
+def session_detail(session: dict[str, Any]) -> str:
     if session.get("tool"):
         return f"[{clean(session['tool'])}] " + clean(session.get("prompt_preview"))
     if session.get("status") == "needs_attention" and session.get("message"):
@@ -122,22 +122,22 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
 
     lines += ["", "SESSIONS"]
     sessions = [s for s in snapshot.get("sessions") or [] if isinstance(s, dict)]
-    sessions.sort(key=lambda s: (_key(s.get("key")), -(s.get("last_ts") or 0)))
+    sessions.sort(key=lambda s: (key_tuple(s.get("key")), -(s.get("last_ts") or 0)))
     if not sessions:
         lines.append("  (none)")
         return "\n".join(lines)
     rows = [["HOST", "AGENT", "SESSION", "STATUS", "IDLE", "CWD", "PROMPT / TOOL"]]
     for s in sessions:
-        host, agent, sid = _key(s.get("key"))
+        host, agent, sid = key_tuple(s.get("key"))
         rows.append(
             [
                 host,
                 agent,
-                _short(sid),
+                short_id(sid),
                 clean(s.get("status")),
-                _age(s.get("last_ts"), now),
+                age_text(s.get("last_ts"), now),
                 clean(s.get("cwd"), 40),
-                clean(_detail(s), 60),
+                clean(session_detail(s), 60),
             ]
         )
     lines += ["  " + r for r in _table(rows)]
@@ -155,16 +155,16 @@ def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
         return f"{stamp} connected: {n} session(s), {h} host(s)"
     if mtype == "session_update" and isinstance(msg.get("session"), dict):
         s = msg["session"]
-        host, agent, sid = _key(s.get("key"))
-        detail = clean(_detail(s), 80)
-        text = f"{stamp} {host}/{agent}/{_short(sid)} {clean(s.get('status'))}"
+        host, agent, sid = key_tuple(s.get("key"))
+        detail = clean(session_detail(s), 80)
+        text = f"{stamp} {host}/{agent}/{short_id(sid)} {clean(s.get('status'))}"
         return f"{text}  {detail}" if detail else text
     if mtype == "session_remove":
-        host, agent, sid = _key(msg.get("key"))
-        return f"{stamp} {host}/{agent}/{_short(sid)} removed"
+        host, agent, sid = key_tuple(msg.get("key"))
+        return f"{stamp} {host}/{agent}/{short_id(sid)} removed"
     if mtype == "notify":
-        host, agent, sid = _key(msg.get("key"))
-        return f"{stamp} {host}/{agent}/{_short(sid)} ** {clean(msg.get('kind'))} **"
+        host, agent, sid = key_tuple(msg.get("key"))
+        return f"{stamp} {host}/{agent}/{short_id(sid)} ** {clean(msg.get('kind'))} **"
     if mtype == "host_remove":
         return f"{stamp} host {clean(msg.get('alias'))}: removed"
     if mtype == "host_status" and isinstance(msg.get("host"), dict):
