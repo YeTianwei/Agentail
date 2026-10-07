@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M4 完成:GNOME Shell 扩展,待 👤 在真实桌面启用)
+## 0. 当前状态(v1.0.0:M0–M5 全部完成)
 
 | 模块 | 状态 |
 |---|---|
@@ -25,6 +25,9 @@
 | GNOME Shell 扩展(主界面) | ✅ M4:`resources/gnome-extension/agentail@yetianwei.github.io/`,`agentail install-gnome-extension [--link]` / `uninstall-gnome-extension`。顶栏 A 字标 + 彩色数字徽标(橙=需要你、蓝=运行中、绿=轮到你,有主机断线时加红点,需要你时橙色描边 + 徽标呼吸);下拉面板按主机分组的会话卡片(状态图标 + 官方 agent 图标、项目名、prompt、授权时显示具体命令);GNOME 原生通知(带 agent 图标)。显示逻辑在 `model.js`(纯函数,`tests/js/test_model.js` 用 gjs 跑)。官方图标在 `icons/`,附 `NOTICE.md`,不在 MIT 范围内 |
 | `ui/*` + `agentail ui` | ✅ AppIndicator 退路(非 GNOME 桌面或没装扩展时用):图标 + `⚠1 ▶2 ⏸1` 文字 + 菜单;`ui/model.py` 纯函数有测试 |
 | `scripts/m0-check-host.sh` | ✅ 服务器实测脚本(只读 + 一个临时 socket) |
+| `install/service.py` + `agentail install-service` | ✅ M5:systemd 用户服务,绑定 `graphical-session.target`(登录后启动,拿到 SSH_AUTH_SOCK),失败自动重启,已有 daemon 时退出码 3 不重启 |
+| `doctor.py` + `agentail doctor` | ✅ M5:daemon、开机自启、hook 脚本版本、Claude/Codex hooks、Codex 信任、每台主机隧道、GNOME 扩展,逐项给出修复命令 |
+| README / CHANGELOG / 版本 | ✅ M5:1.0.0 |
 
 本地验证:`pip install -e '.[dev]' && python -m pytest && ruff check . && ruff format --check .`
 
@@ -166,7 +169,11 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 
 ### M5 打磨 ☁️
 
-systemd user service(`agentail install-service`,daemon 与 ui 各一个 unit)、README 的安装与使用说明、`agentail doctor`(检查 socket、hook、隧道)、版本号与 CHANGELOG。
+✅ 已完成(2026-10-07):`agentail install-service` / `uninstall-service`(systemd 用户服务)、`agentail doctor`、README、CHANGELOG、版本 1.0.0;面板里没有会话的远程主机也显示为一行("connected · idle")。只有 daemon 一个服务:界面是 GNOME 扩展,由 Shell 加载。
+
+已在本机落地:`agentail.service` 运行中(两条隧道是它的子进程),`agentail doctor` 全部通过。注意 service 的 ExecStart 指向当前 venv 的 python,移动仓库目录后要重新 `agentail install-service`。
+
+👤 仍未验证:远程 Codex(在服务器上 `/hooks` 信任一次)、拔网线 / 休眠唤醒后的重连、重启电脑后 daemon 自动启动。
 
 ---
 

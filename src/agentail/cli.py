@@ -63,6 +63,10 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rh.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
 
+    sub.add_parser("install-service", help="start the daemon with your desktop session (systemd)")
+    sub.add_parser("uninstall-service", help="remove the systemd user service")
+    sub.add_parser("doctor", help="check the daemon, hooks, tunnels and panel")
+
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -120,6 +124,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hook-path":
         print(paths.hook_script_source())
         return 0
+    if args.command in ("install-service", "uninstall-service"):
+        from agentail.install import service
+
+        return service.install() if args.command == "install-service" else service.uninstall()
+    if args.command == "doctor":
+        from agentail.doctor import doctor
+
+        return doctor()
     if args.command == "install-gnome-extension":
         from agentail.install import gnome
 

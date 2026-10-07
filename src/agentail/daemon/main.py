@@ -275,5 +275,8 @@ def run_daemon(print_events: bool, record_dir: Path | None, ssh: str = "ssh") ->
         asyncio.run(Daemon(print_events=print_events, record_dir=record_dir, ssh=ssh).run())
     except DaemonAlreadyRunning as exc:
         log.error("%s", exc)
-        return 1
+        # A distinct status, so the systemd unit does not restart in a loop.
+        from agentail.install.service import EXIT_ALREADY_RUNNING
+
+        return EXIT_ALREADY_RUNNING
     return 0

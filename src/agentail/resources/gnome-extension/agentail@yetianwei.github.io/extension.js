@@ -308,7 +308,9 @@ class AgentailIndicator extends PanelMenu.Button {
             this._panel.add_child(this._offline());
             return;
         }
-        const groups = M.groups(st, now).filter(g => g.cards.length || g.problem);
+        // Remote hosts are always listed (an idle one is a single header row); this
+        // computer only when it has sessions.
+        const groups = M.groups(st, now).filter(g => g.cards.length || g.problem || !g.local);
         const content = vbox('agentail-groups', {x_expand: true});
         if (!groups.some(g => g.cards.length))
             content.add_child(this._empty());
@@ -369,7 +371,8 @@ class AgentailIndicator extends PanelMenu.Button {
             {y_align: Clutter.ActorAlign.CENTER});
         if (!g.local)
             state.add_child(new St.Widget({style_class: 'agentail-host-dot', y_align: Clutter.ActorAlign.CENTER}));
-        state.add_child(label(g.stateText, ''));
+        const idle = !g.cards.length && !g.problem;
+        state.add_child(label(idle ? `${g.stateText} · idle` : g.stateText, ''));
         head.add_child(state);
         box.add_child(head);
         if (g.problem) {
