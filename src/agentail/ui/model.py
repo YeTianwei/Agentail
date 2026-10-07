@@ -241,12 +241,17 @@ def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
     for g in groups(state, now):
         state_text = "" if g.alias == "local" else f" — {g.state}"
         out.append(MenuEntry("host", f"{HOST_MARK.get(g.level, '○')} {g.title}{state_text}"))
-        if not g.rows:
+        live = [r for r in g.rows if r.status != "ended"]
+        ended = len(g.rows) - len(live)
+        if not live and not ended:
             out.append(MenuEntry("empty", "    no sessions"))
-        for r in g.rows:
+        for r in live:
             fields = [f"{STATUS_MARK[r.status]} {r.status_label}", r.agent, r.cwd, r.detail, r.age]
             text = "    " + " · ".join(f for f in fields if f)
             out.append(MenuEntry("session", clean(text, MENU_TEXT_LIMIT)))
+        if ended:
+            # The daemon keeps ended sessions for a few minutes; one line is enough here.
+            out.append(MenuEntry("ended", f"    {STATUS_MARK['ended']} {ended} ended recently"))
     return out
 
 

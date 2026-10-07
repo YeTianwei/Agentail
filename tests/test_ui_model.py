@@ -92,6 +92,8 @@ def test_menu_entries():
         [
             _s("gpu1", "n", "needs_attention", tool="Bash", last=NOW - 30),
             _s("local", "l", "waiting_input", prompt="my_long_task"),
+            _s("local", "e1", "ended"),
+            _s("local", "e2", "ended"),
         ]
     )
     entries = [(e.kind, e.text) for e in menu_entries(st, NOW)]
@@ -99,6 +101,7 @@ def test_menu_entries():
         ("summary", "1 needs you · 1 waiting"),
         ("host", "● this computer"),
         ("session", "    ⏸ waiting · claude · …/proj/app · my_long_task · 5s"),
+        ("ended", "    ✓ 2 ended recently"),
         ("host", "● GPU one (gpu1) — connected"),
         ("session", "    ⚠ needs you · claude · …/proj/app · [Bash] fix the bug · 30s"),
     ]

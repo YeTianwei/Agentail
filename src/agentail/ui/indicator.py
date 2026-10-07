@@ -61,7 +61,21 @@ class TopBarIndicator:
         ind.set_icon_theme_path(str(ICON_DIR))
         ind.set_title("agentail")
         ind.set_status(AppIndicator.IndicatorStatus.ACTIVE)
+        # The menu is built once and then only relabelled: replacing items while the
+        # shell has the menu open (or before it has read it) leaves it unable to open.
+        # It must also not be empty when handed over.
         self.menu = Gtk.Menu()
+        self.summary_item = Gtk.MenuItem.new_with_label("agentail")
+        self.summary_item.set_sensitive(False)
+        self.menu.append(self.summary_item)
+        self.menu.append(Gtk.SeparatorMenuItem())
+        self.pool: list[Gtk.MenuItem] = []  # host and session lines, reused
+        self.menu.append(Gtk.SeparatorMenuItem())
+        quit_item = Gtk.MenuItem.new_with_label("Quit agentail ui")
+        quit_item.connect("activate", lambda *_: Gtk.main_quit())
+        self.menu.append(quit_item)
+        self.menu.show_all()
+        self._shown_lines: list[tuple[str, bool]] = []
         ind.set_menu(self.menu)
 
         self._render()
@@ -132,27 +146,27 @@ class TopBarIndicator:
 
     def _rebuild_menu(self) -> bool:
         self._menu_pending = False
-        for child in self.menu.get_children():
-            self.menu.remove(child)
         summ = model.summary(self.state)
-        for entry in model.menu_entries(self.state, time.time()):
-            self._item(entry.text, sensitive=entry.kind in ("session", "host"))
-            if entry.kind == "summary":
-                for line in summ.hosts_down:
-                    self._item(f"{model.HOST_DOWN_MARK} {line}", sensitive=False)
-                self.menu.append(Gtk.SeparatorMenuItem())
-        self.menu.append(Gtk.SeparatorMenuItem())
-        quit_item = Gtk.MenuItem.new_with_label("Quit agentail ui")
-        quit_item.connect("activate", lambda *_: Gtk.main_quit())
-        self.menu.append(quit_item)
-        self.menu.show_all()
+        entries = model.menu_entries(self.state, time.time())
+        lines = [(f"{model.HOST_DOWN_MARK} {h}", False) for h in summ.hosts_down]
+        lines += [(e.text, True) for e in entries if e.kind != "summary"]
+        self.summary_item.set_label(entries[0].text)
+        if lines == self._shown_lines:
+            return False
+        self._shown_lines = lines
+        # new_with_label / set_label are plain text; libdbusmenu escapes "_" on the wire.
+        for i, (text, sensitive) in enumerate(lines):
+            if i == len(self.pool):
+                item = Gtk.MenuItem.new_with_label(text)
+                self.menu.insert(item, 2 + i)  # after the summary and its separator
+                self.pool.append(item)
+            item = self.pool[i]
+            item.set_label(text)
+            item.set_sensitive(sensitive)
+            item.show()
+        for item in self.pool[len(lines) :]:
+            item.hide()
         return False
-
-    def _item(self, text: str, sensitive: bool) -> None:
-        # new_with_label is plain text; libdbusmenu escapes "_" for the dbusmenu wire.
-        item = Gtk.MenuItem.new_with_label(text)
-        item.set_sensitive(sensitive)
-        self.menu.append(item)
 
     def _refresh(self) -> bool:
         if self.state.sessions:

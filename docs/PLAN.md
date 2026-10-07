@@ -158,6 +158,7 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 任务:`agentail ui`。*实际实现*:顶栏指示器(AyatanaAppIndicator3)+ 系统通知,而不是原计划的置顶胶囊窗口。显示逻辑全部在 `ui/model.py`(纯函数、有测试);`ui/indicator.py` 只做渲染;所有来自载荷的文字都是纯文本。
 
 ✅ 已验证(2026-10-07,Ubuntu 24.04 GNOME 46 X11):图标和文字出现在顶栏右侧;本地会话运行时显示 `▶1`;模拟授权请求时图标变橙、显示 `⚠1`,并弹出 "claude needs you — this computer" 通知;回合结束弹出 "claude finished";daemon 停止时图标变虚线圈,重启后自动重连;通过 dbusmenu 读出的菜单内容正确。
+发现并修复:菜单最初点不开(启动时交给扩展的菜单是空的,之后每秒删掉重建菜单项),改为启动时建好固定菜单项、之后只原地改文字,用 XTest 模拟点击确认能打开;结束的会话合并成一行 "✓ N ended recently"。
 发现并绕过:GNOME 的 AppIndicator 扩展只在 label 变化时刷新,启动时设置的第一个值会丢,所以连接后会再发两次 label。已知外观问题:扩展只还原第一个下划线,菜单里 `a_b_c` 会显示成 `a_b__c`(上游 bug)。
 
 👤 仍需你确认:点开菜单看排版是否可读;"needs you" 通知(critical,停留到手动关闭)是否合适;长时间运行是否稳定。
