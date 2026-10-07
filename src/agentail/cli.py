@@ -66,7 +66,10 @@ def _build_parser() -> argparse.ArgumentParser:
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
-    sub.add_parser("ui", help="show the top bar indicator (AppIndicator)")
+    sub.add_parser("ui", help="top bar indicator for desktops without the GNOME extension")
+    ge = sub.add_parser("install-gnome-extension", help="install the GNOME Shell top bar panel")
+    ge.add_argument("--link", action="store_true", help="symlink the source tree (development)")
+    sub.add_parser("uninstall-gnome-extension", help="remove the GNOME Shell top bar panel")
     return p
 
 
@@ -117,6 +120,14 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "hook-path":
         print(paths.hook_script_source())
         return 0
+    if args.command == "install-gnome-extension":
+        from agentail.install import gnome
+
+        return gnome.install(link=args.link)
+    if args.command == "uninstall-gnome-extension":
+        from agentail.install import gnome
+
+        return gnome.uninstall()
     if args.command == "ui":
         try:
             from agentail.ui.indicator import run_ui

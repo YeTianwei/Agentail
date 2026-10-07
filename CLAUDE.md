@@ -16,7 +16,10 @@ Reply to the owner in Chinese; code, comments, commit messages and docstrings in
   `install-local`, `add-host` / `remove-host` (`remote.py`).
 - `src/agentail/sshexec.py` — the only way to build remote commands (argv + `shlex.quote`).
 - `tests/fakessh.py` — fake `ssh` for tests: runs "remote" commands in a temp HOME, relays `-R`.
-- `src/agentail/ui/` — top bar indicator (`agentail ui`, AppIndicator, separate process); display logic in `model.py`.
+- `src/agentail/resources/gnome-extension/<uuid>/` — the GNOME Shell extension (main UI): `model.js`
+  (pure, tested by `tests/js/test_model.js` under gjs), `extension.js` (St widgets), icons. Agent
+  logos in `icons/` are third-party trademarks (see `icons/NOTICE.md`), not MIT.
+- `src/agentail/ui/` — AppIndicator fallback (`agentail ui`); display logic in `model.py`.
 
 ## Commands
 

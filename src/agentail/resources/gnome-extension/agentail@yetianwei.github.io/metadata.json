@@ -1,0 +1,8 @@
+{
+  "uuid": "agentail@yetianwei.github.io",
+  "name": "Agentail",
+  "description": "Live status of AI coding agents (Claude Code, Codex) on this computer and your SSH servers. Needs the agentail daemon.",
+  "shell-version": ["45", "46", "47", "48"],
+  "url": "https://github.com/YeTianwei/Agentail",
+  "version": 1
+}

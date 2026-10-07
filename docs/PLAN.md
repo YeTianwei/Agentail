@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M4 完成,待 👤 确认菜单外观)
+## 0. 当前状态(M4 完成:GNOME Shell 扩展,待 👤 在真实桌面启用)
 
 | 模块 | 状态 |
 |---|---|
@@ -22,7 +22,8 @@
 | `daemon/uiapi.py` + `agentail tail` / `status` | ✅ M2:快照 + 增量,每客户端有界队列,慢客户端直接断开 |
 | `daemon/main.py` 多主机 | ✅ M3:每台主机一个 listener + 隧道;每 2 秒检查 hosts.toml,`add-host` / `remove-host` 不用重启 daemon;新增 UI 消息 `host_remove` |
 | 测试用假 ssh(`tests/fakessh.py`) | ✅ 在本机临时目录里"远程"执行命令,`-R` 用真实 socket 中转;场景:正常、认证失败、立即退出、运行中断开 |
-| `ui/*` + `agentail ui` | ✅ M4:顶栏指示器(AppIndicator,Ubuntu 默认启用的扩展显示):图标按状态变化(idle / busy / 橙色 attention / offline),旁边紧凑文字如 `⚠1 ▶2 ⏸1 ✕1`,下拉菜单按主机列出会话;`ui/model.py` 纯函数有测试;`ui/notify.py` libnotify,退路 `notify-send`,正文先转义。最初做的顶部胶囊窗口已按你的意见删除(像 macOS 刘海,在 GNOME 上会盖住窗口、和通知抢位置、Wayland 下也用不了)。venv 需 `include-system-site-packages = true` |
+| GNOME Shell 扩展(主界面) | ✅ M4:`resources/gnome-extension/agentail@yetianwei.github.io/`,`agentail install-gnome-extension [--link]` / `uninstall-gnome-extension`。顶栏 A 字标 + 彩色数字徽标(橙=需要你、蓝=运行中、绿=轮到你,有主机断线时加红点,需要你时橙色描边 + 徽标呼吸);下拉面板按主机分组的会话卡片(状态图标 + 官方 agent 图标、项目名、prompt、授权时显示具体命令);GNOME 原生通知(带 agent 图标)。显示逻辑在 `model.js`(纯函数,`tests/js/test_model.js` 用 gjs 跑)。官方图标在 `icons/`,附 `NOTICE.md`,不在 MIT 范围内 |
+| `ui/*` + `agentail ui` | ✅ AppIndicator 退路(非 GNOME 桌面或没装扩展时用):图标 + `⚠1 ▶2 ⏸1` 文字 + 菜单;`ui/model.py` 纯函数有测试 |
 | `scripts/m0-check-host.sh` | ✅ 服务器实测脚本(只读 + 一个临时 socket) |
 
 本地验证:`pip install -e '.[dev]' && python -m pytest && ruff check . && ruff format --check .`
@@ -155,15 +156,13 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 
 ### M4 界面 ☁️ + 👤
 
-任务:`agentail ui`。*实际实现*:顶栏指示器(AyatanaAppIndicator3)+ 系统通知,而不是原计划的置顶胶囊窗口。显示逻辑全部在 `ui/model.py`(纯函数、有测试);`ui/indicator.py` 只做渲染;所有来自载荷的文字都是纯文本。
+*实际实现*:经过两轮调整(置顶胶囊窗口 → AppIndicator → GNOME Shell 扩展),主界面是 **GNOME Shell 扩展**,视觉稿见 https://claude.ai/artifact/Fpwsrtf2Yykw6J8hiEN1G7 。AppIndicator 版 `agentail ui` 保留作退路。扩展只读 `ui.sock`,daemon 和协议不变(只新增 `SESSION.tool_detail`)。
 
-✅ 已验证(2026-10-07,Ubuntu 24.04 GNOME 46 X11):图标和文字出现在顶栏右侧;本地会话运行时显示 `▶1`;模拟授权请求时图标变橙、显示 `⚠1`,并弹出 "claude needs you — this computer" 通知;回合结束弹出 "claude finished";daemon 停止时图标变虚线圈,重启后自动重连;通过 dbusmenu 读出的菜单内容正确。
-发现并修复:菜单最初点不开(启动时交给扩展的菜单是空的,之后每秒删掉重建菜单项),改为启动时建好固定菜单项、之后只原地改文字,用 XTest 模拟点击确认能打开;结束的会话合并成一行 "✓ N ended recently"。
-发现并绕过:GNOME 的 AppIndicator 扩展只在 label 变化时刷新,启动时设置的第一个值会丢,所以连接后会再发两次 label。已知外观问题:扩展只还原第一个下划线,菜单里 `a_b_c` 会显示成 `a_b__c`(上游 bug)。
+✅ 已验证(2026-10-07,嵌套 GNOME Shell 46,`dbus-run-session -- gnome-shell --nested --wayland`,独立 dconf 配置):扩展加载无报错;顶栏字标 + 徽标随状态变化;面板按主机分组、需要授权的卡片显示具体命令(Claude 取自之前的 PreToolUse,Codex 取自 PermissionRequest);通知横幅带 Codex/Claude 官方图标;daemon 重启后自动重连。
 
-👤 仍需你确认:点开菜单看排版是否可读;"needs you" 通知(critical,停留到手动关闭)是否合适;长时间运行是否稳定。
+过程中发现并修复:symbolic SVG 会被 GNOME 强制填充(字标改用普通彩色 SVG);St 的 `min-width` 不含内边距(徽标过宽);叠加式滚动条压住文字。
 
-v1 之后:GNOME Shell 扩展前端(可做自定义下拉面板,也支持 Wayland),直接读 `ui.sock`。
+👤 需要你:`agentail install-gnome-extension` 后按 Alt+F2 → `r` → 回车重载 Shell(X11),确认顶栏和面板;不要同时运行 `agentail ui`(会重复发通知)。
 
 ### M5 打磨 ☁️
 
