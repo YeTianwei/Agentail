@@ -215,8 +215,10 @@ def test_shared_home(fake_ssh, server, short_tmp):
     h1, h2 = load_hosts()
     assert h1.home_id == h2.home_id
 
+    open(short_tmp / "r1.sock", "w").close()  # left behind by gpu1's tunnel
     rc, out = _remove(fake_ssh, "gpu1")
     assert rc == 0 and "leaving the hooks" in out
+    assert not (short_tmp / "r1.sock").exists()
     assert _tree(server / ".claude") == written
     rc, out = _remove(fake_ssh, "gpu2")
     assert rc == 0, out

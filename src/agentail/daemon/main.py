@@ -151,8 +151,10 @@ class Daemon:
             print(json.dumps({"host": alias, "state": state, "detail": detail}), flush=True)
 
     def _on_tunnel_status(self, st: TunnelStatus) -> None:
-        if st.alias in self.remotes:
-            self._set_host(st.alias, st.state.value, st.detail)
+        h = self.hosts.get(st.alias)
+        if st.alias in self.remotes and h is not None:
+            if (h.get("state"), h.get("detail")) != (st.state.value, st.detail):
+                self._set_host(st.alias, st.state.value, st.detail)
 
     def _on_offline(self, alias: str) -> None:
         for change in self.store.mark_host_offline(alias):

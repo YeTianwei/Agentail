@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(M3 代码完成,待 👤 真实服务器验证)
+## 0. 当前状态(M3 完成并在真实服务器上验证)
 
 | 模块 | 状态 |
 |---|---|
@@ -142,6 +142,16 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 ```
 
 重点看:`add-host` 探测出的 python 路径(应为 `/usr/bin/python3`);远程 hook 命令在 Claude 的 `sh -c` 和 Codex 的 `$SHELL -lc` 下都能找到 `~/.agentail/agentail-hook.py`;已知限制:登录 shell 是 csh/tcsh 的服务器上多行远程脚本可能失败(M0 的 13 台都是 bash)。
+
+✅ 已验证(2026-10-07,gpu7 + gpu8,共享 NFS HOME `/data/twye`,Claude Code 远程版本见服务器):
+
+- `add-host gpu7`:探测到 `/usr/bin/python3` 3.10.12、`/run/user/10006` 可用;安装后约 4 秒 `connected (end-to-end ping received)`。
+- `add-host gpu8`:识别出共享 HOME(`already up to date` + `shares its $HOME with gpu7`),同样 connected。
+- 在 gpu7、gpu8 各跑一次 `claude -p`:事件分别归到 `gpu7/claude/…`、`gpu8/claude/…`,状态 waiting_input → running → [Bash] → waiting_input → ended。gpu7 上已经在跑的 Claude 会话(热加载设置后)也被识别。
+- 本机 `kill -9` gpu7 的隧道 ssh:1 秒内 backoff,2 秒内重新 connected;远程残留 socket 被自动清理;断线期间 gpu7 会话为 stale。
+- `remove-host gpu8`(提示共享 HOME、不动配置)→ `remove-host gpu7`:`settings.json` sha256 与安装前一致,`hooks.json`、`~/.agentail`、远程 socket 均已删除,隧道停止。
+- 发现并修复:共享 HOME 时 `remove-host` 没删该节点自己的 `/run/user` socket。
+- 未验证:远程 Codex(需要在服务器上交互式 `/hooks` 信任);拔网线 / 休眠唤醒(`ServerAliveInterval=15 × 3`,理论上约 45 秒内发现断线并重连)。
 
 ### M4 界面 ☁️ + 👤
 

@@ -485,6 +485,10 @@ def remove_host(
             "(remove the last of these hosts to uninstall them)"
         )
         local_only = True
+        if not dry_run and host.remote_sock:
+            # /run/user is per node: this host's socket is its own even with a shared $HOME.
+            # sshd leaves it behind when the tunnel stops. Best effort.
+            Remote(alias, ssh=ssh, runner=runner).run(["rm", "-f", host.remote_sock])
     if not local_only:
         remote = Remote(alias, ssh=ssh, runner=runner)
         try:

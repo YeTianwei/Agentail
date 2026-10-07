@@ -112,6 +112,17 @@ class _AuthFailed(Exception):
     pass
 
 
+async def _reap(proc: asyncio.subprocess.Process) -> None:
+    """Kill ``proc`` and drain its pipes, even if we are cancelled again meanwhile:
+    a half-reaped process leaves a transport that outlives the event loop."""
+    with contextlib.suppress(ProcessLookupError):
+        proc.kill()
+    done = asyncio.ensure_future(proc.communicate())
+    while not done.done():
+        with contextlib.suppress(asyncio.CancelledError):
+            await asyncio.shield(done)
+
+
 async def _run(argv: list[str], timeout: float = COMMAND_TIMEOUT_S) -> Result:
     try:
         proc = await asyncio.create_subprocess_exec(
@@ -125,14 +136,10 @@ async def _run(argv: list[str], timeout: float = COMMAND_TIMEOUT_S) -> Result:
     try:
         out, err = await asyncio.wait_for(proc.communicate(), timeout)
     except TimeoutError:
-        proc.kill()
-        await proc.wait()
+        await _reap(proc)
         return Result(124, b"", f"timed out after {timeout:.0f}s")
     except asyncio.CancelledError:
-        # e.g. a ping still running when the tunnel connects or stops: reap it.
-        with contextlib.suppress(ProcessLookupError):
-            proc.kill()
-        await proc.wait()
+        await _reap(proc)  # e.g. a ping still running when the tunnel connects or stops
         raise
     return Result(proc.returncode or 0, out, err.decode("utf-8", "replace"))
 
@@ -278,6 +285,13 @@ class TunnelSupervisor:
                 self._set(TunnelState.CONNECTED, "")
             pinger.cancel()
             await exited
+        except BaseException:
+            # Cancelled (stop) or failed: do not leave ssh or its stderr pipe behind.
+            stderr.cancel()
+            await _reap(proc)
+            with contextlib.suppress(BaseException):
+                await stderr
+            raise
         finally:
             for t in (pinged, pinger, exited):
                 t.cancel()
