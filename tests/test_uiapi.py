@@ -44,6 +44,7 @@ def test_session_serialization_matches_protocol():
         "cwd": "/p",
         "prompt_preview": "hello",
         "tool": "",
+        "tool_detail": "",
         "message": "",
         "started_ts": 10.0,
         "last_ts": 10.0,

@@ -49,11 +49,12 @@ Then any number of:
 
 ```
 SESSION = {"key": {"host", "agent", "session_id"}, "status": "running|waiting_input|needs_attention|ended|stale",
-           "cwd", "prompt_preview", "tool", "message", "started_ts", "last_ts"}
+           "cwd", "prompt_preview", "tool", "tool_detail", "message", "started_ts", "last_ts"}
 HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_failed|stopped", "detail"}
 ```
 
-`SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not
+`tool_detail` is one line describing the current tool call (a shell command, a file path), kept
+while a permission prompt is open. `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not
 sent). A host from `hosts.toml` without a `remote_sock` (never set up by `add-host`) is reported
 with `"state": "stopped"`. `connected` means an end-to-end ping from the server arrived through the
 tunnel. When a tunnel drops, that host's sessions become `stale`; when a host is removed from

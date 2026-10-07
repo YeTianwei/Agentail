@@ -18,6 +18,7 @@ from agentail.adapters.base import (
     EventKind,
     preview,
     str_field,
+    tool_preview,
 )
 from agentail.protocol import HookMessage
 
@@ -90,6 +91,7 @@ class ClaudeAdapter:
             ts=msg.ts,
             cwd=str_field(payload, "cwd") or msg.cwd,
             tool=str_field(payload, "tool_name"),
+            tool_detail=tool_preview(payload.get("tool_input")),
             prompt_preview=preview(payload.get("prompt")),
             attention=attention,
             message=preview(payload.get("message"), 200),

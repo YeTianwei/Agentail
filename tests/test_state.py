@@ -53,3 +53,24 @@ def test_attention_kinds_map_to_status():
     assert c.session.status is Status.NEEDS_ATTENTION and c.notify == "attention"
     c = st.apply(ev(EventKind.ATTENTION, 3, attention=Attention.IDLE))
     assert c.session.status is Status.WAITING_INPUT
+
+
+def test_tool_detail_survives_until_the_permission_prompt_is_answered():
+    from agentail.adapters.base import AgentEvent, Attention, EventKind
+    from agentail.daemon.state import Store
+
+    def ev(kind, ts, **kw):
+        return AgentEvent(kind=kind, agent="claude", host="h", session_id="s", ts=ts, **kw)
+
+    st = Store()
+    st.apply(ev(EventKind.PROMPT_SUBMIT, 1))
+    st.apply(ev(EventKind.TOOL_START, 2, tool="Bash", tool_detail="rm -rf build"))
+    s = st.apply(ev(EventKind.ATTENTION, 3, attention=Attention.PERMISSION)).session
+    assert (s.tool, s.tool_detail) == ("Bash", "rm -rf build")  # Claude: kept from PreToolUse
+    s = st.apply(ev(EventKind.TOOL_END, 4)).session
+    assert (s.tool, s.tool_detail) == ("", "")
+    s = st.apply(
+        ev(EventKind.ATTENTION, 5, attention=Attention.PERMISSION, tool="exec", tool_detail="ls")
+    ).session
+    assert (s.tool, s.tool_detail) == ("exec", "ls")  # Codex: carried by PermissionRequest
+    assert st.apply(ev(EventKind.STOP, 6)).session.tool_detail == ""

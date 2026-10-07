@@ -41,6 +41,7 @@ def session_to_dict(s: Session) -> dict[str, Any]:
         "cwd": s.cwd,
         "prompt_preview": s.prompt_preview,
         "tool": s.tool,
+        "tool_detail": s.tool_detail,
         "message": s.message,
         "started_ts": s.started_ts,
         "last_ts": s.last_ts,

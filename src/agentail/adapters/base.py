@@ -39,6 +39,7 @@ class AgentEvent:
     ts: float
     cwd: str = ""
     tool: str = ""
+    tool_detail: str = ""  # e.g. the shell command or file path of the tool call
     prompt_preview: str = ""
     attention: Attention | None = None
     message: str = ""
@@ -60,6 +61,25 @@ def preview(text: Any, limit: int = PROMPT_PREVIEW_CHARS) -> str:
         return ""
     one_line = " ".join(text.split())
     return one_line if len(one_line) <= limit else one_line[: limit - 1] + "…"
+
+
+# Keys of a tool call's input that best describe it, most specific first. Shared by
+# the agents we support (Claude: command/file_path/pattern/url; Codex: command/cmd).
+_TOOL_INPUT_KEYS = ("command", "cmd", "file_path", "path", "pattern", "url", "query")
+TOOL_DETAIL_CHARS = 160
+
+
+def tool_preview(tool_input: Any) -> str:
+    """One line describing a tool call's input, or "" (payloads are untrusted)."""
+    if not isinstance(tool_input, dict):
+        return ""
+    for key in _TOOL_INPUT_KEYS:
+        val = tool_input.get(key)
+        if isinstance(val, list) and all(isinstance(v, str) for v in val):
+            val = " ".join(val)
+        if isinstance(val, str) and val.strip():
+            return preview(val, TOOL_DETAIL_CHARS)
+    return ""
 
 
 def str_field(payload: dict[str, Any], key: str) -> str:

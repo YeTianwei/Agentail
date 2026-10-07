@@ -183,3 +183,14 @@ def test_unknown_and_mistyped_fields_are_ignored():
     e = ClaudeAdapter().decode(_msg("Notification", bad_type), "local")
     assert e.kind is EventKind.OTHER
     assert ClaudeAdapter().decode(_msg("Stop", {"session_id": ["s"]}), "local") is None
+
+
+def test_tool_preview():
+    from agentail.adapters.base import tool_preview
+
+    assert tool_preview({"command": "ls -la\n  /tmp", "description": "x"}) == "ls -la /tmp"
+    assert tool_preview({"file_path": "/a/b.py", "content": "..."}) == "/a/b.py"
+    assert tool_preview({"command": ["bash", "-lc", "make"]}) == "bash -lc make"
+    assert tool_preview({"command": ["bash", 3]}) == ""
+    assert tool_preview("rm -rf /") == "" and tool_preview(None) == ""
+    assert len(tool_preview({"command": "x" * 1000})) == 160

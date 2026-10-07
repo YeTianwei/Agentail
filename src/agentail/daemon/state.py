@@ -40,6 +40,7 @@ class Session:
     cwd: str = ""
     prompt_preview: str = ""
     tool: str = ""
+    tool_detail: str = ""
     message: str = ""
     started_ts: float = 0.0
     last_ts: float = 0.0
@@ -104,13 +105,19 @@ class Store:
         if ev.message:
             s = replace(s, message=ev.message)
         if ev.kind is EventKind.TOOL_START:
-            s = replace(s, tool=ev.tool, active_tools=s.active_tools + 1)
+            s = replace(
+                s, tool=ev.tool, tool_detail=ev.tool_detail, active_tools=s.active_tools + 1
+            )
         elif ev.kind is EventKind.TOOL_END:
             s = replace(s, active_tools=max(0, s.active_tools - 1))
             if s.active_tools == 0:
-                s = replace(s, tool="")
+                s = replace(s, tool="", tool_detail="")
         elif ev.kind in (EventKind.STOP, EventKind.SESSION_END):
-            s = replace(s, tool="", active_tools=0)
+            s = replace(s, tool="", tool_detail="", active_tools=0)
+        elif ev.kind is EventKind.ATTENTION and ev.tool_detail:
+            # Codex's PermissionRequest carries the tool input; Claude's Notification
+            # does not, so the detail from the preceding PreToolUse stays.
+            s = replace(s, tool=ev.tool or s.tool, tool_detail=ev.tool_detail)
 
         notify = None
         if not out_of_order:
