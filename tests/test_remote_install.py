@@ -33,7 +33,7 @@ def _probe(**kw):
         python_version="3.8.10",
         run_user=True,
         home_fs="ext2/ext3",
-        codex_home="/home/u/.codex",
+        agent_homes={"claude": "/home/u/.claude", "codex": "/home/u/.codex"},
         agent_dirs=("claude",),
         agent_bins={},
         home_id="",
@@ -56,6 +56,8 @@ def test_parse_probe():
         "abc",
     )
     assert p.agent_dirs == ("claude",) and p.agent_bins["claude"].endswith("/claude")
+    # codex_home comes from the probe ($CODEX_HOME); an agent it did not report gets the default
+    assert p.agent_homes == {"claude": "/data/u/.claude", "codex": "/data/u/.codex"}
     with pytest.raises(Exception, match="probe"):
         parse_probe("garbage")
     with pytest.raises(Exception, match="absolute"):

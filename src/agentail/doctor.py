@@ -1,7 +1,8 @@
 """`agentail doctor`: check every link of the chain and say how to fix what is broken.
 
 Checks, in order: the daemon (ui.sock), the systemd user service, the local hook
-script and the Claude / Codex hook entries (including whether Codex trusts them),
+script and each agent's hook entries (plus agent-specific checks: Claude's status line,
+whether Codex trusts the hooks),
 each remote host's tunnel as the daemon reports it, and the GNOME Shell extension.
 
 Remote hosts are judged by their tunnel: "connected" already means a ping from
@@ -20,11 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentail import agents as registry
 from agentail import paths
-from agentail.adapters import get_adapter
 from agentail.client import clean
 from agentail.config import load_hosts
-from agentail.install import codex_config, gnome, service, statusline
+from agentail.install import gnome, service, statusline
 from agentail.install.local import hook_dest
 
 Runner = Callable[[list[str]], tuple[int, str]]
@@ -66,7 +67,7 @@ def fetch_snapshot(sock: Path | None = None, timeout: float = 2.0) -> dict[str, 
 
 
 def _our_commands(doc: dict[str, Any]) -> dict[str, str]:
-    """event -> our hook command, from a Claude settings.json / Codex hooks.json document."""
+    """event -> our hook command, from an agent's hooks document (same shape for all)."""
     out: dict[str, str] = {}
     hooks = doc.get("hooks")
     if not isinstance(hooks, dict):
@@ -106,9 +107,9 @@ def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
             )
         ]
     ours = _our_commands(doc if isinstance(doc, dict) else {})
-    adapter = get_adapter(agent)
-    assert adapter is not None
-    wanted = adapter.hook_events()
+    spec = registry.get(agent)
+    assert spec is not None
+    wanted = spec.events()
     if not ours:
         return [Check(name, WARN, f"not installed in {path}", "agentail install-local")]
     missing = [e for e in wanted if e not in ours]
@@ -173,11 +174,28 @@ def _codex_trust(hooks_json: Path, config_toml: Path, events: int) -> Check:
     return Check(name, OK, f"{len(trusted)} hooks trusted (if one changed, Codex asks again)")
 
 
+def _claude_extras(spec: registry.AgentSpec) -> list[Check]:
+    return _check_status_line(spec.config_path())
+
+
+def _codex_extras(spec: registry.AgentSpec) -> list[Check]:
+    home = spec.home()
+    checks = [_codex_trust(spec.config_path(), home / "config.toml", len(spec.events()))]
+    for warning in spec.warnings(home) if spec.warnings else []:
+        checks.append(Check("codex config", WARN, warning))
+    return checks
+
+
+# Agent-specific checks, run once the agent's hooks are installed correctly.
+_EXTRA_CHECKS: dict[str, Callable[[registry.AgentSpec], list[Check]]] = {
+    "claude": _claude_extras,
+    "codex": _codex_extras,
+}
+
+
 def local_checks() -> list[Check]:
     checks = []
-    claude_home = Path.home() / ".claude"
-    codex_home = codex_config.codex_home()
-    used = claude_home.is_dir() or codex_home.is_dir()
+    used = any(a.home().is_dir() for a in registry.AGENTS)
     dest = hook_dest()
     if not dest.is_file():
         checks.append(
@@ -196,26 +214,12 @@ def local_checks() -> list[Check]:
         )
     else:
         checks.append(Check("hook script", OK, str(dest)))
-    claude = _check_agent_hooks("claude", claude_home / "settings.json", claude_home)
-    checks += claude
-    if claude[0].status == OK:
-        checks += _check_status_line(claude_home / "settings.json")
-    codex = _check_agent_hooks("codex", codex_home / "hooks.json", codex_home)
-    checks += codex
-    if codex[0].status == OK:
-        adapter = get_adapter("codex")
-        assert adapter is not None
-        checks.append(
-            _codex_trust(
-                codex_home / "hooks.json", codex_home / "config.toml", len(adapter.hook_events())
-            )
-        )
-        try:
-            toml = (codex_home / "config.toml").read_text(encoding="utf-8")
-        except OSError:
-            toml = ""
-        for warning in codex_config.config_warnings(toml):
-            checks.append(Check("codex config", WARN, warning))
+    for spec in registry.AGENTS:
+        hooks = _check_agent_hooks(spec.name, spec.config_path(), spec.home())
+        checks += hooks
+        extras = _EXTRA_CHECKS.get(spec.name)
+        if extras and hooks[0].status == OK:
+            checks += extras(spec)
     return checks
 
 

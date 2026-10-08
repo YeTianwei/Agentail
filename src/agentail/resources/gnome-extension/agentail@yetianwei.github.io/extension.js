@@ -25,7 +25,8 @@ import * as M from './model.js';
 
 const RECONNECT_MAX_S = 10;
 const AGE_REFRESH_S = 5;
-const KNOWN_AGENTS = ['claude', 'codex'];
+// Agents with an icon and a chip colour; tests keep this in sync with agentail.agents.
+const KNOWN_AGENTS = Object.keys(M.AGENT_NAME);
 const AGENT_ICON_SIZE = 16;
 const ADD_HOST_TIMEOUT_S = 150;
 const MAX_CHIPS = 40;

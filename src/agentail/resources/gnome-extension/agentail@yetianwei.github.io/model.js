@@ -35,6 +35,8 @@ const HOST_STATE_TEXT = {
     stopped: 'not set up',
 };
 
+// Same names and order as agentail.agents.AGENTS (tests/test_gnome_extension.py checks it).
+// Every agent here needs icons/agent-<name>.png and .agentail-chip-<name> in stylesheet.css.
 export const AGENT_NAME = {claude: 'Claude Code', codex: 'Codex'};
 
 export const LIMITS = {project: 40, subtitle: 140, detail: 160, hostDetail: 160};

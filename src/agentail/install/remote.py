@@ -6,12 +6,13 @@ add-host <alias>:
    first so hosts sharing one NFS $HOME write identical hook commands), whether
    /run/user/<uid> exists, the filesystem of $HOME, which agent config dirs exist,
    and the agent binaries (``command -v``, then ``~/.local/bin``: non-interactive
-   ssh shells often lack it, see docs/m0-verification.md).
+   ssh shells often lack it, see docs/m0-verification.md). The agents come from
+   ``agentail.agents`` and are passed to the fixed probe script as arguments.
 2. remote_sock: paths.remote_sock_preferred(uid), else paths.remote_sock_fallback(home)
    with a warning if $HOME is on NFS.
 3. Upload the hook to ~/.agentail/agentail-hook.py over ssh stdin (no scp), 0700.
    ~/.agentail/home-id holds a random id; hosts that report the same id share $HOME.
-4. Fetch each agent config (Claude ``settings.json``, Codex ``hooks.json``), merge
+4. Fetch each agent config (e.g. Claude ``settings.json``, Codex ``hooks.json``), merge
    locally with the same code as install-local, back up on the server, write back
    via tmp file + mv. A server-side ~/.agentail/install.json manifest lets
    remove-host restore the originals byte for byte (same rules as uninstall-local).
@@ -38,10 +39,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentail import agents as registry
 from agentail import config, paths
-from agentail.adapters import get_adapter
 from agentail.config import Host
-from agentail.install import claude_config, codex_config
 from agentail.install.local import (
     BACKUP_INFIX,
     InstallError,
@@ -55,7 +55,6 @@ from agentail.sshexec import Remote, Result, Runner, is_auth_failure
 
 Out = Callable[[str], None]
 
-AGENTS = ("claude", "codex")
 MIN_PYTHON = (3, 6)
 REMOTE_HOOK_PATH = f"~/.agentail/{paths.HOOK_FILENAME}"  # in hook commands; the shell expands ~
 CONNECT_WAIT_S = 30.0
@@ -77,13 +76,17 @@ if [ -n "$py" ]; then
 fi
 if [ -d "/run/user/$(id -u)" ]; then echo run_user=yes; else echo run_user=no; fi
 echo "home_fs=$(stat -f -c %T "$HOME" 2>/dev/null)"
-codex_home=${CODEX_HOME:-$HOME/.codex}
-echo "codex_home=$codex_home"
-if [ -d "$HOME/.claude" ]; then echo claude_dir=yes; fi
-if [ -d "$codex_home" ]; then echo codex_dir=yes; fi
-for a in claude codex; do
-  p=$(command -v "$a" 2>/dev/null)
-  if [ -z "$p" ] && [ -x "$HOME/.local/bin/$a" ]; then p=$HOME/.local/bin/$a; fi
+# Arguments: per agent, name, env var overriding its config dir (or ""), the dir relative
+# to $HOME, its binary.
+while [ $# -ge 4 ]; do
+  a=$1; var=$2; rel=$3; bin=$4; shift 4
+  dir=
+  if [ -n "$var" ]; then dir=$(printenv "$var" 2>/dev/null); fi
+  [ -n "$dir" ] || dir=$HOME/$rel
+  echo "${a}_home=$dir"
+  if [ -d "$dir" ]; then echo "${a}_dir=yes"; fi
+  p=$(command -v "$bin" 2>/dev/null)
+  if [ -z "$p" ] && [ -x "$HOME/.local/bin/$bin" ]; then p=$HOME/.local/bin/$bin; fi
   echo "${a}_bin=$p"
 done
 echo "home_id=$(cat "$HOME/.agentail/home-id" 2>/dev/null)"
@@ -152,7 +155,7 @@ class Probe:
     python_version: str
     run_user: bool
     home_fs: str
-    codex_home: str
+    agent_homes: dict[str, str]  # agent -> its config dir on the server
     agent_dirs: tuple[str, ...]
     agent_bins: dict[str, str]
     home_id: str
@@ -183,9 +186,11 @@ def parse_probe(stdout: str) -> Probe:
         python_version=kv.get("python_version", ""),
         run_user=kv.get("run_user") == "yes",
         home_fs=kv.get("home_fs", ""),
-        codex_home=kv.get("codex_home") or f"{home}/.codex",
-        agent_dirs=tuple(a for a in AGENTS if kv.get(f"{a}_dir") == "yes"),
-        agent_bins={a: kv.get(f"{a}_bin", "") for a in AGENTS},
+        agent_homes={
+            a.name: kv.get(f"{a.name}_home") or f"{home}/{a.dir_default}" for a in registry.AGENTS
+        },
+        agent_dirs=tuple(a for a in registry.names() if kv.get(f"{a}_dir") == "yes"),
+        agent_bins={a: kv.get(f"{a}_bin", "") for a in registry.names()},
         home_id=kv.get("home_id", ""),
     )
 
@@ -203,19 +208,20 @@ def choose_remote_sock(probe: Probe) -> tuple[str, list[str]]:
     return paths.remote_sock_fallback(probe.home), warnings
 
 
+def probe_args() -> list[str]:
+    """PROBE_SCRIPT's arguments: name, dir env var, dir under $HOME, binary per agent."""
+    return [f for a in registry.AGENTS for f in (a.name, a.dir_env, a.dir_default, a.binary)]
+
+
 def config_files(probe: Probe) -> dict[str, str]:
-    return {
-        "claude": f"{probe.home}/.claude/settings.json",
-        "codex": f"{probe.codex_home}/hooks.json",
-    }
+    return {a.name: f"{probe.agent_homes[a.name]}/{a.config_file}" for a in registry.AGENTS}
 
 
 def _merge_fn(agent: str, python: str, sock: str) -> Callable[[dict[str, Any]], dict[str, Any]]:
-    adapter = get_adapter(agent)
-    assert adapter is not None
-    events = adapter.hook_events()
-    module = claude_config if agent == "claude" else codex_config
-    return lambda doc: module.merge_hooks(doc, events, python, REMOTE_HOOK_PATH, sock)
+    spec = registry.get(agent)
+    assert spec is not None
+    events = spec.events()
+    return lambda doc: spec.merge(doc, events, python, REMOTE_HOOK_PATH, sock)
 
 
 def _manifest_path(probe: Probe) -> str:
@@ -260,7 +266,7 @@ def _backup_name(path: str) -> str:
 
 
 def _probe(remote: Remote) -> Probe:
-    res = remote.script(PROBE_SCRIPT)
+    res = remote.script(PROBE_SCRIPT, *probe_args())
     if is_auth_failure(res.stderr):
         raise RemoteError(
             f"ssh {remote.alias}: authentication failed. agentail runs ssh with BatchMode=yes: "
@@ -327,8 +333,7 @@ def _add_host(
     selected = list(agents) if agents else list(probe.agent_dirs)
     if not selected:
         raise RemoteError(
-            f"{alias}: no agent config found (~/.claude, $CODEX_HOME); "
-            "use --agent to install anyway"
+            f"{alias}: no agent config found ({registry.dir_hint()}); use --agent to install anyway"
         )
     for a in selected:
         if not probe.agent_bins.get(a):
@@ -390,11 +395,10 @@ def _add_host(
         out(f"{agent}: updated {alias}:{path}" + (f" (backup: {backup})" if backup else ""))
     if wrote:
         files.write(_manifest_path(probe), dump_json(manifest))
-    if "codex" in selected:
-        out(
-            f"codex: run codex once on {alias} and approve the agentail-hook entries in the hook "
-            "review screen (or /hooks); Codex skips untrusted hooks silently."
-        )
+    for agent in selected:
+        spec = registry.get(agent)
+        if spec and spec.trust_note:
+            out(f"{agent} on {alias}: {spec.trust_note}")
 
     existing = {h.alias: h for h in config.load_hosts()}
     host = Host(

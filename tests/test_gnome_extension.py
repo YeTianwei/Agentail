@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from agentail import cli
+from agentail import agents, cli
 from agentail.install import gnome
 
 EXT = gnome.source_dir()
@@ -32,10 +32,23 @@ def test_metadata_matches_uuid():
     assert "46" in meta["shell-version"]
 
 
+def test_agent_names_match_registry():
+    # model.js cannot import Python: its AGENT_NAME must list the registry's agents, in order.
+    src = (EXT / "model.js").read_text()
+    body = re.search(r"export const AGENT_NAME = \{(.*?)\};", src, re.S)
+    assert body
+    pairs = re.findall(r"(\w+): '([^']*)'", body.group(1))
+    assert pairs == [(a.name, a.display_name) for a in agents.AGENTS]
+    css = (EXT / "stylesheet.css").read_text()
+    for a in agents.names():
+        assert f".agentail-chip-{a} " in css
+        assert f".agentail-light .agentail-chip-{a} " in css
+
+
 def test_referenced_icons_exist():
     src = (EXT / "extension.js").read_text() + (EXT / "model.js").read_text()
     names = set(re.findall(r"'([\w.-]+\.(?:svg|png))'", src))
-    names |= {f"agent-{a}.png" for a in ("claude", "codex")}
+    names |= {f"agent-{a}.png" for a in agents.names()}
     assert names, "no icons referenced?"
     for name in names:
         assert (EXT / "icons" / name).is_file(), name

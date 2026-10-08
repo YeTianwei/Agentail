@@ -7,7 +7,7 @@ import logging
 import sys
 from pathlib import Path
 
-from agentail import __version__, paths
+from agentail import __version__, agents, paths
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -36,14 +36,12 @@ def _build_parser() -> argparse.ArgumentParser:
     st = sub.add_parser("status", help="print current sessions and hosts")
     st.add_argument("--json", action="store_true", help="print the raw snapshot")
 
-    i = sub.add_parser(
-        "install-local", help="install hooks for Claude Code / Codex on this machine"
-    )
+    i = sub.add_parser("install-local", help="install hooks for coding agents on this machine")
     i.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")
     i.add_argument(
         "--agent",
         action="append",
-        choices=["claude", "codex"],
+        choices=agents.names(),
         help="agent to install for (repeatable; default: every agent with a config dir)",
     )
     u = sub.add_parser("uninstall-local", help="remove agentail hooks from this machine")
@@ -55,7 +53,7 @@ def _build_parser() -> argparse.ArgumentParser:
     ah.add_argument(
         "--agent",
         action="append",
-        choices=["claude", "codex"],
+        choices=agents.names(),
         help="agent to install for (repeatable; default: every agent with a config dir there)",
     )
     ah.add_argument("--dry-run", action="store_true", help="show the changes, write nothing")

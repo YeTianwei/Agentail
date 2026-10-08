@@ -15,6 +15,7 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
+from agentail import agents
 from agentail.client import (
     age_text,
     clean,
@@ -45,7 +46,7 @@ _HOST_LEVEL = {
     "stopped": "off",
 }
 
-AGENT_NAME = {"claude": "Claude Code", "codex": "Codex"}
+AGENT_NAME = {a.name: a.display_name for a in agents.AGENTS}
 DETAIL_LIMIT = 80
 CWD_LIMIT = 40
 NOTIFY_INTERVAL_S = 10.0

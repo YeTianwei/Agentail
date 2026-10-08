@@ -4,9 +4,10 @@ Install:
 
 * copy resources/agentail-hook.py to ~/.agentail/agentail-hook.py (dir and file 0700),
 * python = sys.executable resolved to an absolute path, sock = paths.local_sock(),
-* for each agent: back up its config file to ``<file>.agentail-bak.<timestamp>``,
-  merge our entries (claude_config / codex_config) and write atomically (tmp + rename).
-  Claude: ``~/.claude/settings.json``. Codex: ``$CODEX_HOME/hooks.json``.
+* for each agent in ``agentail.agents``: back up its config file to
+  ``<file>.agentail-bak.<timestamp>``, merge our entries (the agent's config module) and
+  write atomically (tmp + rename). Claude: ``~/.claude/settings.json``. Codex:
+  ``$CODEX_HOME/hooks.json``.
 
 A manifest (``~/.agentail/install.json``) remembers, per config file, whether it
 existed before we touched it, the backup taken at that point, and a hash of what
@@ -32,11 +33,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentail import agents as registry
 from agentail import paths
-from agentail.adapters import get_adapter
-from agentail.install import claude_config, codex_config, hookjson
+from agentail.install import hookjson
 
-AGENTS = ("claude", "codex")
 MANIFEST_NAME = "install.json"
 BACKUP_INFIX = ".agentail-bak."
 
@@ -135,27 +135,10 @@ def local_python() -> str:
 
 
 def targets(python: str, hook_path: str, sock: str) -> dict[str, Target]:
-    def events(agent: str) -> list[str]:
-        adapter = get_adapter(agent)
-        assert adapter is not None
-        return adapter.hook_events()
+    def merge(spec: registry.AgentSpec) -> Callable[[dict[str, Any]], dict[str, Any]]:
+        return lambda d: spec.merge(d, spec.events(), python, hook_path, sock)
 
-    claude_home = Path.home() / ".claude"
-    codex_home = codex_config.codex_home()
-    return {
-        "claude": Target(
-            "claude",
-            claude_home / "settings.json",
-            claude_home,
-            lambda d: claude_config.merge_hooks(d, events("claude"), python, hook_path, sock),
-        ),
-        "codex": Target(
-            "codex",
-            codex_home / "hooks.json",
-            codex_home,
-            lambda d: codex_config.merge_hooks(d, events("codex"), python, hook_path, sock),
-        ),
-    }
+    return {a.name: Target(a.name, a.config_path(), a.home(), merge(a)) for a in registry.AGENTS}
 
 
 def _manifest_path() -> Path:
@@ -209,7 +192,7 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
     else:
         selected = [t for t in all_targets.values() if t.home.is_dir()]
         if not selected:
-            out("No agent config found (~/.claude, ~/.codex). Use --agent to install anyway.")
+            out(f"No agent config found ({registry.dir_hint()}). Use --agent to install anyway.")
             return 1
 
     try:
@@ -269,14 +252,13 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
         out(f"{t.agent}: updated {t.path}" + (f" (backup: {backup})" if backup else " (created)"))
     _save_manifest(manifest)
 
-    if any(p.target.agent == "codex" for p in plans):
-        cfg = _read(codex_config.codex_home() / "config.toml")
-        for warning in codex_config.config_warnings(cfg or ""):
+    for p in plans:
+        spec = registry.get(p.target.agent)
+        assert spec is not None
+        for warning in spec.warnings(p.target.home) if spec.warnings else []:
             out(f"warning: {warning}")
-        out(
-            "codex: Codex runs new hooks only after you trust them. Start codex and approve the "
-            "agentail-hook entries in the hook review screen (or via /hooks)."
-        )
+        if spec.trust_note:
+            out(f"{spec.name}: {spec.trust_note}")
     out(f"Events go to {paths.local_sock()}; start `agentail daemon` to receive them.")
     return 0
 

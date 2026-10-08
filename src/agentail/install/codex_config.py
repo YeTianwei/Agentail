@@ -26,7 +26,14 @@ from typing import Any
 from agentail.install import hookjson
 from agentail.install.hookjson import remove_hooks
 
-__all__ = ["HOOK_TIMEOUT_S", "codex_home", "config_warnings", "merge_hooks", "remove_hooks"]
+__all__ = [
+    "HOOK_TIMEOUT_S",
+    "codex_home",
+    "config_warnings",
+    "local_warnings",
+    "merge_hooks",
+    "remove_hooks",
+]
 
 # SessionEnd and Interrupt hooks are capped at 3 s by Codex; the script gives up after ~1 s.
 HOOK_TIMEOUT_S = 3
@@ -55,6 +62,17 @@ def merge_hooks(
         matcher=None,
         filename="hooks.json",
     )
+
+
+def local_warnings(home: Path) -> list[str]:
+    """``config_warnings`` for ``<home>/config.toml``; a missing file is fine."""
+    try:
+        text = (home / "config.toml").read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return []
+    except (OSError, UnicodeDecodeError) as exc:
+        return [f"{home / 'config.toml'}: cannot read ({exc})"]
+    return config_warnings(text)
 
 
 def config_warnings(config_toml: str) -> list[str]:

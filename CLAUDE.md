@@ -12,6 +12,8 @@ Reply to the owner in Chinese; code, comments, commit messages and docstrings in
   stdlib only, no agent logic.
 - `src/agentail/protocol.py` — wire protocol v1 (`docs/protocol.md`).
 - `src/agentail/daemon/` — `ingest` (sockets), `state` (pure reducer), `tunnels` (ssh -R), `uiapi`.
+- `src/agentail/agents.py` — the agent registry (`AgentSpec`); installers, doctor, CLI and UIs read
+  it. Adding an agent: see its docstring.
 - `src/agentail/adapters/` — per-agent decoding. `src/agentail/install/` — per-agent config merge,
   `install-local`, `add-host` / `remove-host` (`remote.py`).
 - `src/agentail/sshexec.py` — the only way to build remote commands (argv + `shlex.quote`).
