@@ -30,6 +30,7 @@ from agentail.adapters.base import (
     tool_preview,
 )
 from agentail.protocol import HookMessage
+from agentail.usage import UsageReading
 
 _KINDS = {
     "SessionStart": EventKind.SESSION_START,
@@ -83,3 +84,6 @@ class CodexAdapter:
             env=dict(msg.env),
             raw_event=event_name,
         )
+
+    def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
+        return None  # Codex hooks carry no usage; the daemon reads it from the session files

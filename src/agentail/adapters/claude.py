@@ -21,6 +21,7 @@ from agentail.adapters.base import (
     tool_preview,
 )
 from agentail.protocol import HookMessage
+from agentail.usage import UsageReading, make_window, sorted_windows
 
 _KINDS = {
     "SessionStart": EventKind.SESSION_START,
@@ -62,6 +63,12 @@ def _classify_notification(payload: dict) -> Attention | None:
     return None
 
 
+STATUS_LINE_EVENT = "StatusLine"
+# Documented rate_limits windows and their lengths (https://code.claude.com/docs/en/statusline,
+# checked 2026-10-08): the 5-hour and the 7-day window.
+_WINDOWS = (("five_hour", 300), ("seven_day", 10080))
+
+
 class ClaudeAdapter:
     name = "claude"
     capabilities = Capabilities(can_approve=False)  # v1: status only
@@ -98,3 +105,23 @@ class ClaudeAdapter:
             env=dict(msg.env),
             raw_event=event_name,
         )
+
+    def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
+        """``rate_limits`` of the statusLine JSON. Present only for Pro/Max subscribers and
+        after the session's first response; each window may be missing on its own."""
+        if msg.event != STATUS_LINE_EVENT:
+            return None
+        limits = (msg.payload() or {}).get("rate_limits")
+        if not isinstance(limits, dict):
+            return None
+        windows = []
+        for name, minutes in _WINDOWS:
+            w = limits.get(name)
+            if isinstance(w, dict):
+                windows.append(
+                    make_window(w.get("used_percentage"), minutes, w.get("resets_at"), msg.ts)
+                )
+        ordered = sorted_windows(windows)
+        if not ordered:
+            return None
+        return UsageReading(host=host, agent=self.name, windows=ordered, ts=msg.ts)

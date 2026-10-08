@@ -26,13 +26,18 @@ from agentail.config import Host, load_hosts, load_retention
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
-from agentail.daemon.uiapi import UiServer, session_to_dict
+from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
+from agentail.daemon.usage_codex import read_codex_usage
+from agentail.install.codex_config import codex_home
 from agentail.protocol import HookMessage
+from agentail.usage import UsageReading, UsageStore
 
 log = logging.getLogger(__name__)
 
 SWEEP_INTERVAL_S = 30.0
 HOSTS_POLL_S = 2.0
+CODEX_USAGE_POLL_S = 60.0
+CODEX_USAGE_DEBOUNCE_S = 5.0  # after a local Codex event, before re-reading its files
 
 
 @dataclass
@@ -50,6 +55,7 @@ class Daemon:
         ssh: str = "ssh",
         tunnel_opts: dict[str, float] | None = None,
         hosts_poll: float = HOSTS_POLL_S,
+        codex_usage_home: Path | None = None,
     ) -> None:
         try:
             retention = load_retention()
@@ -57,6 +63,9 @@ class Daemon:
             log.warning("%s; using the default session timeouts", exc)
             retention = Retention()
         self.store = Store(retention)
+        self.usage = UsageStore()
+        self._codex_home = codex_usage_home
+        self._codex_usage_due = 0.0  # monotonic time of the next read of the Codex files
         self._dirty = False  # sessions changed since they were last saved
         self.print_events = print_events
         self.record_dir = record_dir
@@ -93,6 +102,13 @@ class Daemon:
         if self.record_dir is not None:
             self._record(source, msg)
         adapter = get_adapter(msg.agent)
+        reading = adapter.usage(msg, host=source) if adapter else None
+        if reading is not None:
+            self._on_usage(reading)
+        if source == LOCAL_SOURCE and msg.agent == "codex":
+            self._codex_usage_due = min(
+                self._codex_usage_due or float("inf"), time.monotonic() + CODEX_USAGE_DEBOUNCE_S
+            )
         event = adapter.decode(msg, host=source) if adapter else None
         if self.print_events:
             print(
@@ -118,7 +134,37 @@ class Daemon:
         return {
             "sessions": [session_to_dict(s) for s in self.store.sessions.values()],
             "hosts": list(self.hosts.values()),
+            "usage": [usage_to_dict(r) for r in self.usage.readings.values()],
         }
+
+    def _on_usage(self, reading: UsageReading) -> None:
+        if not self.usage.update(reading):
+            return
+        if self.ui is not None:
+            self.ui.broadcast({"type": "usage_update", "usage": usage_to_dict(reading)})
+        if self.print_events:
+            print(
+                json.dumps(
+                    {
+                        "usage": reading.agent,
+                        "host": reading.host,
+                        "windows": [[w.window_minutes, w.used_percent] for w in reading.windows],
+                    }
+                ),
+                flush=True,
+            )
+
+    async def _read_codex_usage(self) -> None:
+        """Local Codex only: its hooks carry no usage, but its session files do."""
+        self._codex_usage_due = time.monotonic() + CODEX_USAGE_POLL_S
+        home = self._codex_home or codex_home()
+        try:
+            reading = await asyncio.to_thread(read_codex_usage, home, LOCAL_SOURCE)
+        except Exception:  # an unexpected file must never take the daemon down
+            log.exception("reading Codex usage failed")
+            return
+        if reading is not None:
+            self._on_usage(reading)
 
     def _publish(self, change: Change) -> None:
         self._dirty = True
@@ -220,6 +266,11 @@ class Daemon:
                 await self._stop_host(alias)
                 if alias not in wanted:
                     del self.hosts[alias]
+                    for key in self.usage.drop_host(alias):
+                        if self.ui is not None:
+                            self.ui.broadcast(
+                                {"type": "usage_remove", "host": key.host, "agent": key.agent}
+                            )
                     if self.ui is not None:
                         self.ui.broadcast({"type": "host_remove", "alias": alias})
                     for change in self.store.drop_host(alias):
@@ -282,6 +333,7 @@ class Daemon:
                 loop = asyncio.get_running_loop()
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     loop.add_signal_handler(sig, self.stop)
+            await self._read_codex_usage()
             self.started.set()
             if self.on_started is not None:
                 asyncio.get_running_loop().run_in_executor(None, self.on_started)
@@ -291,6 +343,8 @@ class Daemon:
                     await asyncio.wait_for(self._stop.wait(), self.hosts_poll)
                 except TimeoutError:
                     await self.sync_hosts()
+                    if time.monotonic() >= self._codex_usage_due:
+                        await self._read_codex_usage()
                     if time.monotonic() >= next_sweep:
                         next_sweep = time.monotonic() + SWEEP_INTERVAL_S
                         for change in self.store.sweep(time.time()):

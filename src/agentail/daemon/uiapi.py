@@ -1,8 +1,9 @@
 """ui.sock: pushes state to UI processes (`agentail tail` / `status`, the top bar indicator).
 
 Protocol (docs/protocol.md, "UI protocol"): on connect the daemon sends one
-``{"type": "snapshot", "sessions": [...], "hosts": [...]}`` line, then
-``session_update`` / ``session_remove`` / ``host_status`` / ``notify`` lines.
+``{"type": "snapshot", "sessions": [...], "hosts": [...], "usage": [...]}`` line, then
+``session_update`` / ``session_remove`` / ``host_status`` / ``usage_update`` /
+``usage_remove`` / ``notify`` lines.
 The UI holds no business state and rebuilds from a new snapshot after reconnecting.
 
 Each client has a bounded queue. ``broadcast`` never awaits: a client whose
@@ -22,6 +23,7 @@ from typing import Any
 
 from agentail.daemon.state import Change, Session, SessionKey
 from agentail.paths import ensure_private_dir
+from agentail.usage import UsageReading
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +47,23 @@ def session_to_dict(s: Session) -> dict[str, Any]:
         "message": s.message,
         "started_ts": s.started_ts,
         "last_ts": s.last_ts,
+    }
+
+
+def usage_to_dict(r: UsageReading) -> dict[str, Any]:
+    return {
+        "host": r.host,
+        "agent": r.agent,
+        "plan": r.plan,
+        "windows": [
+            {
+                "used_percent": w.used_percent,
+                "window_minutes": w.window_minutes,
+                "resets_at": w.resets_at,
+            }
+            for w in r.windows
+        ],
+        "updated_ts": r.ts,
     }
 
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from agentail.protocol import HookMessage
+from agentail.usage import UsageReading
 
 
 class EventKind(enum.StrEnum):
@@ -99,4 +100,8 @@ class Adapter(Protocol):
 
     def hook_events(self) -> list[str]:
         """Agent hook event names the installer should register (v1: all fire)."""
+        ...
+
+    def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
+        """Subscription usage carried by this message (Claude's StatusLine), or None."""
         ...
