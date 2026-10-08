@@ -29,6 +29,7 @@ const KNOWN_AGENTS = ['claude', 'codex'];
 const AGENT_ICON_SIZE = 16;
 const ADD_HOST_TIMEOUT_S = 150;
 const MAX_CHIPS = 40;
+const USAGE_BAR_WIDTH = 120;
 // Replaced by packaging/build-deb.sh with the same stamp it writes into metadata.json's
 // "version-name". GNOME Shell keeps an extension's code in memory until it restarts, so
 // after an upgrade the disk stamp differs from this one and the panel says so.
@@ -38,9 +39,9 @@ function uiSocketPath() {
     return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
 }
 
-// Panel preferences (theme, Servers expanded), kept in ~/.config/agentail/panel.json.
+// Panel preferences (theme, Usage and Servers expanded), kept in ~/.config/agentail/panel.json.
 // Only this extension writes the file; anything unreadable falls back to the defaults.
-const PREFS_DEFAULT = {theme: null, servers_open: false};
+const PREFS_DEFAULT = {theme: null, servers_open: false, usage_open: true};
 
 function prefsPath() {
     return GLib.build_filenamev([GLib.get_user_config_dir(), 'agentail', 'panel.json']);
@@ -53,6 +54,7 @@ function loadPrefs() {
         return {
             theme: data.theme === 'light' || data.theme === 'dark' ? data.theme : null,
             servers_open: data.servers_open === true,
+            usage_open: data.usage_open !== false,
         };
     } catch {
         return {...PREFS_DEFAULT};
@@ -394,6 +396,9 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         // The light/dark switch sits top right, on the first agent's row.
         groups.forEach((g, i) => content.add_child(this._agentGroup(g, i === 0)));
+        const usage = M.usageCards(st, now);
+        if (usage.length)
+            content.add_child(this._usage(usage));
         content.add_child(this._hosts(M.hostRows(st)));
 
         const scroll = new St.ScrollView({
@@ -510,6 +515,74 @@ class AgentailIndicator extends PanelMenu.Button {
                 box.add_child(label(c.toolDetail, 'agentail-command', {ellipsize: true}));
             const where = c.host === 'This computer' ? 'Answer it in the terminal' : `Answer it in the terminal on ${c.host}`;
             box.add_child(label(where, 'agentail-hint', {ellipsize: true}));
+        }
+        return box;
+    }
+
+    _usage(cards) {
+        const box = vbox('agentail-group', {x_expand: true});
+        const open = this._prefs.usage_open;
+        const head = hbox('agentail-servers-head', {x_expand: true});
+        head.add_child(label('Usage', 'agentail-section', {xExpand: true}));
+        head.add_child(new St.Icon({
+            icon_name: open ? 'pan-down-symbolic' : 'pan-end-symbolic',
+            icon_size: 14,
+            style_class: 'agentail-chevron',
+        }));
+        const toggle = new St.Button({
+            style_class: 'agentail-servers-toggle',
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            x_expand: true,
+            accessible_name: open ? 'Hide usage' : 'Show usage',
+            child: head,
+        });
+        toggle.connect('clicked', () => {
+            this._prefs.usage_open = !open;
+            savePrefs(this._prefs);
+            this._renderPanel();
+        });
+        box.add_child(toggle);
+        if (open)
+            cards.forEach(c => box.add_child(this._usageCard(c)));
+        return box;
+    }
+
+    _usageCard(c) {
+        const box = vbox(`agentail-card agentail-usage${c.stale ? ' agentail-card-stale' : ''}`,
+            {x_expand: true});
+        const top = hbox('agentail-card-top', {x_expand: true});
+        if (KNOWN_AGENTS.includes(c.agent)) {
+            top.add_child(new St.Icon({
+                gicon: this._gicon(`agent-${c.agent}.png`),
+                icon_size: 16,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        }
+        top.add_child(label(c.plan ? `${c.name} · ${c.plan}` : c.name, 'agentail-project',
+            {ellipsize: true, xExpand: true}));
+        const when = [c.via ? `via ${c.via}` : '', c.updatedText].filter(t => t).join(' · ');
+        if (when)
+            top.add_child(label(when, 'agentail-age'));
+        box.add_child(top);
+        for (const r of c.rows) {
+            const row = hbox('agentail-usage-row', {x_expand: true});
+            row.add_child(label(r.label, 'agentail-usage-label'));
+            const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
+            track.set_width(USAGE_BAR_WIDTH);
+            if (r.fraction > 0) {
+                track.add_child(new St.Widget({
+                    style_class: `agentail-usage-fill agentail-usage-${r.level}`,
+                    width: Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction)),
+                    y_expand: true,
+                }));
+            }
+            row.add_child(track);
+            if (r.percent !== null)
+                row.add_child(label(`${r.percent}%`, `agentail-usage-percent agentail-usage-text-${r.level}`));
+            row.add_child(label(r.resetText, 'agentail-usage-reset', {ellipsize: true, xExpand: true}));
+            box.add_child(row);
         }
         return box;
     }

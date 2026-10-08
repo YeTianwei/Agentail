@@ -204,6 +204,23 @@
 .agentail-servers-toggle { padding: 4px 6px; border-radius: 8px; }
 .agentail-servers-toggle:hover, .agentail-servers-toggle:focus { background-color: rgba(255, 255, 255, 0.06); }
 .agentail-servers-head { spacing: 8px; }
+
+.agentail-usage { spacing: 6px; padding: 10px 14px; }
+.agentail-usage-row { spacing: 8px; }
+.agentail-usage-label { font-size: 12px; color: #c0c0c6; min-width: 34px; }
+.agentail-usage-track { height: 6px; border-radius: 3px; background-color: rgba(255, 255, 255, 0.12); }
+.agentail-usage-fill { border-radius: 3px; }
+.agentail-usage-ok { background-color: #62a0ea; }
+.agentail-usage-warn { background-color: #ffa348; }
+.agentail-usage-crit { background-color: #f66151; }
+.agentail-usage-off { background-color: #77767b; }
+.agentail-usage-percent { font-size: 12px; font-weight: bold; min-width: 34px; text-align: right; }
+.agentail-usage-text-ok { color: #99c1f1; }
+.agentail-usage-text-warn { color: #ffbe7a; }
+.agentail-usage-text-crit { color: #ff938a; }
+.agentail-usage-text-off { color: #9a9aa0; }
+.agentail-usage-reset { font-size: 11.5px; color: #8e8e94; }
+.agentail-card-stale .agentail-usage-fill { background-color: #77767b; }
 .agentail-servers-head .agentail-section { padding: 0; }
 .agentail-servers-summary { font-size: 12px; }
 .agentail-chevron { color: #8e8e94; }
@@ -260,3 +277,15 @@
 .agentail-light .agentail-empty { background-color: #ffffff; }
 .agentail-light .agentail-empty-icon { background-color: #3a3a3f; }
 .agentail-light .agentail-update { background-color: rgba(28, 113, 216, 0.10); color: #1a4f91; }
+.agentail-light .agentail-usage-label { color: #3d3846; }
+.agentail-light .agentail-usage-track { background-color: rgba(0, 0, 0, 0.10); }
+.agentail-light .agentail-usage-ok { background-color: #1c71d8; }
+.agentail-light .agentail-usage-warn { background-color: #e66100; }
+.agentail-light .agentail-usage-crit { background-color: #c01c28; }
+.agentail-light .agentail-usage-off { background-color: #9a9996; }
+.agentail-light .agentail-usage-text-ok { color: #1c71d8; }
+.agentail-light .agentail-usage-text-warn { color: #c64600; }
+.agentail-light .agentail-usage-text-crit { color: #c01c28; }
+.agentail-light .agentail-usage-text-off { color: #77767b; }
+.agentail-light .agentail-usage-reset { color: #77767b; }
+.agentail-light .agentail-card-stale .agentail-usage-fill { background-color: #9a9996; }
