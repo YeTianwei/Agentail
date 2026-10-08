@@ -109,6 +109,17 @@ def load_retention(path: Path | None = None) -> Retention:
     return Retention(**values)
 
 
+def load_auto_setup(path: Path | None = None) -> bool:
+    """``[setup] auto = false`` in config.toml turns the first-start setup off (default: on)."""
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            value = tomllib.load(fh).get("setup", {}).get("auto", True)
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return True
+    return value is not False
+
+
 def _load_doc(path: Path) -> tomlkit.TOMLDocument:
     if not path.exists():
         return tomlkit.document()

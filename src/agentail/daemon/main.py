@@ -15,6 +15,7 @@ import os
 import signal
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,7 @@ class Daemon:
         self.ssh = ssh
         self.tunnel_opts = tunnel_opts or {}  # backoff/ping timings; tests shorten them
         self.hosts_poll = hosts_poll
+        self.on_started: Callable[[], None] | None = None  # run in a thread once serving
         self.listeners: list[Listener] = []
         self.remotes: dict[str, _RemoteHost] = {}
         self.ui: UiServer | None = None
@@ -281,6 +283,8 @@ class Daemon:
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     loop.add_signal_handler(sig, self.stop)
             self.started.set()
+            if self.on_started is not None:
+                asyncio.get_running_loop().run_in_executor(None, self.on_started)
             next_sweep = time.monotonic() + SWEEP_INTERVAL_S
             while not self._stop.is_set():
                 try:
@@ -317,9 +321,23 @@ def _socket_alive(path: Path) -> bool:
         s.close()
 
 
-def run_daemon(print_events: bool, record_dir: Path | None, ssh: str = "ssh") -> int:
+def _auto_setup() -> None:
+    from agentail import firstrun
+
     try:
-        asyncio.run(Daemon(print_events=print_events, record_dir=record_dir, ssh=ssh).run())
+        firstrun.run_setup()
+    except Exception:
+        log.exception("first-start setup failed")
+
+
+def run_daemon(
+    print_events: bool, record_dir: Path | None, ssh: str = "ssh", auto_setup: bool = False
+) -> int:
+    daemon = Daemon(print_events=print_events, record_dir=record_dir, ssh=ssh)
+    if auto_setup:
+        daemon.on_started = _auto_setup
+    try:
+        asyncio.run(daemon.run())
     except DaemonAlreadyRunning as exc:
         log.error("%s", exc)
         # A distinct status, so the systemd unit does not restart in a loop.

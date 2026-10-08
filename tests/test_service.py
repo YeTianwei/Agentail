@@ -71,3 +71,16 @@ def test_daemon_exit_status_when_already_running(runtime_env):
         assert run_daemon(print_events=False, record_dir=None) == service.EXIT_ALREADY_RUNNING
     finally:
         srv.close()
+
+
+def test_start_packaged_unit(runtime_env):
+    calls = []
+
+    def run(argv):
+        calls.append(argv)
+        return (3, "") if argv[-2:] == ["--quiet", service.UNIT] else (0, "")
+
+    lines = []
+    assert service.start_packaged(out=lines.append, run=run) == 0
+    assert ["systemctl", "--user", "start", service.UNIT] in calls
+    assert ["systemctl", "--user", "daemon-reload"] in calls

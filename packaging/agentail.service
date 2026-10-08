@@ -1,0 +1,19 @@
+# Shipped by the agentail .deb. Enabled for every user at install time
+# (`systemctl --global enable agentail.service`); started with the desktop session.
+[Unit]
+Description=agentail daemon (live status of AI coding agents)
+Documentation=https://github.com/YeTianwei/Agentail
+PartOf=graphical-session.target
+After=graphical-session.target
+# Not for system users such as gdm, whose greeter session also reaches the target.
+ConditionUser=!@system
+
+[Service]
+ExecStart=/usr/bin/agentail daemon --auto-setup
+Restart=on-failure
+RestartSec=3
+# Exit status 3: another daemon already owns ui.sock; restarting would only loop.
+RestartPreventExitStatus=3
+
+[Install]
+WantedBy=graphical-session.target

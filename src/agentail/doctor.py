@@ -202,7 +202,7 @@ def local_checks() -> list[Check]:
 
 
 def daemon_checks(snapshot: dict[str, Any] | None, run: Runner) -> list[Check]:
-    installed = service.unit_path().exists()
+    installed = service.unit_path().exists() or service.packaged()
     active = installed and service.service_active(run)
     checks = []
     if snapshot is None:
@@ -211,7 +211,16 @@ def daemon_checks(snapshot: dict[str, Any] | None, run: Runner) -> list[Check]:
     else:
         n = len(snapshot.get("sessions") or [])
         checks.append(Check("daemon", OK, f"running, {n} session{'s' if n != 1 else ''}"))
-    if not installed:
+    if service.packaged() and service.unit_path().exists():
+        checks.append(
+            Check(
+                "autostart",
+                WARN,
+                f"{service.unit_path()} overrides the packaged service (no automatic setup)",
+                "agentail uninstall-service",
+            )
+        )
+    elif not installed:
         checks.append(
             Check(
                 "autostart",
@@ -289,6 +298,8 @@ def extension_checks(run: Runner) -> list[Check]:
     if run(["gnome-shell", "--version"])[0] != 0:
         return [Check(name, INFO, "GNOME Shell not found; use `agentail ui` instead")]
     dest, src = gnome.target_dir(), gnome.source_dir()
+    if not dest.exists() and (gnome.system_dir() / "metadata.json").is_file():
+        dest = gnome.system_dir()  # the .deb copy: always matches the installed version
     if not dest.exists():
         return [Check(name, INFO, "not installed (optional)", "agentail install-gnome-extension")]
     stale = [
