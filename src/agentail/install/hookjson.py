@@ -62,7 +62,9 @@ def has_hooks(doc: dict[str, Any]) -> bool:
 
 
 def remove_hooks(doc: dict[str, Any]) -> dict[str, Any]:
-    out = copy.deepcopy(doc)
+    from agentail.install import statusline  # imports hook_command from here
+
+    out = statusline.unwrap(copy.deepcopy(doc))
     hooks = out.get("hooks")
     if not isinstance(hooks, dict):
         return out

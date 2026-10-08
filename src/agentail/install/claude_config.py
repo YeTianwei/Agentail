@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from agentail.install import hookjson
+from agentail.install import hookjson, statusline
 from agentail.install.hookjson import hook_command, remove_hooks
 
 __all__ = ["HOOK_TIMEOUT_S", "hook_command", "merge_hooks", "remove_hooks"]
@@ -27,8 +27,9 @@ HOOK_TIMEOUT_S = 5  # fire mode; the script itself gives up after ~1s
 def merge_hooks(
     settings: dict[str, Any], events: list[str], python: str, hook_path: str, sock: str
 ) -> dict[str, Any]:
-    """Return a copy of settings with exactly one agentail entry per event."""
-    return hookjson.merge_hooks(
+    """Return a copy of settings with exactly one agentail entry per event, and the status
+    line wrapped so that the rate limits reach Agentail (install/statusline.py)."""
+    merged = hookjson.merge_hooks(
         settings,
         agent="claude",
         events=events,
@@ -39,3 +40,4 @@ def merge_hooks(
         matcher="",
         filename="settings.json",
     )
+    return statusline.wrap(merged, python, hook_path, sock)
