@@ -1,5 +1,4 @@
 # Build the .deb and attach it to the GitHub release when a v* tag is pushed.
-# Not yet run on GitHub: if it fails, build locally with packaging/build-deb.sh and upload by hand.
 name: release
 on:
   push:
@@ -24,8 +23,15 @@ jobs:
           [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != version $v"; exit 1; }
       - name: Build
         run: packaging/build-deb.sh dist
+      - name: Release notes
+        # Hand-written notes in .github/release-notes/<tag>.md; GitHub's generated list otherwise.
+        id: notes
+        run: |
+          f=".github/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$f" ]; then echo "path=$f" >> "$GITHUB_OUTPUT"; fi
       - name: Publish
         uses: softprops/action-gh-release@v2
         with:
           files: dist/*.deb
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.path }}
+          generate_release_notes: ${{ steps.notes.outputs.path == '' }}
