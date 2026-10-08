@@ -1,5 +1,6 @@
 """The .deb: shipped unit matches the code, and the build produces what the scripts expect."""
 
+import json
 import shutil
 import subprocess
 from pathlib import Path
@@ -47,6 +48,13 @@ def test_build_deb(tmp_path):
     ):
         assert needed in listing, needed
     assert "__pycache__" not in listing
+    # The extension code and its metadata carry the same build stamp.
+    root = tmp_path / "root"
+    subprocess.run(["dpkg-deb", "-x", str(deb), str(root)], check=True)
+    ext = root / "usr/lib/python3/dist-packages/agentail/resources/gnome-extension" / gnome.UUID
+    stamp = json.loads((ext / "metadata.json").read_text())["version-name"]
+    assert stamp.startswith(agentail.__version__ + "+")
+    assert f"const BUILD = '{stamp}';" in (ext / "extension.js").read_text()
     control = subprocess.run(
         ["dpkg-deb", "-f", str(deb)], capture_output=True, text=True, check=True
     ).stdout

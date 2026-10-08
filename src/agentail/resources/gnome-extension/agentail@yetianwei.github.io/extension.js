@@ -28,6 +28,10 @@ const AGE_REFRESH_S = 5;
 const KNOWN_AGENTS = ['claude', 'codex'];
 const AGENT_ICON_SIZE = 16;
 const ADD_HOST_TIMEOUT_S = 150;
+// Replaced by packaging/build-deb.sh with the same stamp it writes into metadata.json's
+// "version-name". GNOME Shell keeps an extension's code in memory until it restarts, so
+// after an upgrade the disk stamp differs from this one and the panel says so.
+const BUILD = 'dev';
 
 function uiSocketPath() {
     return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
@@ -340,6 +344,8 @@ class AgentailIndicator extends PanelMenu.Button {
         const st = this._state;
         this._panel.destroy_all_children();
 
+        if (this._outdated())
+            this._panel.add_child(this._updateBanner());
         if (!st.connected) {
             this._panel.add_child(this._offline());
             return;
@@ -629,6 +635,26 @@ class AgentailIndicator extends PanelMenu.Button {
                 message = action === 'add' ? M.addedMessage(alias, out) : M.removedMessage(alias, out);
             this._setAdd({mode: 'result', ok, action, alias, message});
         });
+    }
+
+    // True when the installed extension on disk is newer than the code running now.
+    _outdated() {
+        if (BUILD === 'dev')
+            return false;
+        try {
+            const [, bytes] = GLib.file_get_contents(this._ext.dir.get_child('metadata.json').get_path());
+            const onDisk = JSON.parse(new TextDecoder().decode(bytes))['version-name'];
+            return typeof onDisk === 'string' && onDisk !== BUILD;
+        } catch {
+            return false;
+        }
+    }
+
+    _updateBanner() {
+        const text = label('Agentail was updated. Press Alt+F2, type r, Enter (X11), or log out and back in to load the new panel.',
+            'agentail-update');
+        text.clutter_text.line_wrap = true;
+        return text;
     }
 
     _empty() {

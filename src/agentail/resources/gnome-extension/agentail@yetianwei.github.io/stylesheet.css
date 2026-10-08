@@ -190,3 +190,11 @@
 .agentail-btn-x:hover, .agentail-btn-x:focus { background-color: rgba(255, 107, 107, 0.18); color: #ffa8a8; }
 .agentail-btn-danger { background-color: rgba(255, 107, 107, 0.18); color: #ffb4b4; font-weight: bold; }
 .agentail-btn-danger:hover, .agentail-btn-danger:focus { background-color: rgba(255, 107, 107, 0.30); }
+
+.agentail-update {
+  padding: 9px 12px;
+  border-radius: 10px;
+  background-color: rgba(98, 160, 234, 0.16);
+  color: #c5dcf7;
+  font-size: 12.5px;
+}

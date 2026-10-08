@@ -29,6 +29,19 @@ install -d -m 755 "$lib" "$pkg/usr/bin" "$pkg/usr/share/gnome-shell/extensions" 
 # Python package without caches (py3compile builds them in postinst).
 cp -r "$root/src/agentail" "$lib/agentail"
 find "$lib" -name __pycache__ -type d -prune -exec rm -rf {} +
+# Stamp the extension so a panel still running older code can tell it was upgraded.
+ext="$lib/agentail/resources/gnome-extension/$uuid"
+build="$version+$(date +%s)"
+python3 - "$ext/metadata.json" "$build" <<'PY'
+import json, sys
+path, build = sys.argv[1], sys.argv[2]
+meta = json.load(open(path))
+meta["version-name"] = build
+open(path, "w").write(json.dumps(meta, indent=2) + "\n")
+PY
+sed -i "s/^const BUILD = 'dev';$/const BUILD = '$build';/" "$ext/extension.js"
+grep -q "^const BUILD = '$build';$" "$ext/extension.js" || { echo "cannot stamp extension.js" >&2; exit 1; }
+
 find "$lib" -type d -exec chmod 755 {} +
 find "$lib" -type f -exec chmod 644 {} +
 
