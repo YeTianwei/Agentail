@@ -1,8 +1,32 @@
 # Changelog
 
-## 1.0.0 — 2026-10-07
+## 0.0.1 — 2026-10-08
 
 First release: status of Claude Code and Codex sessions on the local desktop and on SSH servers.
+(An earlier internal build was numbered 1.0.0; this is the first version meant to be installed.)
+
+### Added in the release build
+
+- Sessions survive a daemon restart (saved to `~/.local/state/agentail/sessions.json`); before,
+  `systemctl --user restart agentail` emptied the panel until each session sent a new event.
+  Restored remote sessions show as out of date until their tunnel is back.
+- **Servers → ＋ Add server** in the panel: pick a host from `~/.ssh/config` (`agentail
+  list-ssh-hosts`) or type a name; runs `agentail add-host` and shows the result in the panel. Each server row has a ✕ that runs `agentail remove-host` after
+  a confirmation, with "Forget it anyway" (`--local-only`) when the server is unreachable.
+- Silent sessions are cleaned up in tiers (stale after 30 min, removed after 2 h, ended after
+  10 min) and the times are configurable in `config.toml`. Before, a session that was killed
+  without a SessionEnd event stayed in the panel until the daemon restarted.
+- Top bar "island" capsule instead of the letter mark with counts: agent logos, a spinner with
+  the running count, a green dot with the waiting count, an orange capsule that names the project
+  needing you.
+- Panel redesign: sessions grouped by agent, rounded cards (project, machine, state, age), a
+  servers section with tunnel state.
+- `.deb` package (`packaging/build-deb.sh`): Python package, `/usr/bin/agentail`, the GNOME
+  extension in `/usr/share/gnome-shell/extensions`, a systemd user unit enabled for all users.
+  Nothing has to be run after installing: the daemon does the per-user part (hooks, extension)
+  on its first start, and asks for one log out / log in to load the panel. `agentail setup`
+  does the same by hand.
+
 
 ### Added
 
