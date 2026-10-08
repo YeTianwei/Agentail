@@ -181,6 +181,94 @@ test('helpers', () => {
     eq(M.clean('abcdef', 4), 'abc…');
 });
 
+const usage = (host, agent, windows, kw = {}) => ({
+    host, agent, plan: kw.plan ?? null, windows, updated_ts: kw.ts ?? NOW - 120,
+});
+const win = (pct, minutes, resets) => ({used_percent: pct, window_minutes: minutes, resets_at: resets});
+const withUsage = (list, extra = []) => {
+    const st = make([]);
+    st.apply({type: 'snapshot', sessions: [], hosts: [host('local', 'local'), host('gpu1', 'connected')],
+        usage: list});
+    for (const m of extra)
+        st.apply(m);
+    return st;
+};
+
+test('usage labels and durations', () => {
+    eq([300, 10080, 2880, 90, null, 0, '5'].map(M.windowLabel), ['5h', 'Week', '2d', '90m', 'Limit', 'Limit', 'Limit']);
+    eq([10, 600, 7800, 90000, -5].map(M.durationText), ['1m', '10m', '2h 10m', '1d 1h', '1m']);
+});
+
+test('usage cards: rows, levels, reset text', () => {
+    const st = withUsage([usage('local', 'claude', [win(41.2, 300, NOW + 7800), win(75, 10080, NOW + 90000)],
+        {plan: 'max'})]);
+    const [c] = M.usageCards(st, NOW);
+    eq([c.agent, c.name, c.plan, c.via, c.updatedText, c.stale], ['claude', 'Claude Code', 'Max', '', 'updated 2m ago', false]);
+    eq(c.rows.map(r => [r.label, r.percent, r.level, r.resetText]),
+        [['5h', 41, 'ok', 'resets in 2h 10m'], ['Week', 75, 'warn', 'resets in 1d 1h']]);
+    ok(Math.abs(c.rows[0].fraction - 0.412) < 1e-9, "fraction");
+});
+
+test('usage levels switch at 70 and 90 percent', () => {
+    const st = withUsage([usage('local', 'codex', [win(69.9, 300), win(70, 300), win(89.9, 300), win(90, 300), win(120, 300)])]);
+    eq(M.usageCards(st, NOW)[0].rows.map(r => [r.level, r.percent]),
+        [['ok', 70], ['warn', 70], ['warn', 90], ['crit', 90], ['crit', 100]]);
+    eq(M.usageCards(st, NOW)[0].rows[4].fraction, 1);
+    eq(M.usageCards(st, NOW)[0].rows[0].resetText, '');
+});
+
+test('a window past its reset time shows no old percentage', () => {
+    const st = withUsage([usage('local', 'claude', [win(95, 300, NOW - 1), win(10, 10080, NOW + 60)])]);
+    const [r0, r1] = M.usageCards(st, NOW)[0].rows;
+    eq([r0.percent, r0.level, r0.fraction, r0.resetText], [null, 'off', 0, 'reset, waiting for the next update']);
+    eq([r1.percent, r1.resetText], [10, 'resets in 1m']);
+});
+
+test('usage goes stale after 30 minutes', () => {
+    const fresh = withUsage([usage('local', 'claude', [win(1, 300)], {ts: NOW - 1800})]);
+    const old = withUsage([usage('local', 'claude', [win(1, 300)], {ts: NOW - 1801})]);
+    eq([M.usageCards(fresh, NOW)[0].stale, M.usageCards(old, NOW)[0].stale], [false, true]);
+    eq(M.usageCards(old, NOW)[0].updatedText, 'updated 30m ago');
+    eq(M.usageCards(withUsage([usage('local', 'claude', [win(1, 300)], {ts: 0})]), NOW)[0].stale, true);
+});
+
+test('usage: freshest host wins, remote source is named, agents ordered', () => {
+    const st = withUsage([
+        usage('local', 'codex', [win(4, 10080)], {ts: NOW - 50}),
+        usage('local', 'claude', [win(10, 300)], {ts: NOW - 500}),
+        usage('gpu1', 'claude', [win(20, 300)], {ts: NOW - 60}),
+    ]);
+    const cards = M.usageCards(st, NOW);
+    eq(cards.map(c => [c.agent, c.rows[0].percent, c.via]), [['claude', 20, 'gpu1'], ['codex', 4, '']]);
+});
+
+test('usage ignores junk and agents without a usable window', () => {
+    const st = withUsage([
+        usage('local', 'claude', [null, 'x', {used_percent: 'a'}, {used_percent: NaN}, {}]),
+        usage('local', 'codex', 'nope'),
+        'junk',
+        usage('local', 'future-agent', [win(5, 60)]),
+    ]);
+    eq(M.usageCards(st, NOW).map(c => c.agent), ['future-agent']);
+    eq(M.usageCards(make([]), NOW), []);
+});
+
+test('usage updates, removal, and disconnect', () => {
+    const u = usage('gpu1', 'claude', [win(10, 300)]);
+    const st = withUsage([], [{type: 'usage_update', usage: u}]);
+    eq(M.usageCards(st, NOW).length, 1);
+    st.apply({type: 'usage_update', usage: usage('gpu1', 'claude', [win(30, 300)])});
+    eq(M.usageCards(st, NOW)[0].rows[0].percent, 30);
+    st.apply({type: 'usage_remove', host: 'gpu1', agent: 'claude'});
+    eq(M.usageCards(st, NOW), []);
+    st.apply({type: 'usage_update', usage: u});
+    st.apply({type: 'snapshot', sessions: [], hosts: []});
+    eq(M.usageCards(st, NOW), []);  // a snapshot without usage replaces it
+    st.apply({type: 'usage_update', usage: u});
+    st.disconnect();
+    eq(M.usageCards(st, NOW), []);
+});
+
 for (const [name, fn] of tests) {
     try {
         fn();

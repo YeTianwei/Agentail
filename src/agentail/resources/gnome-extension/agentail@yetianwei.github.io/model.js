@@ -39,6 +39,9 @@ export const AGENT_NAME = {claude: 'Claude Code', codex: 'Codex'};
 
 export const LIMITS = {project: 40, subtitle: 140, detail: 160, hostDetail: 160};
 export const NOTIFY_INTERVAL_S = 10;
+export const USAGE_STALE_S = 30 * 60;
+export const USAGE_WARN = 70;
+export const USAGE_CRIT = 90;
 
 // Cc and Cf categories: control and format characters (terminal escapes,
 // bidi overrides). Whitespace controls become spaces.
@@ -90,12 +93,14 @@ export class UiState {
         this.connected = false;
         this.sessions = new Map(); // keyString -> session
         this.hosts = new Map(); // alias -> host, in daemon order
+        this.usage = new Map(); // host/agent -> subscription usage reading
     }
 
     disconnect() {
         this.connected = false;
         this.sessions.clear();
         this.hosts.clear();
+        this.usage.clear();
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -113,6 +118,9 @@ export class UiState {
             this.hosts.clear();
             for (const h of Array.isArray(msg.hosts) ? msg.hosts : [])
                 this._setHost(h);
+            this.usage.clear();
+            for (const u of Array.isArray(msg.usage) ? msg.usage : [])
+                this._setUsage(u);
             break;
         case 'session_update':
             if (msg.session && typeof msg.session === 'object')
@@ -127,6 +135,12 @@ export class UiState {
         case 'host_remove':
             this.hosts.delete(clean(msg.alias));
             break;
+        case 'usage_update':
+            this._setUsage(msg.usage);
+            break;
+        case 'usage_remove':
+            this.usage.delete(keyString([clean(msg.host), clean(msg.agent)]));
+            break;
         case 'notify':
             return msg;
         }
@@ -136,6 +150,11 @@ export class UiState {
     _setHost(h) {
         if (h && typeof h === 'object')
             this.hosts.set(clean(h.alias), h);
+    }
+
+    _setUsage(u) {
+        if (u && typeof u === 'object')
+            this.usage.set(keyString([clean(u.host), clean(u.agent)]), u);
     }
 
     hostTitle(alias) {
@@ -295,6 +314,87 @@ export function hostRows(state) {
         });
     }
     return rows;
+}
+
+// ---- subscription usage ---------------------------------------------------------------
+
+// "5h", "Week", "2d" ... for a window length in minutes.
+export function windowLabel(minutes) {
+    if (typeof minutes !== 'number' || !(minutes > 0))
+        return 'Limit';
+    if (minutes === 10080)
+        return 'Week';
+    if (minutes % 1440 === 0)
+        return `${minutes / 1440}d`;
+    if (minutes % 60 === 0)
+        return `${minutes / 60}h`;
+    return `${Math.floor(minutes)}m`;
+}
+
+// "2h 10m", "4d 3h", "45m": the two largest units.
+export function durationText(secs) {
+    secs = Math.max(0, Math.floor(secs));
+    const days = Math.floor(secs / 86400);
+    const hours = Math.floor((secs % 86400) / 3600);
+    const minutes = Math.floor((secs % 3600) / 60);
+    if (days)
+        return `${days}d ${hours}h`;
+    if (hours)
+        return `${hours}h ${minutes}m`;
+    return `${Math.max(minutes, 1)}m`;
+}
+
+function usageRow(w, now) {
+    const label = windowLabel(w.window_minutes);
+    const resetsAt = typeof w.resets_at === 'number' && w.resets_at > 0 ? w.resets_at : 0;
+    if (resetsAt && resetsAt <= now) {
+        // The window has reset since the last reading: the old percentage means nothing.
+        return {label, percent: null, fraction: 0, level: 'off', resetText: 'reset, waiting for the next update'};
+    }
+    const percent = Math.min(100, Math.max(0, w.used_percent));
+    return {
+        label,
+        percent: Math.round(percent),
+        fraction: percent / 100,
+        level: percent >= USAGE_CRIT ? 'crit' : percent >= USAGE_WARN ? 'warn' : 'ok',
+        resetText: resetsAt ? `resets in ${durationText(resetsAt - now)}` : '',
+    };
+}
+
+// One card per agent that has a reading: the freshest one when several hosts report
+// (the account is the same in the common case). Windows without a usable percentage are
+// skipped; an agent without any is not listed.
+export function usageCards(state, now) {
+    const best = new Map();
+    for (const u of state.usage.values()) {
+        const agent = clean(u.agent);
+        const ts = typeof u.updated_ts === 'number' ? u.updated_ts : 0;
+        const have = best.get(agent);
+        if (!have || ts > have.ts)
+            best.set(agent, {u, ts});
+    }
+    const cards = [];
+    for (const agent of sortAgents(best.keys())) {
+        const {u, ts} = best.get(agent);
+        const rows = (Array.isArray(u.windows) ? u.windows : [])
+            .filter(w => w && typeof w === 'object' &&
+                typeof w.used_percent === 'number' && Number.isFinite(w.used_percent))
+            .map(w => usageRow(w, now));
+        if (!rows.length)
+            continue;
+        const host = clean(u.host);
+        const plan = clean(u.plan, 16);
+        cards.push({
+            agent,
+            name: AGENT_NAME[agent] ?? agent,
+            plan: plan ? plan[0].toUpperCase() + plan.slice(1) : '',
+            via: host && host !== 'local' ? state.hostTitle(host) : '',
+            updatedText: ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
+            stale: !(ts > 0) || now - ts > USAGE_STALE_S,
+            rows,
+        });
+    }
+    return cards;
 }
 
 // Host chips wrapped into rows that fit the panel. Clutter's FlowLayout under-reports its
