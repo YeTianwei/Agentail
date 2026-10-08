@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import signal
 import socket
 import time
@@ -55,6 +56,7 @@ class Daemon:
             log.warning("%s; using the default session timeouts", exc)
             retention = Retention()
         self.store = Store(retention)
+        self._dirty = False  # sessions changed since they were last saved
         self.print_events = print_events
         self.record_dir = record_dir
         self.ssh = ssh
@@ -117,6 +119,7 @@ class Daemon:
         }
 
     def _publish(self, change: Change) -> None:
+        self._dirty = True
         # TODO(M4): desktop notifications.
         if self.ui is not None:
             self.ui.publish(change)
@@ -223,12 +226,49 @@ class Daemon:
             if alias not in self.remotes:
                 await self._start_host(host)
 
+    # -- sessions on disk ----------------------------------------------------------
+    #
+    # Sessions are saved so a daemon restart (an upgrade, `systemctl restart`, a crash) does
+    # not empty the panel: a session waiting for the user sends no event until it is used
+    # again. Remote sessions come back stale until their tunnel delivers new events.
+
+    def _load_sessions(self) -> None:
+        path = paths.sessions_file()
+        try:
+            items = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as exc:
+            log.warning("ignoring %s: %s", path, exc)
+            return
+        n = self.store.load(items)
+        for host in {k.host for k in self.store.sessions if k.host != LOCAL_SOURCE}:
+            self.store.mark_host_offline(host)
+        self.store.sweep(time.time())
+        log.info("restored %d session(s) from %s", n, path)
+
+    def _save_sessions(self) -> None:
+        if not self._dirty:
+            return
+        path = paths.sessions_file()
+        try:
+            paths.ensure_private_dir(path.parent)
+            tmp = path.with_suffix(".tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(self.store.dump(), fh)
+            os.replace(tmp, path)
+            self._dirty = False
+        except OSError as exc:
+            log.warning("cannot save sessions to %s: %s", path, exc)
+
     # -- main loop ---------------------------------------------------------------
 
     async def run(self, handle_signals: bool = True) -> None:
         paths.ensure_private_dir(paths.runtime_dir())
         if _socket_alive(paths.ui_sock()):
             raise DaemonAlreadyRunning(f"another agentail daemon is serving {paths.ui_sock()}")
+        self._load_sessions()
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
         self.ui = UiServer(paths.ui_sock(), self.snapshot)
         try:
@@ -251,7 +291,9 @@ class Daemon:
                         next_sweep = time.monotonic() + SWEEP_INTERVAL_S
                         for change in self.store.sweep(time.time()):
                             self._publish(change)
+                        self._save_sessions()
         finally:
+            self._save_sessions()
             for alias in list(self.remotes):
                 await self._stop_host(alias)
             for listener in self.listeners:

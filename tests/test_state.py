@@ -96,3 +96,14 @@ def test_sweep_retention_tiers():
     assert sweep(1001) == {"running": None, "waiting": None}
     assert sweep(10**9) == {}
     assert list(st.sessions) == [SessionKey("local", "claude", "asking")]
+
+
+def test_dump_and_load_round_trip():
+    st = Store()
+    st.apply(ev(EventKind.PROMPT_SUBMIT, 1, prompt_preview="fix bug", cwd="/w"))
+    st.apply(ev(EventKind.STOP, 2, sid="s2", host="gpu1"))
+    restored = Store()
+    junk = [{"host": "h"}, {"status": "nope"}, "x", {**st.dump()[0], "status": "flying"}]
+    assert restored.load(st.dump() + junk) == 2
+    assert restored.sessions == st.sessions
+    assert restored.load("not a list") == 0

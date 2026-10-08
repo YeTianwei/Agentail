@@ -42,3 +42,9 @@ def fake_ssh(short_tmp):
     root = short_tmp / "ssh"
     root.mkdir()
     return FakeSsh(root)
+
+
+@pytest.fixture(autouse=True)
+def _private_state_dir(monkeypatch, tmp_path_factory):
+    """Never read or write the real ~/.local/state (the daemon saves sessions there)."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("state")))
