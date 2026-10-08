@@ -20,9 +20,9 @@ from typing import Any
 
 from agentail import paths
 from agentail.adapters import get_adapter
-from agentail.config import Host, load_hosts
+from agentail.config import Host, load_hosts, load_retention
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
-from agentail.daemon.state import Change, Store
+from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict
 from agentail.protocol import HookMessage
@@ -49,7 +49,12 @@ class Daemon:
         tunnel_opts: dict[str, float] | None = None,
         hosts_poll: float = HOSTS_POLL_S,
     ) -> None:
-        self.store = Store()
+        try:
+            retention = load_retention()
+        except ValueError as exc:
+            log.warning("%s; using the default session timeouts", exc)
+            retention = Retention()
+        self.store = Store(retention)
         self.print_events = print_events
         self.record_dir = record_dir
         self.ssh = ssh

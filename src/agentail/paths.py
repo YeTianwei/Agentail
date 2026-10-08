@@ -40,6 +40,10 @@ def config_dir() -> Path:
     return Path(base) / APP
 
 
+def settings_file() -> Path:
+    return config_dir() / "config.toml"
+
+
 def hosts_file() -> Path:
     return config_dir() / "hosts.toml"
 

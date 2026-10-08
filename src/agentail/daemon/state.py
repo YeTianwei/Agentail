@@ -16,7 +16,17 @@ from typing import NamedTuple
 from agentail.adapters.base import AgentEvent, Attention, EventKind
 
 STALE_AFTER_S = 30 * 60
+FORGET_AFTER_S = 2 * 60 * 60
 ENDED_RETENTION_S = 10 * 60
+
+
+@dataclass(frozen=True)
+class Retention:
+    """How long a session without new events stays visible (config.toml [sessions])."""
+
+    stale_after_s: float = STALE_AFTER_S  # running, then silent: shown greyed out
+    forget_after_s: float = FORGET_AFTER_S  # stale or waiting for you, then silent: removed
+    ended_s: float = ENDED_RETENTION_S  # ended: removed
 
 
 class Status(enum.StrEnum):
@@ -79,8 +89,9 @@ def _next_status(ev: AgentEvent) -> Status | None:
 
 
 class Store:
-    def __init__(self) -> None:
+    def __init__(self, retention: Retention | None = None) -> None:
         self.sessions: dict[SessionKey, Session] = {}
+        self.retention = retention or Retention()
 
     def apply(self, ev: AgentEvent) -> Change | None:
         key = SessionKey(ev.host, ev.agent, ev.session_id)
@@ -154,14 +165,23 @@ class Store:
         return changes
 
     def sweep(self, now: float) -> list[Change]:
-        """Periodic housekeeping: mark silent sessions stale, drop old ended ones."""
+        """Periodic housekeeping, by how long a session has been silent.
+
+        Running -> stale -> removed; waiting for you -> removed; ended -> removed.
+        A session that needs permission is never swept: it is blocked on you, and hiding
+        it is worse than showing an abandoned one (it ends or is answered eventually).
+        """
+        r = self.retention
         changes = []
         for key, s in list(self.sessions.items()):
             idle = now - s.last_ts
-            if s.status is Status.ENDED and idle > ENDED_RETENTION_S:
+            gone = (s.status is Status.ENDED and idle > r.ended_s) or (
+                s.status in (Status.STALE, Status.WAITING_INPUT) and idle > r.forget_after_s
+            )
+            if gone:
                 del self.sessions[key]
                 changes.append(Change(key=key, session=None))
-            elif s.status is Status.RUNNING and idle > STALE_AFTER_S:
+            elif s.status is Status.RUNNING and idle > r.stale_after_s:
                 s = replace(s, status=Status.STALE)
                 self.sessions[key] = s
                 changes.append(Change(key=key, session=s))

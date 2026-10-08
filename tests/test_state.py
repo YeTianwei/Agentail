@@ -1,5 +1,5 @@
 from agentail.adapters.base import AgentEvent, Attention, EventKind
-from agentail.daemon.state import STALE_AFTER_S, SessionKey, Status, Store
+from agentail.daemon.state import STALE_AFTER_S, Retention, SessionKey, Status, Store
 
 
 def ev(kind, ts, sid="s1", host="local", **kw):
@@ -74,3 +74,25 @@ def test_tool_detail_survives_until_the_permission_prompt_is_answered():
     ).session
     assert (s.tool, s.tool_detail) == ("exec", "ls")  # Codex: carried by PermissionRequest
     assert st.apply(ev(EventKind.STOP, 6)).session.tool_detail == ""
+
+
+def test_sweep_retention_tiers():
+    r = Retention(stale_after_s=100, forget_after_s=1000, ended_s=50)
+    st = Store(r)
+    st.apply(ev(EventKind.PROMPT_SUBMIT, 0, sid="running"))
+    st.apply(ev(EventKind.PROMPT_SUBMIT, 0, sid="asking"))
+    st.apply(ev(EventKind.ATTENTION, 0, sid="asking", attention=Attention.PERMISSION))
+    st.apply(ev(EventKind.STOP, 0, sid="waiting"))
+    st.apply(ev(EventKind.SESSION_END, 0, sid="ended"))
+
+    def sweep(now):
+        return {c.key.session_id: c.session and c.session.status for c in st.sweep(now)}
+
+    assert sweep(40) == {}
+    assert sweep(60) == {"ended": None}  # ended: ended_s
+    assert sweep(150) == {"running": Status.STALE}  # running, silent: stale
+    assert sweep(900) == {}
+    # stale and waiting-for-you sessions go after forget_after_s; a permission prompt never does
+    assert sweep(1001) == {"running": None, "waiting": None}
+    assert sweep(10**9) == {}
+    assert list(st.sessions) == [SessionKey("local", "claude", "asking")]

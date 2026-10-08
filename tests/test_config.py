@@ -46,3 +46,25 @@ def test_save_creates_file():
     save_host(Host(alias="a", remote_sock="/s"))
     assert [h.alias for h in load_hosts()] == ["a"]
     assert remove_host("a")
+
+
+def test_load_retention(tmp_path):
+    import pytest
+
+    from agentail.config import load_retention
+    from agentail.daemon.state import Retention
+
+    missing = tmp_path / "config.toml"
+    assert load_retention(missing) == Retention()
+    missing.write_text("[sessions]\nforget_after_minutes = 5\nended_minutes = 0.5\n")
+    r = load_retention(missing)
+    assert (r.stale_after_s, r.forget_after_s, r.ended_s) == (1800, 300, 30)
+    for bad in (
+        "[sessions]\nended_minutes = 0\n",
+        "[sessions]\nended_minutes = 'x'\n",
+        "[[[",
+        "sessions = 3\n",
+    ):
+        missing.write_text(bad)
+        with pytest.raises(ValueError):
+            load_retention(missing)
