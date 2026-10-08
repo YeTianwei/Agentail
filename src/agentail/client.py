@@ -104,6 +104,46 @@ def _table(rows: list[list[str]]) -> list[str]:
     ]
 
 
+def duration_text(secs: float) -> str:
+    """ "2h 10m", "4d 3h", "45m": the two largest units."""
+    secs = max(0, int(secs))
+    days, rem = divmod(secs, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes = rem // 60
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{max(minutes, 1)}m"
+
+
+def window_label(minutes: Any) -> str:
+    """ "5h", "Week", "2d" ... for a window length in minutes (None: "Limit")."""
+    if not isinstance(minutes, (int, float)) or isinstance(minutes, bool) or minutes <= 0:
+        return "Limit"
+    if minutes == 10080:
+        return "Week"
+    if minutes % 1440 == 0:
+        return f"{int(minutes // 1440)}d"
+    if minutes % 60 == 0:
+        return f"{int(minutes // 60)}h"
+    return f"{int(minutes)}m"
+
+
+def format_usage_windows(usage: dict[str, Any], now: float) -> str:
+    """ "5h 41% (resets in 2h 10m), Week 15% ..." for one USAGE record."""
+    parts = []
+    for w in usage.get("windows") or []:
+        if not isinstance(w, dict) or not isinstance(w.get("used_percent"), (int, float)):
+            continue
+        text = f"{window_label(w.get('window_minutes'))} {w['used_percent']:.0f}%"
+        reset = w.get("resets_at")
+        if isinstance(reset, (int, float)) and not isinstance(reset, bool):
+            text += " (reset)" if reset <= now else f" (resets in {duration_text(reset - now)})"
+        parts.append(text)
+    return ", ".join(parts)
+
+
 def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
     now = time.time() if now is None else now
     lines = ["HOSTS"]
@@ -119,6 +159,22 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
             ]
         )
     lines += ["  " + r for r in _table(host_rows)] if hosts else ["  (none)"]
+
+    usage = [u for u in snapshot.get("usage") or [] if isinstance(u, dict)]
+    if usage:
+        usage.sort(key=lambda u: (clean(u.get("agent")), clean(u.get("host"))))
+        rows = [["AGENT", "HOST", "PLAN", "UPDATED", "LIMITS"]]
+        for u in usage:
+            rows.append(
+                [
+                    clean(u.get("agent")),
+                    clean(u.get("host")),
+                    clean(u.get("plan")) or "-",
+                    age_text(u.get("updated_ts"), now),
+                    clean(format_usage_windows(u, now), 100),
+                ]
+            )
+        lines += ["", "USAGE"] + ["  " + r for r in _table(rows)]
 
     lines += ["", "SESSIONS"]
     sessions = [s for s in snapshot.get("sessions") or [] if isinstance(s, dict)]
@@ -165,6 +221,12 @@ def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
     if mtype == "notify":
         host, agent, sid = key_tuple(msg.get("key"))
         return f"{stamp} {host}/{agent}/{short_id(sid)} ** {clean(msg.get('kind'))} **"
+    if mtype == "usage_update" and isinstance(msg.get("usage"), dict):
+        u = msg["usage"]
+        text = format_usage_windows(u, now)
+        return f"{stamp} usage {clean(u.get('host'))}/{clean(u.get('agent'))}  {clean(text, 100)}"
+    if mtype == "usage_remove":
+        return f"{stamp} usage {clean(msg.get('host'))}/{clean(msg.get('agent'))} removed"
     if mtype == "host_remove":
         return f"{stamp} host {clean(msg.get('alias'))}: removed"
     if mtype == "host_status" and isinstance(msg.get("host"), dict):

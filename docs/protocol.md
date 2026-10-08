@@ -34,7 +34,7 @@ Socket: `$XDG_RUNTIME_DIR/agentail/ui.sock`. Newline-delimited JSON, daemon → 
 On connect:
 
 ```json
-{"type": "snapshot", "sessions": [SESSION...], "hosts": [HOST...]}
+{"type": "snapshot", "sessions": [SESSION...], "hosts": [HOST...], "usage": [USAGE...]}
 ```
 
 Then any number of:
@@ -44,6 +44,8 @@ Then any number of:
 {"type": "session_remove", "key": {"host": "gpu1", "agent": "claude", "session_id": "..."}}
 {"type": "host_status", "host": HOST}
 {"type": "host_remove", "alias": "gpu1"}
+{"type": "usage_update", "usage": USAGE}
+{"type": "usage_remove", "host": "gpu1", "agent": "claude"}
 {"type": "notify", "kind": "turn_done|attention", "key": {...}}
 ```
 
@@ -52,6 +54,20 @@ SESSION = {"key": {"host", "agent", "session_id"}, "status": "running|waiting_in
            "cwd", "prompt_preview", "tool", "tool_detail", "message", "started_ts", "last_ts"}
 HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_failed|stopped", "detail"}
 ```
+
+```
+USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts",
+           "windows": [{"used_percent": 0..100, "window_minutes": int | null, "resets_at": int | null}]}
+```
+
+`USAGE` is the subscription rate-limit state of one agent as seen from one host, windows
+shortest first. `resets_at` is Unix seconds; a time in the past means the window has reset and
+the percentage is out of date. Claude's numbers come from its `statusLine` input, which the
+installer wraps and forwards with the ordinary hook envelope (`"event": "StatusLine"`, the
+status line JSON as `stdin`); Codex's are read by the daemon from the local rollout files, so
+only `local` has them. A reading that did not change is not re-sent more than once a minute.
+`usage_remove` is sent when a host is removed. Clients ignore message types and snapshot keys
+they do not know. See `docs/usage-design.md`.
 
 `tool_detail` is one line describing the current tool call (a shell command, a file path), kept
 while a permission prompt is open. `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not

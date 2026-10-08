@@ -109,3 +109,59 @@ def test_tail_prints_until_daemon_closes(runtime_env):
     t.join()
     lines = out.getvalue().splitlines()
     assert len(lines) == 2 and lines[1].endswith("running  ?[31mred")
+
+
+def test_window_label_and_duration():
+    assert [client.window_label(m) for m in (300, 10080, 2880, 90, None, 0, True)] == [
+        "5h",
+        "Week",
+        "2d",
+        "90m",
+        "Limit",
+        "Limit",
+        "Limit",
+    ]
+    assert [client.duration_text(s) for s in (10, 600, 7800, 90000, -5)] == [
+        "1m",
+        "10m",
+        "2h 10m",
+        "1d 1h",
+        "1m",
+    ]
+
+
+def test_format_status_shows_usage_and_survives_junk():
+    snap = {
+        "type": "snapshot",
+        "sessions": [],
+        "hosts": [],
+        "usage": [
+            {
+                "host": "local",
+                "agent": "claude",
+                "plan": "max",
+                "updated_ts": NOW - 120,
+                "windows": [
+                    {"used_percent": 41.2, "window_minutes": 300, "resets_at": NOW + 7800},
+                    {"used_percent": 15, "window_minutes": 10080, "resets_at": NOW - 5},
+                    {"used_percent": "x"},
+                    "junk",
+                ],
+            },
+            "junk",
+        ],
+    }
+    text = client.format_status(snap, now=NOW)
+    assert "USAGE" in text
+    assert "5h 41% (resets in 2h 10m), Week 15% (reset)" in text
+    assert "2m" in text and "max" in text
+    assert "USAGE" not in client.format_status({"sessions": [], "hosts": []}, now=NOW)
+
+
+def test_format_event_usage():
+    u = {"host": "gpu1", "agent": "codex", "windows": [{"used_percent": 10, "window_minutes": 300}]}
+    line = client.format_event({"type": "usage_update", "usage": u}, now=NOW)
+    assert "usage gpu1/codex" in line and "5h 10%" in line
+    assert "removed" in client.format_event(
+        {"type": "usage_remove", "host": "gpu1", "agent": "codex"}, now=NOW
+    )
