@@ -234,12 +234,36 @@ sudo apt install ./dist/agentail_0.0.2.deb
 git push origin main && git tag v0.0.2 && git push origin v0.0.2
 ```
 
-### 0.0.3(再下一步)
+### 0.0.3(下一步):更多 agent
 
-支持更多 agent。顺序:Claude 兼容 fork(Qoder、Qwen,格式最接近,成本最低)→ Gemini CLI → Cursor(hook 机制差异最大,放最后)→ 插件类 agent。每个 agent 先像 M0-b 那样写调研笔记(`docs/agent-hooks-notes.md`),确认 hook 事件和字段后再写适配器;调研发现没有稳定 hook 来源的,继续顺延。同时把"新增 agent 的清单"(适配器、`install/` 配置合并、真实录制测试、远程验证)整理成文档。
+**范围**:Qoder、Qwen Code、Gemini CLI(只显示状态,和 Claude / Codex 一样)。**不做**:Cursor(IDE 远程位置未核实,事件模型也不同,推迟到 0.0.4 或之后)、OpenCode 等插件类、新 agent 的用量监控(`adapter.usage()` 返回 None,用量区只列有读数的 agent)、审批(不变量 7)。
+
+**现状**:agent 列表硬编码在多处:`config.py` 默认值,`install/local.py` 与 `install/remote.py` 的 `AGENTS`、配置路径、`claude_config if agent == "claude" else codex_config` 二选一和远程探测脚本,`doctor.py`,`firstrun.py`,`model.js` 的 `AGENT_NAME`,`ui/model.py`,图标。hook 脚本与 `Adapter` 协议不用改。
+
+**A0 ☁️ agent 注册表(纯重构,不加功能)**
+- 抽出 `AgentSpec`:名称、显示名、配置目录(含环境变量覆盖)、配置文件名、合并/移除模块、信任或配置警告、远程探测项。
+- 本机安装、远程安装、doctor、firstrun、配置默认值、两个 UI 的显示名都从注册表读取。
+- 完成标准:Claude / Codex 的行为不变,现有测试全绿(`pytest`、`ruff`)。之后新增一个 agent = 适配器 + 配置模块 + 注册一行 + 图标。
+
+**A1 ☁️ 调研(可与 A0 并行)**:在 `docs/agent-hooks-notes.md` 新增章节,每个 agent 查清 hook 配置文件位置、事件名、payload 字段、有没有"需要用户确认"的信号、SSH 下 hook 在哪一侧执行;每条结论附链接和日期,标明文档明确写的与推断的。重点核实:
+- Qwen Code 是 Gemini CLI 的 fork,格式可能更接近 Gemini 而不是 Claude;若如此,A2 与 A3 合并处理。
+- Qoder 是否真的兼容 Claude 的 `settings.json` 格式。
+- 没有稳定 hook 来源的 agent 不硬做,写进结论后顺延。
+
+**A2~A3 ☁️ 逐个接入(每个 agent 一个 PR)**:先 Claude 兼容的一组(Qoder,以及确认兼容的 Qwen),再 Gemini CLI。每个 agent 的统一清单:
+1. `adapters/<x>.py`:未知字段一律忽略、字段类型不对也忽略;未验证的假设标 `TODO(M0)`。
+2. `install/<x>_config.py`:合并而非覆盖,按 `agentail-hook` 识别,先备份,卸载还原(不变量 5)。
+3. 注册表登记;`install-local`、`add-host`、`doctor` 自动覆盖(含测试,用临时 HOME,不碰真实配置)。
+4. 官方图标放进 `icons/`,在 `icons/NOTICE.md` 登记(第三方商标,不在 MIT 范围内,同现有 Claude / Codex)。
+5. 测试数据:合成的 `tests/fixtures/<agent>/synthetic.jsonl`,真实录制由 A4 补。
+6. 文档:README、`docs/protocol.md` 如有变化。
+
+**A4 👤 你在本机验证**:每个 agent 录一份真实会话放进 `tests/fixtures/<agent>/recorded-<版本>.jsonl`;在一台真实服务器上跑 `add-host`;确认面板里的显示(图标、分组、需要授权时的状态)。PR 描述会写出确切步骤。
+
+**A5 发布 ☁️ + 👤**:CHANGELOG、版本号 0.0.3、`.deb`;同时整理"新增 agent 的清单"文档(A0 完成后的实际步骤)。升级时若安装器写入了新内容,按需提高 `firstrun.SETUP_VERSION`。
 
 ---
 
 ## 4. v1 之后(不在当前范围)
 
-Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Claude 兼容 fork(Qoder、Qwen)→ Gemini CLI → Cursor → 插件类 agent;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
+Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder、Qwen、Gemini CLI 见 0.0.3;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
