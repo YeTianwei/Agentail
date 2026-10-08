@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import sys
 import time
 
 from agentail import paths
@@ -202,6 +203,45 @@ async def test_daemon_publishes_usage_from_both_agents(runtime_env, tmp_path):
         await d.handle("gpu1", _statusline(payload))  # unchanged: nothing broadcast
         await d.handle("gpu1", _statusline({"rate_limits": {"five_hour": {"used_percentage": 42}}}))
         assert (await _read(r))["usage"]["windows"][0]["used_percent"] == 42.0
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)
+
+
+async def test_wrapped_status_line_reaches_the_daemon_through_the_real_hook(runtime_env, tmp_path):
+    from agentail.install import claude_config
+
+    hook = tmp_path / "agentail-hook.py"
+    hook.write_bytes(paths.hook_script_source().read_bytes())
+    merged = claude_config.merge_hooks(
+        {"statusLine": {"type": "command", "command": "echo shown"}},
+        [],
+        sys.executable,
+        str(hook),
+        str(paths.local_sock()),
+    )
+    d = Daemon(codex_usage_home=tmp_path / "none")
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        await _read(r)  # snapshot
+        payload = {
+            "rate_limits": {"seven_day": {"used_percentage": 15, "resets_at": time.time() + 99}}
+        }
+        proc = await asyncio.create_subprocess_exec(
+            "sh",
+            "-c",
+            merged["statusLine"]["command"],
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(json.dumps(payload).encode()), 10)
+        assert out == b"shown\n"
+        msg = await _read(r)
+        assert msg["type"] == "usage_update" and msg["usage"]["host"] == "local"
+        assert msg["usage"]["windows"][0]["window_minutes"] == 10080
         w.close()
     finally:
         d.stop()

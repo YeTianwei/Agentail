@@ -94,7 +94,7 @@ USAGE = {"host", "agent", "plan": "plus" | null,
 
 - `host` 来自 socket(本机为 `local`)。
 - 主机从 `hosts.toml` 删除或隧道断开时:删除时发 `usage_remove`;断开时**保留**,让界面靠 `updated_ts` 判断过期,不像会话那样标 stale。
-- 值没有变化的读数不广播(`UsageStore.update` 比较后再发),避免 statusLine 高频触发把客户端队列刷满。
+- 值没有变化的读数最多每分钟广播一次(`UsageStore.update` 比较后再发),避免 statusLine 高频触发把客户端队列刷满。
 - 字符串字段只有 `host`、`agent`、`plan`,且 `plan` 经过白名单校验,界面仍是纯文本渲染。
 
 ---

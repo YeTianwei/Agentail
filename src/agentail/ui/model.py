@@ -15,7 +15,14 @@ import os
 from dataclasses import dataclass
 from typing import Any
 
-from agentail.client import age_text, clean, key_tuple, session_detail, short_id
+from agentail.client import (
+    age_text,
+    clean,
+    format_usage_windows,
+    key_tuple,
+    session_detail,
+    short_id,
+)
 
 Key = tuple[str, str, str]  # (host, agent, session_id)
 
@@ -38,6 +45,7 @@ _HOST_LEVEL = {
     "stopped": "off",
 }
 
+AGENT_NAME = {"claude": "Claude Code", "codex": "Codex"}
 DETAIL_LIMIT = 80
 CWD_LIMIT = 40
 NOTIFY_INTERVAL_S = 10.0
@@ -50,11 +58,13 @@ class UiState:
         self.connected = False
         self.sessions: dict[Key, dict[str, Any]] = {}
         self.hosts: dict[str, dict[str, Any]] = {}
+        self.usage: dict[tuple[str, str], dict[str, Any]] = {}  # (host, agent) -> USAGE
 
     def disconnect(self) -> None:
         self.connected = False
         self.sessions.clear()
         self.hosts.clear()
+        self.usage.clear()
 
     def apply(self, msg: dict[str, Any]) -> dict[str, Any] | None:
         """Update from one message. Returns the message if it asks for a notification."""
@@ -67,6 +77,13 @@ class UiState:
             self.hosts = {}
             for h in msg.get("hosts") or []:
                 self._set_host(h)
+            self.usage = {}
+            for u in msg.get("usage") or []:
+                self._set_usage(u)
+        elif mtype == "usage_update":
+            self._set_usage(msg.get("usage"))
+        elif mtype == "usage_remove":
+            self.usage.pop((clean(msg.get("host")), clean(msg.get("agent"))), None)
         elif mtype == "session_update" and isinstance(msg.get("session"), dict):
             s = msg["session"]
             self.sessions[key_tuple(s.get("key"))] = s
@@ -83,6 +100,10 @@ class UiState:
     def _set_host(self, h: Any) -> None:
         if isinstance(h, dict):
             self.hosts[clean(h.get("alias"))] = h
+
+    def _set_usage(self, u: Any) -> None:
+        if isinstance(u, dict):
+            self.usage[(clean(u.get("host")), clean(u.get("agent")))] = u
 
     def host_name(self, alias: str) -> str:
         h = self.hosts.get(alias) or {}
@@ -252,7 +273,28 @@ def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
         if ended:
             # The daemon keeps ended sessions for a few minutes; one line is enough here.
             out.append(MenuEntry("ended", f"    {STATUS_MARK['ended']} {ended} ended recently"))
+    out += usage_entries(state, now)
     return out
+
+
+def usage_entries(state: UiState, now: float) -> list[MenuEntry]:
+    """One line per agent: the freshest reading, e.g. "Claude Code: 5h 41% (resets in 2h 10m)"."""
+    freshest: dict[str, dict[str, Any]] = {}
+    for (_, agent), u in state.usage.items():
+        ts = u.get("updated_ts")
+        have = freshest.get(agent)
+        if have is None or (isinstance(ts, int | float) and ts > (have.get("updated_ts") or 0)):
+            freshest[agent] = u
+    lines = []
+    for agent in sorted(freshest, key=lambda a: (a not in AGENT_NAME, a)):
+        text = format_usage_windows(freshest[agent], now)
+        if text:
+            lines.append(
+                MenuEntry(
+                    "usage", clean(f"{AGENT_NAME.get(agent, agent)}: {text}", MENU_TEXT_LIMIT)
+                )
+            )
+    return ([MenuEntry("note", "Usage")] + lines) if lines else []
 
 
 # ---- notifications ---------------------------------------------------------------------

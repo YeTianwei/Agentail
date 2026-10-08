@@ -122,3 +122,22 @@ def test_user_unit_shadowing_the_packaged_one_is_flagged(
     checks = doctor.daemon_checks(None, lambda argv: (0, ""))
     shadow = next(c for c in checks if c.name == "autostart")
     assert shadow.status == WARN and "uninstall-service" in shadow.hint
+
+
+def test_claude_usage_check(runtime_env, isolated_home):
+    settings = isolated_home / ".claude" / "settings.json"
+    (isolated_home / ".claude").mkdir()
+    assert install_local(out=lambda _: None) == 0
+    assert by_name(run_checks(fake_run(), snapshot=None))["claude usage"].status == OK
+
+    import json
+
+    doc = json.loads(settings.read_text())
+    doc["statusLine"] = {"type": "command", "command": "echo mine"}  # someone unwrapped it
+    settings.write_text(json.dumps(doc))
+    c = by_name(run_checks(fake_run(), snapshot=None))["claude usage"]
+    assert c.status == WARN and "install-local" in c.hint
+
+    doc["statusLine"] = {"type": "static", "text": "x"}
+    settings.write_text(json.dumps(doc))
+    assert by_name(run_checks(fake_run(), snapshot=None))["claude usage"].status == INFO

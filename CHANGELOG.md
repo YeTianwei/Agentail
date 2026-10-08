@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased (0.0.2)
+
+### Added
+
+- **Usage**: the panel has a collapsible Usage section with the subscription limits of Claude
+  Code (5-hour and weekly window) and Codex (5-hour and weekly): a bar per window, the percentage
+  (blue under 70 %, orange from 70 %, red from 90 %) and when it resets. A reading older than
+  30 minutes is greyed out; a window that has reset no longer shows its old percentage.
+  `agentail status` / `tail` and the AppIndicator menu show the same numbers.
+- Claude's numbers come from its `statusLine` input (Pro/Max only, after the first response).
+  `install-local` / `add-host` wrap your status line command instead of replacing it: it still
+  gets the same input and prints the same output. `uninstall-local` / `remove-host` put it back.
+  `agentail doctor` checks it.
+- Codex's numbers are read by the daemon from `~/.codex/sessions` on this computer (Codex on
+  servers is not covered). Neither agent's login files are read.
+- UI protocol: `usage` in the snapshot, `usage_update` and `usage_remove` messages
+  (docs/protocol.md). The hook protocol is unchanged.
+
 ## 0.0.1 — 2026-10-08
 
 First release: status of Claude Code and Codex sessions on the local desktop and on SSH servers.

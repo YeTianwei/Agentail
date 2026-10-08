@@ -230,3 +230,38 @@ def test_every_level_has_an_icon():
     icons = paths.hook_script_source().parent / "icons"
     for level in ("idle", "busy", "attention", "offline"):
         assert (icons / f"agentail-{level}.svg").is_file(), level
+
+
+def test_usage_lines_in_the_indicator_menu():
+    st = model.UiState()
+    u = lambda host, agent, pct, ts: {  # noqa: E731
+        "host": host,
+        "agent": agent,
+        "updated_ts": ts,
+        "windows": [{"used_percent": pct, "window_minutes": 300, "resets_at": 5000.0 + 7800}],
+    }
+    st.apply(
+        {
+            "type": "snapshot",
+            "sessions": [],
+            "hosts": [],
+            "usage": [
+                u("local", "codex", 10, 4990),
+                u("local", "claude", 20, 4000),
+                u("gpu1", "claude", 30, 4900),
+            ],
+        }
+    )
+    lines = [e.text for e in model.menu_entries(st, 5000.0) if e.kind in ("note", "usage")]
+    assert lines == [
+        "Usage",
+        "Claude Code: 5h 30% (resets in 2h 10m)",  # the freshest host wins
+        "Codex: 5h 10% (resets in 2h 10m)",
+    ]
+    st.apply({"type": "usage_remove", "host": "gpu1", "agent": "claude"})
+    assert any("Claude Code: 5h 20%" in e.text for e in model.menu_entries(st, 5000.0))
+    st.apply({"type": "usage_update", "usage": u("local", "codex", 99, 5000)})
+    assert any("Codex: 5h 99%" in e.text for e in model.menu_entries(st, 5000.0))
+    st.disconnect()
+    assert st.usage == {}
+    assert not [e for e in model.menu_entries(st, 5000.0) if e.kind == "usage"]

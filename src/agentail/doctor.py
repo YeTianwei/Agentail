@@ -24,7 +24,7 @@ from agentail import paths
 from agentail.adapters import get_adapter
 from agentail.client import clean
 from agentail.config import load_hosts
-from agentail.install import codex_config, gnome, service
+from agentail.install import codex_config, gnome, service, statusline
 from agentail.install.local import hook_dest
 
 Runner = Callable[[list[str]], tuple[int, str]]
@@ -130,6 +130,24 @@ def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
     return [Check(name, OK, f"{len(ours)} events in {path}")]
 
 
+def _check_status_line(path: Path) -> list[Check]:
+    """Claude's usage numbers arrive through the wrapped statusLine (install/statusline.py)."""
+    name = "claude usage"
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []  # the hooks check already reports an unreadable file
+    line = doc.get("statusLine") if isinstance(doc, dict) else None
+    command = line.get("command") if isinstance(line, dict) else None
+    if isinstance(command, str) and statusline.original_command(command) is not None:
+        return [Check(name, OK, "statusLine forwards rate limits to agentail")]
+    if line is not None and not (isinstance(line, dict) and line.get("type") == "command"):
+        return [Check(name, INFO, "your statusLine is not a command, so usage is not collected")]
+    return [
+        Check(name, WARN, "statusLine is not set up: no usage numbers", "agentail install-local")
+    ]
+
+
 def _codex_trust(hooks_json: Path, config_toml: Path, events: int) -> Check:
     name = "codex trust"
     try:
@@ -178,7 +196,10 @@ def local_checks() -> list[Check]:
         )
     else:
         checks.append(Check("hook script", OK, str(dest)))
-    checks += _check_agent_hooks("claude", claude_home / "settings.json", claude_home)
+    claude = _check_agent_hooks("claude", claude_home / "settings.json", claude_home)
+    checks += claude
+    if claude[0].status == OK:
+        checks += _check_status_line(claude_home / "settings.json")
     codex = _check_agent_hooks("codex", codex_home / "hooks.json", codex_home)
     checks += codex
     if codex[0].status == OK:
