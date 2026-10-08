@@ -180,7 +180,7 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 
 ### 0.0.1 发布 ☁️ + 👤
 
-范围:Claude Code + Codex 的状态显示(本机和 SSH 服务器)、灵动岛胶囊顶栏、按 agent 分组的面板、`.deb`。**用量监控和 Claude / Codex 以外的 agent 放到 0.0.2。**
+范围:Claude Code + Codex 的状态显示(本机和 SSH 服务器)、灵动岛胶囊顶栏、按 agent 分组的面板、`.deb`。**用量监控放到 0.0.2,Claude / Codex 以外的 agent 放到 0.0.3。**
 
 ☁️ 已完成:界面重做(见上表)、`.deb`(`packaging/build-deb.sh`、`agentail setup`、系统级 systemd 用户单元、GNOME 扩展装进 `/usr/share/gnome-shell/extensions`)、对应测试。
 
@@ -204,7 +204,23 @@ git tag v0.0.1 && git push origin v0.0.1        # .github/workflows/release.yml 
 
 ### 0.0.2(下一步)
 
-用量监控(Claude 5 小时 / 7 天额度、Codex 每周额度,参考 macOS 版面板底部的"用量"区)、Cursor 等其他 agent。需要先调研各家额度信息从哪里取、是否有稳定的本地来源。
+只做用量监控(Claude 5 小时 / 7 天额度、Codex 每周额度,参考 macOS 版面板底部的"用量"区)。需要先调研各家额度信息从哪里取、是否有稳定的本地来源。**不加新 agent**,全部放到 0.0.3。
+
+✅ 已完成(2026-10-08,Claude Code 2.1.290、codex-cli 0.160.1),调研见 `docs/usage-notes.md`,设计见 `docs/usage-design.md`:
+
+- Claude:安装器包装 `statusLine`(保留用户原命令,卸载还原),额度经现有 hook 信封和隧道送达,服务器上的 Claude 也能上报。
+- Codex:daemon 读本机 `~/.codex/sessions` 的 `token_count`;面板打开时再用 `codex app-server` 的 `account/rateLimits/read` 主动查一次(每分钟最多一次)。都不读登录凭据。
+- 面板 Usage 区(默认展开,70% / 90% 变色,30 分钟置灰,窗口重置后不显示旧值);`agentail status` / `tail`、AppIndicator 菜单、`doctor` 检查项;用量跨 daemon 重启保存。
+- 顺带:`[sessions] ignore_cwd`,默认隐藏 CodexBar 的探测会话。
+- 已在本机验证:Claude 与 Codex 两张卡、打开面板约 1 秒刷新 Codex。
+
+暂不做(见 `usage-design.md` §8):多账号区分、服务器上的 Codex 用量。
+
+👤 仍未验证:服务器上的 Claude 用量(`agentail add-host gpu7` 重装一次后在服务器上用 Claude);statusLine 高频触发的开销;亮色主题下的 Usage 区。
+
+### 0.0.3(再下一步)
+
+支持更多 agent。顺序:Claude 兼容 fork(Qoder、Qwen,格式最接近,成本最低)→ Gemini CLI → Cursor(hook 机制差异最大,放最后)→ 插件类 agent。每个 agent 先像 M0-b 那样写调研笔记(`docs/agent-hooks-notes.md`),确认 hook 事件和字段后再写适配器;调研发现没有稳定 hook 来源的,继续顺延。同时把"新增 agent 的清单"(适配器、`install/` 配置合并、真实录制测试、远程验证)整理成文档。
 
 ---
 

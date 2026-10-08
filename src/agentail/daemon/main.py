@@ -309,6 +309,7 @@ class Daemon:
                 if alias not in wanted:
                     del self.hosts[alias]
                     for key in self.usage.drop_host(alias):
+                        self._usage_dirty = True
                         if self.ui is not None:
                             self.ui.broadcast(
                                 {"type": "usage_remove", "host": key.host, "agent": key.agent}
