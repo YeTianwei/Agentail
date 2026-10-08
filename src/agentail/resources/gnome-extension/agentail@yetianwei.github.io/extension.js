@@ -28,6 +28,7 @@ const AGE_REFRESH_S = 5;
 const KNOWN_AGENTS = ['claude', 'codex'];
 const AGENT_ICON_SIZE = 16;
 const ADD_HOST_TIMEOUT_S = 150;
+const MAX_CHIPS = 40;
 // Replaced by packaging/build-deb.sh with the same stamp it writes into metadata.json's
 // "version-name". GNOME Shell keeps an extension's code in memory until it restarts, so
 // after an upgrade the disk stamp differs from this one and the panel says so.
@@ -35,6 +36,36 @@ const BUILD = 'dev';
 
 function uiSocketPath() {
     return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
+}
+
+// Panel preferences (theme, Servers expanded), kept in ~/.config/agentail/panel.json.
+// Only this extension writes the file; anything unreadable falls back to the defaults.
+const PREFS_DEFAULT = {theme: null, servers_open: false};
+
+function prefsPath() {
+    return GLib.build_filenamev([GLib.get_user_config_dir(), 'agentail', 'panel.json']);
+}
+
+function loadPrefs() {
+    try {
+        const [, bytes] = GLib.file_get_contents(prefsPath());
+        const data = JSON.parse(new TextDecoder().decode(bytes));
+        return {
+            theme: data.theme === 'light' || data.theme === 'dark' ? data.theme : null,
+            servers_open: data.servers_open === true,
+        };
+    } catch {
+        return {...PREFS_DEFAULT};
+    }
+}
+
+function savePrefs(prefs) {
+    try {
+        GLib.mkdir_with_parents(GLib.path_get_dirname(prefsPath()), 0o700);
+        GLib.file_set_contents(prefsPath(), JSON.stringify(prefs));
+    } catch (e) {
+        console.warn(`agentail: cannot save ${prefsPath()}: ${e.message}`);
+    }
 }
 
 // ---- ui.sock client ----------------------------------------------------------------
@@ -178,6 +209,10 @@ class AgentailIndicator extends PanelMenu.Button {
         this.add_child(this._capsule);
 
         this.menu.actor.add_style_class_name('agentail-menu');
+        this._prefs = loadPrefs();
+        this._interface = new Gio.Settings({schema_id: 'org.gnome.desktop.interface'});
+        this._schemeId = this._interface.connect('changed::color-scheme', () => this._applyTheme());
+        this._applyTheme();
         const item = new PopupMenu.PopupBaseMenuItem({
             reactive: false,
             can_focus: false,
@@ -347,15 +382,18 @@ class AgentailIndicator extends PanelMenu.Button {
         if (this._outdated())
             this._panel.add_child(this._updateBanner());
         if (!st.connected) {
+            this._panel.add_child(this._titleRow());
             this._panel.add_child(this._offline());
             return;
         }
         const groups = M.agentGroups(st, now);
         const content = vbox('agentail-groups', {x_expand: true});
-        if (!groups.length)
+        if (!groups.length) {
+            content.add_child(this._titleRow());
             content.add_child(this._empty());
-        for (const g of groups)
-            content.add_child(this._agentGroup(g));
+        }
+        // The light/dark switch sits top right, on the first agent's row.
+        groups.forEach((g, i) => content.add_child(this._agentGroup(g, i === 0)));
         content.add_child(this._hosts(M.hostRows(st)));
 
         const scroll = new St.ScrollView({
@@ -376,7 +414,50 @@ class AgentailIndicator extends PanelMenu.Button {
             this._panel.add_child(label(foot.ended, 'agentail-footer'));
     }
 
-    _agentGroup(g) {
+    // A top row with the light/dark switch, for when there is no agent row to carry it.
+    _titleRow() {
+        const row = hbox('agentail-head', {x_expand: true});
+        row.add_child(label('Agentail', 'agentail-section', {xExpand: true}));
+        row.add_child(this._themeButton());
+        return row;
+    }
+
+    // -- theme -------------------------------------------------------------------------------
+
+    _theme() {
+        return M.resolveTheme(this._prefs.theme, this._interface.get_string('color-scheme'));
+    }
+
+    _applyTheme() {
+        if (this._theme() === 'light')
+            this.menu.actor.add_style_class_name('agentail-light');
+        else
+            this.menu.actor.remove_style_class_name('agentail-light');
+    }
+
+    _themeButton() {
+        const light = this._theme() === 'light';
+        const b = new St.Button({
+            style_class: 'agentail-btn agentail-btn-icon',
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            accessible_name: light ? 'Use dark colours' : 'Use light colours',
+            child: new St.Icon({
+                icon_name: light ? 'weather-clear-night-symbolic' : 'weather-clear-symbolic',
+                icon_size: 14,
+            }),
+        });
+        b.connect('clicked', () => {
+            this._prefs.theme = light ? 'dark' : 'light';
+            savePrefs(this._prefs);
+            this._applyTheme();
+            this._renderPanel();
+        });
+        return b;
+    }
+
+    _agentGroup(g, withThemeButton = false) {
         const box = vbox('agentail-group', {x_expand: true});
         const chip = hbox(`agentail-chip agentail-chip-${KNOWN_AGENTS.includes(g.agent) ? g.agent : 'other'}`,
             {x_align: Clutter.ActorAlign.START});
@@ -388,7 +469,15 @@ class AgentailIndicator extends PanelMenu.Button {
             }));
         }
         chip.add_child(label(`${g.name} · ${g.count}`, 'agentail-chip-text'));
-        box.add_child(chip);
+        if (withThemeButton) {
+            const head = hbox('agentail-head', {x_expand: true});
+            head.add_child(chip);
+            head.add_child(new St.Widget({x_expand: true}));
+            head.add_child(this._themeButton());
+            box.add_child(head);
+        } else {
+            box.add_child(chip);
+        }
         for (const c of g.cards)
             box.add_child(this._card(c));
         return box;
@@ -427,7 +516,36 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _hosts(rows) {
         const box = vbox('agentail-group', {x_expand: true});
-        box.add_child(label('Servers', 'agentail-section'));
+        const open = this._prefs.servers_open || this._add.mode !== 'idle';
+        const summary = M.serversSummary(rows);
+        const head = hbox('agentail-servers-head', {x_expand: true});
+        head.add_child(label('Servers', 'agentail-section'));
+        head.add_child(label(summary.text, `agentail-servers-summary agentail-host-text-${summary.level}`,
+            {xExpand: true}));
+        head.add_child(new St.Icon({
+            icon_name: open ? 'pan-down-symbolic' : 'pan-end-symbolic',
+            icon_size: 14,
+            style_class: 'agentail-chevron',
+        }));
+        const toggle = new St.Button({
+            style_class: 'agentail-servers-toggle',
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            x_expand: true,
+            accessible_name: open ? 'Hide servers' : 'Show servers',
+            child: head,
+        });
+        toggle.connect('clicked', () => {
+            this._prefs.servers_open = !open;
+            savePrefs(this._prefs);
+            if (open && this._add.mode !== 'running')
+                this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: ''};
+            this._renderPanel();
+        });
+        box.add_child(toggle);
+        if (!open)
+            return box;
         const card = vbox('agentail-card agentail-hosts', {x_expand: true});
         for (const h of rows) {
             const row = hbox('agentail-host-row', {x_expand: true});
@@ -487,10 +605,17 @@ class AgentailIndicator extends PanelMenu.Button {
             if (a.candidates === null) {
                 box.add_child(label('Looking…', 'agentail-add-note'));
             } else {
-                for (const alias of a.candidates.slice(0, 8))
-                    box.add_child(this._button(alias, 'agentail-btn-pick', () => this._runAddHost(alias)));
-                if (a.candidates.length > 8)
-                    box.add_child(label(`and ${a.candidates.length - 8} more: type the name below`, 'agentail-add-note'));
+                const chips = vbox('agentail-chips', {x_expand: true});
+                for (const names of M.chipRows(a.candidates.slice(0, MAX_CHIPS))) {
+                    const line = hbox('agentail-chip-row');
+                    for (const alias of names)
+                        line.add_child(this._button(alias, 'agentail-btn-pick', () => this._runAddHost(alias)));
+                    chips.add_child(line);
+                }
+                if (a.candidates.length)
+                    box.add_child(chips);
+                if (a.candidates.length > MAX_CHIPS)
+                    box.add_child(label(`and ${a.candidates.length - MAX_CHIPS} more: type the name below`, 'agentail-add-note'));
                 if (!a.candidates.length)
                     box.add_child(label('No unused hosts in ~/.ssh/config. Type its ssh name below.', 'agentail-add-note'));
             }
@@ -712,6 +837,8 @@ class AgentailIndicator extends PanelMenu.Button {
 
     destroy() {
         this._client.stop();
+        if (this._schemeId)
+            this._interface.disconnect(this._schemeId);
         this._addCancel?.cancel();
         if (this._addTimer)
             GLib.source_remove(this._addTimer);

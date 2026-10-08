@@ -297,6 +297,48 @@ export function hostRows(state) {
     return rows;
 }
 
+// Host chips wrapped into rows that fit the panel. Clutter's FlowLayout under-reports its
+// height inside a vertical box (the last rows overlap what follows), so rows are fixed here,
+// from an estimate of each chip's width (monospace text plus padding).
+export function chipRows(aliases, maxWidth = 350, charWidth = 7.5, padding = 22, gap = 6) {
+    const rows = [];
+    let row = [], used = 0;
+    for (const alias of aliases) {
+        const w = Array.from(alias).length * charWidth + padding;
+        if (row.length && used + gap + w > maxWidth) {
+            rows.push(row);
+            row = [];
+            used = 0;
+        }
+        used += (row.length ? gap : 0) + w;
+        row.push(alias);
+    }
+    if (row.length)
+        rows.push(row);
+    return rows;
+}
+
+// One line for the collapsed Servers header: "2 connected", "1 unreachable", ...
+export function serversSummary(rows) {
+    if (!rows.length)
+        return {text: 'none yet', level: 'off'};
+    const down = rows.filter(r => r.level === 'pending' || r.level === 'error').length;
+    if (down)
+        return {text: `${down} unreachable`, level: 'error'};
+    const ok = rows.filter(r => r.level === 'ok').length;
+    if (ok === rows.length)
+        return {text: `${ok} connected`, level: 'ok'};
+    return {text: `${ok} of ${rows.length} connected`, level: 'off'};
+}
+
+// Panel colours: the user's choice, else the desktop's colour scheme. GNOME Shell's own
+// menus are dark unless the desktop asks for light, so dark is the default.
+export function resolveTheme(choice, colorScheme) {
+    if (choice === 'light' || choice === 'dark')
+        return choice;
+    return colorScheme === 'prefer-light' ? 'light' : 'dark';
+}
+
 export function footer(state) {
     let ended = 0;
     for (const s of state.sessions.values()) {
@@ -323,7 +365,8 @@ export function parseAliases(stdout) {
         if (validAlias(alias))
             seen.add(alias);
     }
-    return [...seen];
+    // Natural order: gpu2 before gpu10.
+    return [...seen].sort((a, b) => a.localeCompare(b, 'en', {numeric: true}));
 }
 
 // What to tell the user after `agentail add-host` ran: the last line it printed

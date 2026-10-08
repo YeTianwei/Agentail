@@ -128,7 +128,7 @@ test('add server helpers', () => {
     eq(['gpu7', 'me@h.example', 'a-b_c.d'].map(M.validAlias), [true, true, true]);
     eq(['', '-oProxyCommand=x', 'a b', 'a;b', '$(x)', 'x'.repeat(200), null, 5].map(M.validAlias),
         [false, false, false, false, false, false, false, false]);
-    eq(M.parseAliases('gpu7\n  gpu8 \n-bad\ngpu7\n\x1b[31mx\n'), ['gpu7', 'gpu8']);
+    eq(M.parseAliases('gpu8\n  gpu7 \n-bad\ngpu7\n\x1b[31mx\n'), ['gpu7', 'gpu8']);
     eq(M.parseAliases(null), []);
     eq(M.addHostMessage('probing\ngpu7: connected (end-to-end ping received)\n', true),
         'gpu7: connected (end-to-end ping received)');
@@ -139,6 +139,26 @@ test('add server helpers', () => {
     eq(M.removedMessage('gpu7', 'removed gpu7 from x'), 'Removed gpu7.');
     eq(M.removedMessage('gpu8', 'gpu8 shares its $HOME with gpu7: leaving'), 'Removed gpu8. Its settings stay: another server shares the same home.');
     ok(Array.from(M.addHostMessage('y'.repeat(900), false)).length <= 240, 'bounded');
+});
+
+test('servers summary, alias order, theme', () => {
+    const r = (level) => ({level});
+    eq(M.serversSummary([]), {text: 'none yet', level: 'off'});
+    eq(M.serversSummary([r('ok'), r('ok')]), {text: '2 connected', level: 'ok'});
+    eq(M.serversSummary([r('ok'), r('pending'), r('error')]), {text: '2 unreachable', level: 'error'});
+    eq(M.serversSummary([r('ok'), r('off')]), {text: '1 of 2 connected', level: 'off'});
+    eq(M.parseAliases('gpu10\ngpu2\ngpu1\nbastion\ngpu0'), ['bastion', 'gpu0', 'gpu1', 'gpu2', 'gpu10']);
+    eq([M.resolveTheme('light', 'prefer-dark'), M.resolveTheme('dark', 'prefer-light'),
+        M.resolveTheme(null, 'prefer-light'), M.resolveTheme(undefined, 'default'),
+        M.resolveTheme('weird', 'prefer-dark')], ['light', 'dark', 'light', 'dark', 'dark']);
+});
+
+test('chip rows', () => {
+    eq(M.chipRows([]), []);
+    eq(M.chipRows(['a', 'b', 'c'], 100, 10, 20, 5), [['a', 'b', 'c']]);  // 30+5+30+5+30
+    eq(M.chipRows(['aaaa', 'bbbb', 'cccc'], 100, 10, 20, 5), [['aaaa'], ['bbbb'], ['cccc']]);
+    eq(M.chipRows(['a', 'b', 'c', 'd'], 100, 10, 20, 5), [['a', 'b', 'c'], ['d']]);
+    eq(M.chipRows(['x'.repeat(60)], 100), [['x'.repeat(60)]]);  // a long name still gets a row
 });
 
 test('rate limiter', () => {

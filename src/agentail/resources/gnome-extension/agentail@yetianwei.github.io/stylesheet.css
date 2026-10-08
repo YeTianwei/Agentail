@@ -155,6 +155,7 @@
 .agentail-empty-text { font-size: 12px; color: #9a9aa0; text-align: center; }
 
 .agentail-footer { font-size: 12px; color: #8e8e94; padding: 0 4px 2px 4px; }
+.agentail-head { spacing: 8px; }
 
 /* add server */
 .agentail-add { spacing: 6px; }
@@ -198,3 +199,64 @@
   color: #c5dcf7;
   font-size: 12.5px;
 }
+
+/* collapsible servers header, host chips, small icon button */
+.agentail-servers-toggle { padding: 4px 6px; border-radius: 8px; }
+.agentail-servers-toggle:hover, .agentail-servers-toggle:focus { background-color: rgba(255, 255, 255, 0.06); }
+.agentail-servers-head { spacing: 8px; }
+.agentail-servers-head .agentail-section { padding: 0; }
+.agentail-servers-summary { font-size: 12px; }
+.agentail-chevron { color: #8e8e94; }
+.agentail-chips { padding: 2px 0; spacing: 6px; }
+.agentail-chip-row { spacing: 6px; }
+.agentail-btn-pick { padding: 4px 10px; border-radius: 8px; font-size: 12px; }
+.agentail-btn-icon { padding: 5px 7px; border-radius: 8px; background-color: transparent; color: #9a9aa0; }
+.agentail-btn-icon:hover, .agentail-btn-icon:focus { background-color: rgba(255, 255, 255, 0.10); color: #ffffff; }
+
+/* ---- light colours (the footer's sun/moon button) ---- */
+.agentail-light .popup-menu-content { background-color: #f2f2f4; border: 1px solid rgba(0, 0, 0, 0.08); }
+.agentail-light .agentail-panel { color: #1d1d1f; }
+.agentail-light .agentail-card { background-color: #ffffff; border: 1px solid rgba(0, 0, 0, 0.06); }
+.agentail-light .agentail-card-attention { background-color: #fff4e8; border: 1px solid rgba(230, 120, 20, 0.50); }
+.agentail-light .agentail-card-stale { background-color: #ececef; }
+.agentail-light .agentail-chip { background-color: rgba(0, 0, 0, 0.06); }
+.agentail-light .agentail-chip-claude { background-color: rgba(222, 115, 86, 0.18); }
+.agentail-light .agentail-chip-codex { background-color: rgba(40, 170, 160, 0.18); }
+.agentail-light .agentail-card-stale .agentail-project { color: #77767b; }
+.agentail-light .agentail-subtitle { color: #6e6e73; }
+.agentail-light .agentail-card-attention .agentail-subtitle { color: #7a5a3a; }
+.agentail-light .agentail-age,
+.agentail-light .agentail-footer,
+.agentail-light .agentail-chevron,
+.agentail-light .agentail-section,
+.agentail-light .agentail-add-note,
+.agentail-light .agentail-empty-text { color: #77767b; }
+.agentail-light .agentail-status-running { color: #1c71d8; }
+.agentail-light .agentail-status-waiting { color: #1f8a4c; }
+.agentail-light .agentail-status-attention { color: #c64600; }
+.agentail-light .agentail-status-stale { color: #77767b; }
+.agentail-light .agentail-tool { color: #3d3d42; background-color: rgba(0, 0, 0, 0.06); }
+.agentail-light .agentail-command { color: #3b2a1a; background-color: rgba(0, 0, 0, 0.05); }
+.agentail-light .agentail-hint { color: #8a5a2b; }
+.agentail-light .agentail-host-text-ok { color: #1f8a4c; }
+.agentail-light .agentail-host-text-pending,
+.agentail-light .agentail-host-text-error { color: #c01c28; }
+.agentail-light .agentail-host-text-off { color: #77767b; }
+.agentail-light .agentail-host-problem { color: #a51d2d; background-color: rgba(224, 27, 36, 0.08); border: 1px solid rgba(224, 27, 36, 0.25); }
+.agentail-light .agentail-servers-toggle:hover,
+.agentail-light .agentail-servers-toggle:focus { background-color: rgba(0, 0, 0, 0.05); }
+.agentail-light .agentail-btn { background-color: rgba(0, 0, 0, 0.05); color: #1d1d1f; }
+.agentail-light .agentail-btn:hover, .agentail-light .agentail-btn:focus { background-color: rgba(0, 0, 0, 0.10); }
+.agentail-light .agentail-btn-add { color: #1c71d8; }
+.agentail-light .agentail-btn-quiet,
+.agentail-light .agentail-btn-icon,
+.agentail-light .agentail-btn-x { background-color: transparent; color: #77767b; }
+.agentail-light .agentail-btn-icon:hover, .agentail-light .agentail-btn-icon:focus { background-color: rgba(0, 0, 0, 0.08); color: #1d1d1f; }
+.agentail-light .agentail-btn-x:hover { background-color: rgba(224, 27, 36, 0.12); color: #c01c28; }
+.agentail-light .agentail-btn-danger { background-color: rgba(224, 27, 36, 0.12); color: #c01c28; }
+.agentail-light .agentail-entry { background-color: #ffffff; border: 1px solid rgba(0, 0, 0, 0.14); color: #1d1d1f; caret-color: #1d1d1f; }
+.agentail-light .agentail-add-ok { background-color: rgba(38, 162, 105, 0.12); color: #1b6e47; }
+.agentail-light .agentail-add-fail { background-color: rgba(224, 27, 36, 0.08); border: 1px solid rgba(224, 27, 36, 0.25); color: #a51d2d; }
+.agentail-light .agentail-empty { background-color: #ffffff; }
+.agentail-light .agentail-empty-icon { background-color: #3a3a3f; }
+.agentail-light .agentail-update { background-color: rgba(28, 113, 216, 0.10); color: #1a4f91; }

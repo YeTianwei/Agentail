@@ -10,6 +10,9 @@ First release: status of Claude Code and Codex sessions on the local desktop and
 - Sessions survive a daemon restart (saved to `~/.local/state/agentail/sessions.json`); before,
   `systemctl --user restart agentail` emptied the panel until each session sent a new event.
   Restored remote sessions show as out of date until their tunnel is back.
+- Panel: the Servers section folds into one line ("2 connected", red when one is down);
+  host suggestions are compact chips in natural order; a light/dark switch sits top right
+  (remembered in `~/.config/agentail/panel.json`, defaults to the desktop colour scheme).
 - **Servers → ＋ Add server** in the panel: pick a host from `~/.ssh/config` (`agentail
   list-ssh-hosts`) or type a name; runs `agentail add-host` and shows the result in the panel. Each server row has a ✕ that runs `agentail remove-host` after
   a confirmation, with "Forget it anyway" (`--local-only`) when the server is unreachable.
