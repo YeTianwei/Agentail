@@ -16,6 +16,7 @@ they do not know survive.
 
 from __future__ import annotations
 
+import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -107,6 +108,51 @@ def load_retention(path: Path | None = None) -> Retention:
             raise ValueError(f"{path}: sessions.{key} must be a positive number of minutes")
         values[attr] = float(v) * 60
     return Retention(**values)
+
+
+# Apps that start agent sessions of their own just to read a number (CodexBar runs `claude`
+# to read its limits) leave one session each; they are not work the user needs to see.
+DEFAULT_IGNORE_CWD = ("~/.local/share/CodexBar",)
+
+
+def _expand(entries: tuple[str, ...] | list[str]) -> tuple[str, ...]:
+    return tuple(os.path.normpath(os.path.expanduser(e)) for e in entries if e.strip())
+
+
+def default_ignore_cwd() -> tuple[str, ...]:
+    return _expand(DEFAULT_IGNORE_CWD)
+
+
+def load_ignore_cwd(path: Path | None = None) -> tuple[str, ...]:
+    """Directories whose sessions are not shown, from ``[sessions] ignore_cwd`` in config.toml.
+
+        [sessions]
+        ignore_cwd = ["~/.local/share/CodexBar"]   # the default; [] shows everything
+
+    A session is ignored when its working directory is one of these or inside one. ``~`` is
+    expanded. Raises ValueError for unreadable TOML or a value that is not a list of strings.
+    """
+    path = path or paths.settings_file()
+    entries: object = DEFAULT_IGNORE_CWD
+    if path.exists():
+        try:
+            with path.open("rb") as fh:
+                section = tomllib.load(fh).get("sessions", {})
+        except (OSError, tomllib.TOMLDecodeError) as exc:
+            raise ValueError(f"{path}: {exc}") from exc
+        if isinstance(section, dict) and "ignore_cwd" in section:
+            entries = section["ignore_cwd"]
+    if not isinstance(entries, list | tuple) or not all(isinstance(e, str) for e in entries):
+        raise ValueError(f"{path}: sessions.ignore_cwd must be a list of directory names")
+    return _expand(entries)
+
+
+def cwd_ignored(cwd: str, ignore: tuple[str, ...]) -> bool:
+    """True if ``cwd`` is one of the ``ignore`` directories or below one."""
+    if not cwd or not ignore:
+        return False
+    norm = os.path.normpath(cwd)
+    return any(norm == d or norm.startswith(d.rstrip("/") + "/") for d in ignore)
 
 
 def load_auto_setup(path: Path | None = None) -> bool:

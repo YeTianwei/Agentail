@@ -162,6 +162,9 @@ Nothing is required. `~/.config/agentail/config.toml` can change:
 stale_after_minutes = 30    # working, then silent: greyed out as "out of date"
 forget_after_minutes = 120  # out of date or waiting for you, then silent: removed
 ended_minutes = 10          # ended: removed
+# Sessions started in (or below) these folders are not shown. Apps like CodexBar start
+# `claude` by themselves to read its limits; [] shows everything.
+ignore_cwd = ["~/.local/share/CodexBar"]
 
 [setup]
 auto = true                 # false: do not set up hooks and the panel automatically

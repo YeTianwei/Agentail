@@ -3,6 +3,8 @@ import io
 import json
 import subprocess
 import sys
+import time
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -234,3 +236,25 @@ async def test_restored_remote_sessions_are_stale(runtime_env):
     finally:
         daemon.stop()
         await task
+
+
+async def test_sessions_in_ignored_directories_are_not_tracked(runtime_env, isolated_home):
+    probe = isolated_home / ".local/share/CodexBar/ClaudeProbe"
+
+    def stop(sid, cwd):
+        payload = json.dumps({"session_id": sid, "hook_event_name": "Stop", "cwd": cwd})
+        return replace(_msg("Stop", payload), ts=time.time())  # recent: survives the load sweep
+
+    d = Daemon()
+    await d.handle("local", stop("probe", str(probe)))
+    await d.handle("local", stop("work", "/w"))
+    assert [k.session_id for k in d.store.sessions] == ["work"]
+
+    # a session saved by an earlier run is dropped when the daemon starts
+    paths.sessions_file().parent.mkdir(parents=True, exist_ok=True)
+    dump = d.store.dump()
+    dump.append({**dump[0], "session_id": "old-probe", "cwd": str(probe)})
+    paths.sessions_file().write_text(json.dumps(dump))
+    d2 = Daemon()
+    d2._load_sessions()
+    assert [k.session_id for k in d2.store.sessions] == ["work"]

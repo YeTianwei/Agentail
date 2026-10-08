@@ -15,6 +15,9 @@
   `agentail doctor` checks it.
 - Codex's numbers are read by the daemon from `~/.codex/sessions` on this computer (Codex on
   servers is not covered). Neither agent's login files are read.
+- `[sessions] ignore_cwd` in `config.toml`: sessions whose working directory is one of these
+  folders (or inside one) are not shown. The default hides CodexBar's background probes
+  (`~/.local/share/CodexBar`), which otherwise leave a session each time it reads Claude's limits.
 - UI protocol: `usage` in the snapshot, `usage_update` and `usage_remove` messages
   (docs/protocol.md). The hook protocol is unchanged.
 

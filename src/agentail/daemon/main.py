@@ -22,7 +22,14 @@ from typing import Any
 
 from agentail import paths
 from agentail.adapters import get_adapter
-from agentail.config import Host, load_hosts, load_retention
+from agentail.config import (
+    Host,
+    cwd_ignored,
+    default_ignore_cwd,
+    load_hosts,
+    load_ignore_cwd,
+    load_retention,
+)
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
@@ -63,6 +70,11 @@ class Daemon:
             log.warning("%s; using the default session timeouts", exc)
             retention = Retention()
         self.store = Store(retention)
+        try:
+            self.ignore_cwd = load_ignore_cwd()
+        except ValueError as exc:
+            log.warning("%s; using the default", exc)
+            self.ignore_cwd = default_ignore_cwd()
         self.usage = UsageStore()
         self._codex_home = codex_usage_home
         self._codex_usage_due = 0.0  # monotonic time of the next read of the Codex files
@@ -124,7 +136,7 @@ class Daemon:
                 ),
                 flush=True,
             )
-        if event is None:
+        if event is None or cwd_ignored(event.cwd, self.ignore_cwd):
             return
         change = self.store.apply(event)
         if change is not None:
@@ -294,6 +306,14 @@ class Daemon:
         except (OSError, ValueError) as exc:
             log.warning("ignoring %s: %s", path, exc)
             return
+        if isinstance(items, list):
+            items = [
+                i
+                for i in items
+                if not (
+                    isinstance(i, dict) and cwd_ignored(str(i.get("cwd") or ""), self.ignore_cwd)
+                )
+            ]
         n = self.store.load(items)
         for host in {k.host for k in self.store.sessions if k.host != LOCAL_SOURCE}:
             self.store.mark_host_offline(host)

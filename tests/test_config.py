@@ -1,3 +1,5 @@
+import pytest
+
 from agentail import paths
 from agentail.config import Host, load_hosts, remove_host, save_host
 
@@ -68,3 +70,25 @@ def test_load_retention(tmp_path):
         missing.write_text(bad)
         with pytest.raises(ValueError):
             load_retention(missing)
+
+
+def test_ignore_cwd_default_and_config(tmp_path, monkeypatch):
+    from agentail.config import cwd_ignored, load_ignore_cwd
+
+    monkeypatch.setenv("HOME", str(tmp_path))
+    cfg = tmp_path / "config.toml"
+    assert load_ignore_cwd(cfg) == (str(tmp_path / ".local/share/CodexBar"),)
+    cfg.write_text('[sessions]\nignore_cwd = ["~/probe", "/srv/x/"]\n')
+    ignore = load_ignore_cwd(cfg)
+    assert ignore == (str(tmp_path / "probe"), "/srv/x")
+    assert cwd_ignored(str(tmp_path / "probe"), ignore)
+    assert cwd_ignored(str(tmp_path / "probe/sub/dir"), ignore)
+    assert cwd_ignored("/srv/x/", ignore)
+    assert not cwd_ignored(str(tmp_path / "probe-2"), ignore)  # a prefix of the name is not enough
+    assert not cwd_ignored("", ignore) and not cwd_ignored("/a", ())
+    cfg.write_text("[sessions]\nignore_cwd = []\n")
+    assert load_ignore_cwd(cfg) == ()
+    for bad in ('ignore_cwd = "x"', "ignore_cwd = [1]"):
+        cfg.write_text(f"[sessions]\n{bad}\n")
+        with pytest.raises(ValueError):
+            load_ignore_cwd(cfg)
