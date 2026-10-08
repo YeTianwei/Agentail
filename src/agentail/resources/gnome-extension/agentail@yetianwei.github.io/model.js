@@ -306,6 +306,48 @@ export function footer(state) {
     return {ended: ended ? `${ended} ended recently` : ''};
 }
 
+// ---- adding a server -----------------------------------------------------------------
+
+// Same rule as agentail.sshconfig.valid_alias: a name ssh cannot take for an option.
+const ALIAS = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$/;
+
+export function validAlias(alias) {
+    return typeof alias === 'string' && ALIAS.test(alias);
+}
+
+// Output of `agentail list-ssh-hosts`: one alias per line; anything odd is dropped.
+export function parseAliases(stdout) {
+    const seen = new Set();
+    for (const line of String(stdout ?? '').split('\n')) {
+        const alias = line.trim();
+        if (validAlias(alias))
+            seen.add(alias);
+    }
+    return [...seen];
+}
+
+// What to tell the user after `agentail add-host` ran: the last line it printed
+// (preferring an "error:" line), cleaned and bounded.
+export function addHostMessage(output, ok) {
+    const lines = String(output ?? '').split('\n').map(l => l.trim()).filter(l => l);
+    const error = lines.filter(l => l.startsWith('error:')).pop();
+    const text = ok ? lines[lines.length - 1] : (error ?? lines[lines.length - 1]);
+    return clean(text ?? (ok ? 'Done' : 'Failed'), 240);
+}
+
+// "Added gpu7. connected (end-to-end ping received)": the tool's last line, minus its own
+// "gpu7:" prefix.
+export function addedMessage(alias, output) {
+    const last = addHostMessage(output, true);
+    const tail = last.startsWith(`${alias}: `) ? last.slice(alias.length + 2) : last;
+    return `Added ${alias}.${tail && tail !== 'Done' ? ` ${tail}` : ''}`;
+}
+
+export function removedMessage(alias, output) {
+    const shared = String(output ?? '').includes('shares its $HOME');
+    return `Removed ${alias}.${shared ? ' Its settings stay: another server shares the same home.' : ''}`;
+}
+
 // ---- notifications ------------------------------------------------------------------
 
 export function notice(msg, state) {

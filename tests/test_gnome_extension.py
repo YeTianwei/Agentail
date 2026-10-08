@@ -98,3 +98,12 @@ def test_cli_wiring(monkeypatch):
     assert cli.main(["install-gnome-extension", "--link"]) == 0
     assert cli.main(["uninstall-gnome-extension"]) == 0
     assert seen == [("i", True), ("u",)]
+
+
+def test_extension_spawns_only_argv_lists():
+    """The "Add server" button runs the agentail tool: no shell, no command line strings."""
+    code = re.sub(r"//.*", "", (EXT / "extension.js").read_text())
+    for banned in ("spawn_command_line", "spawn_async", "sh -c", "bash", "/bin/sh"):
+        assert banned not in code, banned
+    assert code.count("Gio.Subprocess.new([") == 2  # list-ssh-hosts, and add/remove-host
+    assert "M.validAlias(alias)" in code  # checked before the alias reaches the tool

@@ -65,6 +65,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("install-service", help="start the daemon with your desktop session (systemd)")
     sub.add_parser("uninstall-service", help="remove the systemd user service")
+    sub.add_parser("list-ssh-hosts", help="print the ~/.ssh/config aliases that are not added yet")
     sub.add_parser("doctor", help="check the daemon, hooks, tunnels and panel")
 
     sub.add_parser("paths", help="print the sockets and files agentail uses")
@@ -99,8 +100,20 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install.local import uninstall_local
 
         return uninstall_local(dry_run=args.dry_run)
+    if args.command == "list-ssh-hosts":
+        from agentail.config import load_hosts
+        from agentail.sshconfig import list_aliases
+
+        added = {h.alias for h in load_hosts()}
+        print("\n".join(a for a in list_aliases() if a not in added))
+        return 0
     if args.command == "add-host":
         from agentail.install.remote import add_host
+        from agentail.sshconfig import valid_alias
+
+        if not valid_alias(args.alias):
+            print(f"error: {args.alias!r} is not a valid host alias", file=sys.stderr)
+            return 2
 
         return add_host(
             args.alias,

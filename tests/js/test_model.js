@@ -124,6 +124,23 @@ test('notices', () => {
     eq(M.notice({kind: 'other', key: {}}, st), null);
 });
 
+test('add server helpers', () => {
+    eq(['gpu7', 'me@h.example', 'a-b_c.d'].map(M.validAlias), [true, true, true]);
+    eq(['', '-oProxyCommand=x', 'a b', 'a;b', '$(x)', 'x'.repeat(200), null, 5].map(M.validAlias),
+        [false, false, false, false, false, false, false, false]);
+    eq(M.parseAliases('gpu7\n  gpu8 \n-bad\ngpu7\n\x1b[31mx\n'), ['gpu7', 'gpu8']);
+    eq(M.parseAliases(null), []);
+    eq(M.addHostMessage('probing\ngpu7: connected (end-to-end ping received)\n', true),
+        'gpu7: connected (end-to-end ping received)');
+    eq(M.addHostMessage('gpu7: x\nerror: gpu7: no python3\nbye', false), 'error: gpu7: no python3');
+    eq(M.addHostMessage('', false), 'Failed');
+    eq(M.addedMessage('gpu7', 'x\ngpu7: connected (end-to-end ping received)\n'), 'Added gpu7. connected (end-to-end ping received)');
+    eq(M.addedMessage('gpu7', ''), 'Added gpu7.');
+    eq(M.removedMessage('gpu7', 'removed gpu7 from x'), 'Removed gpu7.');
+    eq(M.removedMessage('gpu8', 'gpu8 shares its $HOME with gpu7: leaving'), 'Removed gpu8. Its settings stay: another server shares the same home.');
+    ok(Array.from(M.addHostMessage('y'.repeat(900), false)).length <= 240, 'bounded');
+});
+
 test('rate limiter', () => {
     const rl = new M.RateLimiter(10);
     const a = {key: 'k', kind: 'turn_done'}, b = {key: 'k', kind: 'attention'};

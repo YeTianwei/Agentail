@@ -156,3 +156,37 @@
 
 .agentail-footer { font-size: 12px; color: #8e8e94; padding: 0 4px 2px 4px; }
 
+/* add server */
+.agentail-add { spacing: 6px; }
+.agentail-add-row { spacing: 8px; }
+.agentail-add-title { font-size: 13px; font-weight: bold; }
+.agentail-add-note { font-size: 12px; color: #9a9aa0; }
+.agentail-btn {
+  padding: 7px 12px;
+  border-radius: 10px;
+  background-color: rgba(255, 255, 255, 0.07);
+  font-size: 13px;
+}
+.agentail-btn:hover, .agentail-btn:focus { background-color: rgba(255, 255, 255, 0.14); }
+.agentail-btn-add { color: #99c1f1; font-weight: bold; }
+.agentail-btn-pick { font-family: monospace; }
+.agentail-btn-quiet { background-color: transparent; color: #9a9aa0; }
+.agentail-entry {
+  padding: 7px 10px;
+  border-radius: 10px;
+  background-color: rgba(0, 0, 0, 0.30);
+  color: #ffffff;
+  caret-color: #ffffff;
+  font-size: 13px;
+}
+.agentail-add-result { padding: 9px 12px; border-radius: 10px; font-size: 12.5px; }
+.agentail-add-ok { background-color: rgba(87, 227, 137, 0.12); color: #b9f3c7; }
+.agentail-add-fail {
+  background-color: rgba(255, 107, 107, 0.10);
+  border: 1px solid rgba(255, 107, 107, 0.30);
+  color: #f2c9c9;
+}
+.agentail-btn-x { padding: 2px 7px; border-radius: 8px; background-color: transparent; color: #8e8e94; font-size: 11px; }
+.agentail-btn-x:hover, .agentail-btn-x:focus { background-color: rgba(255, 107, 107, 0.18); color: #ffa8a8; }
+.agentail-btn-danger { background-color: rgba(255, 107, 107, 0.18); color: #ffb4b4; font-weight: bold; }
+.agentail-btn-danger:hover, .agentail-btn-danger:focus { background-color: rgba(255, 107, 107, 0.30); }

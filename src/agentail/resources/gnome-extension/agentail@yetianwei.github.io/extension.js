@@ -27,6 +27,7 @@ const RECONNECT_MAX_S = 10;
 const AGE_REFRESH_S = 5;
 const KNOWN_AGENTS = ['claude', 'codex'];
 const AGENT_ICON_SIZE = 16;
+const ADD_HOST_TIMEOUT_S = 150;
 
 function uiSocketPath() {
     return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
@@ -160,6 +161,11 @@ class AgentailIndicator extends PanelMenu.Button {
         this._renderId = 0;
         this._ageTimer = 0;
         this._source = null;
+        // "Add server" flow: idle | picking | running | result (see _addServer)
+        this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: ''};
+        this._addProc = null;
+        this._addCancel = null;
+        this._addTimer = 0;
 
         // The "island": a dark capsule inside the panel button. Its content is rebuilt
         // by _renderTopBar() whenever the summary changes.
@@ -180,12 +186,17 @@ class AgentailIndicator extends PanelMenu.Button {
             if (open) {
                 this._renderPanel();
                 this._ageTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, AGE_REFRESH_S, () => {
-                    this._renderPanel();
+                    if (this._add.mode !== 'picking')
+                        this._renderPanel();
                     return GLib.SOURCE_CONTINUE;
                 });
-            } else if (this._ageTimer) {
-                GLib.source_remove(this._ageTimer);
-                this._ageTimer = 0;
+            } else {
+                if (this._add.mode === 'picking' || this._add.mode === 'result')
+                    this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: ''};
+                if (this._ageTimer) {
+                    GLib.source_remove(this._ageTimer);
+                    this._ageTimer = 0;
+                }
             }
         });
 
@@ -221,8 +232,8 @@ class AgentailIndicator extends PanelMenu.Button {
         this._renderId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
             this._renderId = 0;
             this._renderTopBar();
-            if (this.menu.isOpen)
-                this._renderPanel();
+            if (this.menu.isOpen && this._add.mode !== 'picking')
+                this._renderPanel();  // a rebuild would drop what is being typed
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -339,9 +350,7 @@ class AgentailIndicator extends PanelMenu.Button {
             content.add_child(this._empty());
         for (const g of groups)
             content.add_child(this._agentGroup(g));
-        const hosts = M.hostRows(st);
-        if (hosts.length)
-            content.add_child(this._hosts(hosts));
+        content.add_child(this._hosts(M.hostRows(st)));
 
         const scroll = new St.ScrollView({
             style_class: 'agentail-scroll',
@@ -424,6 +433,11 @@ class AgentailIndicator extends PanelMenu.Button {
             const detail = h.level === 'ok' && h.sessions
                 ? `${h.stateText} · ${h.sessions} active` : h.stateText;
             row.add_child(label(detail, `agentail-host-state agentail-host-text-${h.level}`));
+            if (this._add.mode === 'idle') {
+                const x = this._button('✕', 'agentail-btn-x', () => this._setAdd({mode: 'confirm', alias: h.alias}));
+                x.accessible_name = `Remove ${h.alias}`;
+                row.add_child(x);
+            }
             card.add_child(row);
             if (h.problem) {
                 const problem = label(`${h.problem}. Sessions may be out of date.`, 'agentail-host-problem');
@@ -431,8 +445,190 @@ class AgentailIndicator extends PanelMenu.Button {
                 card.add_child(problem);
             }
         }
-        box.add_child(card);
+        if (rows.length)
+            box.add_child(card);
+        box.add_child(this._addServer());
         return box;
+    }
+
+    // -- add server ---------------------------------------------------------------------
+
+    _setAdd(state) {
+        this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: '', ...state};
+        this._renderPanel();
+    }
+
+    _button(text, styleClass, onClick) {
+        const b = new St.Button({
+            style_class: `agentail-btn ${styleClass}`,
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            x_align: Clutter.ActorAlign.START,
+            child: label(text, ''),
+        });
+        b.connect('clicked', onClick);
+        return b;
+    }
+
+    _addServer() {
+        const box = vbox('agentail-add', {x_expand: true});
+        const a = this._add;
+        if (a.mode === 'idle') {
+            box.add_child(this._button('＋  Add server', 'agentail-btn-add', () => this._openPicker()));
+        } else if (a.mode === 'picking') {
+            box.add_child(label('Pick a server from your SSH config', 'agentail-add-title'));
+            if (a.candidates === null) {
+                box.add_child(label('Looking…', 'agentail-add-note'));
+            } else {
+                for (const alias of a.candidates.slice(0, 8))
+                    box.add_child(this._button(alias, 'agentail-btn-pick', () => this._runAddHost(alias)));
+                if (a.candidates.length > 8)
+                    box.add_child(label(`and ${a.candidates.length - 8} more: type the name below`, 'agentail-add-note'));
+                if (!a.candidates.length)
+                    box.add_child(label('No unused hosts in ~/.ssh/config. Type its ssh name below.', 'agentail-add-note'));
+            }
+            const entry = new St.Entry({
+                style_class: 'agentail-entry',
+                hint_text: 'or type a name, then Enter',
+                can_focus: true,
+                x_expand: true,
+            });
+            entry.clutter_text.connect('activate', () => this._runAddHost(entry.get_text().trim()));
+            box.add_child(entry);
+            box.add_child(this._button('Cancel', 'agentail-btn-quiet', () => this._setAdd({})));
+            GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
+                entry.grab_key_focus();
+                return GLib.SOURCE_REMOVE;
+            });
+        } else if (a.mode === 'confirm') {
+            const msg = label(`Remove ${a.alias}? Agentail puts the server's Claude and Codex settings back as they were and stops watching it.`, 'agentail-add-title');
+            msg.clutter_text.line_wrap = true;
+            box.add_child(msg);
+            const row = hbox('agentail-add-row');
+            row.add_child(this._button('Remove', 'agentail-btn-danger', () => this._runRemoveHost(a.alias, false)));
+            row.add_child(this._button('Cancel', 'agentail-btn-quiet', () => this._setAdd({})));
+            box.add_child(row);
+        } else if (a.mode === 'running') {
+            const row = hbox('agentail-add-row');
+            const spinner = new St.Icon({gicon: this._gicon('spinner.svg'), icon_size: 16});
+            spinner.set_pivot_point(0.5, 0.5);
+            spinner.ease({rotation_angle_z: 360, duration: 1000, mode: Clutter.AnimationMode.LINEAR, repeatCount: -1});
+            row.add_child(spinner);
+            row.add_child(label(`${a.verb} ${a.alias}…`, 'agentail-add-title'));
+            box.add_child(row);
+            box.add_child(label('This talks to the server over SSH and can take a few seconds.', 'agentail-add-note'));
+        } else {
+            const msg = label(a.message, `agentail-add-result agentail-add-${a.ok ? 'ok' : 'fail'}`);
+            msg.clutter_text.line_wrap = true;
+            box.add_child(msg);
+            const row = hbox('agentail-add-row');
+            if (!a.ok && a.action === 'remove') {
+                // The server could not be reached: forget it here without touching it.
+                row.add_child(this._button('Forget it anyway', 'agentail-btn-danger', () => this._runRemoveHost(a.alias, true)));
+            } else if (!a.ok) {
+                row.add_child(this._button('Try again', 'agentail-btn-add', () => this._openPicker()));
+            }
+            row.add_child(this._button('Close', 'agentail-btn-quiet', () => this._setAdd({})));
+            box.add_child(row);
+        }
+        return box;
+    }
+
+    // The agentail command-line tool does the work, so the panel and the terminal behave the
+    // same. The alias is checked against the same rule the tool uses, and passed as one argv
+    // element (never through a shell).
+    _agentailBinary() {
+        const packaged = '/usr/bin/agentail';
+        if (GLib.file_test(packaged, GLib.FileTest.IS_EXECUTABLE))
+            return packaged;
+        return GLib.find_program_in_path('agentail');
+    }
+
+    _openPicker() {
+        this._setAdd({mode: 'picking'});
+        const bin = this._agentailBinary();
+        if (!bin) {
+            this._setAdd({mode: 'picking', candidates: []});
+            return;
+        }
+        try {
+            const proc = Gio.Subprocess.new([bin, 'list-ssh-hosts'],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_SILENCE);
+            proc.communicate_utf8_async(null, null, (p, res) => {
+                let aliases = [];
+                try {
+                    const [, out] = p.communicate_utf8_finish(res);
+                    aliases = M.parseAliases(out);
+                } catch {
+                    // no list: the user can still type a name
+                }
+                if (this._add.mode === 'picking' && this._add.candidates === null)
+                    this._setAdd({mode: 'picking', candidates: aliases});
+            });
+        } catch {
+            this._setAdd({mode: 'picking', candidates: []});
+        }
+    }
+
+    _runAddHost(alias) {
+        this._runTool(alias, 'add', 'Adding', ['add-host', alias]);
+    }
+
+    _runRemoveHost(alias, localOnly) {
+        this._runTool(alias, 'remove', 'Removing',
+            localOnly ? ['remove-host', '--local-only', alias] : ['remove-host', alias]);
+    }
+
+    // Runs `agentail <args>` (argv list, no shell) and shows its last line in the panel.
+    _runTool(alias, action, verb, args) {
+        const fail = message => this._setAdd({mode: 'result', ok: false, action, alias, message});
+        if (!M.validAlias(alias)) {
+            fail('That is not a valid ssh host name.');
+            return;
+        }
+        const bin = this._agentailBinary();
+        if (!bin) {
+            fail(`The agentail command was not found. Run \`agentail ${args[0]}\` in a terminal.`);
+            return;
+        }
+        this._setAdd({mode: 'running', alias, verb});
+        let proc;
+        try {
+            proc = Gio.Subprocess.new([bin, ...args],
+                Gio.SubprocessFlags.STDOUT_PIPE | Gio.SubprocessFlags.STDERR_MERGE);
+        } catch (e) {
+            fail(M.clean(e.message, 240));
+            return;
+        }
+        this._addProc = proc;
+        this._addCancel = new Gio.Cancellable();
+        this._addTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, ADD_HOST_TIMEOUT_S, () => {
+            this._addTimer = 0;
+            proc.force_exit();
+            return GLib.SOURCE_REMOVE;
+        });
+        proc.communicate_utf8_async(null, this._addCancel, (p, res) => {
+            let out = '';
+            let ok = false;
+            try {
+                [, out] = p.communicate_utf8_finish(res);
+                ok = p.get_successful();
+            } catch (e) {
+                if (e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED))
+                    return;
+                out = `error: ${e.message}`;
+            }
+            this._addProc = null;
+            if (this._addTimer) {
+                GLib.source_remove(this._addTimer);
+                this._addTimer = 0;
+            }
+            let message = M.addHostMessage(out, false);
+            if (ok)
+                message = action === 'add' ? M.addedMessage(alias, out) : M.removedMessage(alias, out);
+            this._setAdd({mode: 'result', ok, action, alias, message});
+        });
     }
 
     _empty() {
@@ -490,6 +686,9 @@ class AgentailIndicator extends PanelMenu.Button {
 
     destroy() {
         this._client.stop();
+        this._addCancel?.cancel();
+        if (this._addTimer)
+            GLib.source_remove(this._addTimer);
         if (this._renderId)
             GLib.source_remove(this._renderId);
         if (this._ageTimer)
