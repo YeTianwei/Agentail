@@ -213,10 +213,11 @@ git tag v0.0.1 && git push origin v0.0.1        # .github/workflows/release.yml 
 - 面板 Usage 区(默认展开,70% / 90% 变色,30 分钟置灰,窗口重置后不显示旧值);`agentail status` / `tail`、AppIndicator 菜单、`doctor` 检查项;用量跨 daemon 重启保存。
 - 顺带:`[sessions] ignore_cwd`,默认隐藏 CodexBar 的探测会话。
 - 已在本机验证:Claude 与 Codex 两张卡、打开面板约 1 秒刷新 Codex。
+- statusLine 开销实测:包装器每次约 19 ms(用户命令本身约 1 ms,多出的几乎都是 Python 启动和 import);daemon 没在运行时也一样,不会卡住。Claude 只在新消息、`/compact` 等时触发并有 300 ms 防抖,所以不需要去重。
 
 暂不做(见 `usage-design.md` §8):多账号区分、服务器上的 Codex 用量。
 
-👤 仍未验证:服务器上的 Claude 用量(`agentail add-host gpu7` 重装一次后在服务器上用 Claude);statusLine 高频触发的开销;亮色主题下的 Usage 区。
+👤 仍未验证:服务器上的 Claude 用量(`agentail add-host gpu7` 重装一次后在服务器上用 Claude);亮色主题下的 Usage 区。
 
 ### 0.0.3(再下一步)
 

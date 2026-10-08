@@ -34,7 +34,7 @@ Codex (仅本机)  ~/.codex/sessions/**.jsonl ─▶ daemon/usage_codex.py ─�
 - 新命令是一段固定的 `sh -c`:先读 stdin 到变量;把它送给 `agentail-hook.py … --event StatusLine`(输出丢弃、失败忽略、不阻塞);再把同一份 stdin 交给原命令,**原样输出原命令的 stdout**。没有原命令时输出空。
 - 任何失败都不能影响原状态栏的显示。
 
-两个风险,实现时要实测:
+两个风险(第一个已实测,见 PLAN.md 0.0.2:每次约 19 ms,不需要去重):
 - statusLine 触发很频繁,每次都起一次 Python 发送。信封很小,但仍要量一下开销;如果明显,可以在包装脚本里用 `rate_limits` 子串变化才发送的办法去重,**不在 hook 脚本里加逻辑**。
 - 订阅用户之外(API key)没有 `rate_limits`,适配器直接返回 None,什么都不更新。
 
