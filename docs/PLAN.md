@@ -218,7 +218,7 @@ git tag v0.0.1 && git push origin v0.0.1        # .github/workflows/release.yml 
 
 暂不做(见 `usage-design.md` §8):多账号区分、服务器上的 Codex 用量。
 
-👤 仍未验证:亮色主题下的 Usage 区。
+✅ 亮色主题下的 Usage 区已由你确认(2026-10-08)。0.0.2 的用量功能全部验证完毕。
 
 ### 0.0.3(再下一步)
 
