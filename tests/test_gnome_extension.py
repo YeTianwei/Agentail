@@ -98,3 +98,45 @@ def test_cli_wiring(monkeypatch):
     assert cli.main(["install-gnome-extension", "--link"]) == 0
     assert cli.main(["uninstall-gnome-extension"]) == 0
     assert seen == [("i", True), ("u",)]
+
+
+def test_packaged_extension_is_enabled_not_copied(isolated_home, monkeypatch, tmp_path):
+    monkeypatch.setattr(gnome, "SYSTEM_EXTENSIONS", tmp_path)
+    (tmp_path / gnome.UUID).mkdir()
+    (tmp_path / gnome.UUID / "metadata.json").write_text("{}")
+    user_copy = isolated_home / ".local" / "share" / "gnome-shell" / "extensions" / gnome.UUID
+    user_copy.mkdir(parents=True)
+    (user_copy / "extension.js").write_text("old")
+    run, lines = FakeRunner(), []
+    assert gnome.install(out=lines.append, run=run) == 0
+    assert not user_copy.exists()  # a per-user copy would shadow the packaged one
+    assert run.enabled == f"['a@b', '{gnome.UUID}']"
+    assert any("packaged" in line for line in lines)
+    # --link is for development and still links the source tree
+    assert gnome.install(link=True, out=lines.append, run=FakeRunner()) == 0
+    assert user_copy.is_symlink()
+
+
+def test_setup_runs_the_three_installers(monkeypatch):
+    from agentail.install import local, service
+
+    seen = []
+    monkeypatch.setattr(local, "install_local", lambda **kw: seen.append("local") or 0)
+    monkeypatch.setattr(service, "install", lambda: seen.append("service") or 0)
+    monkeypatch.setattr(gnome, "install", lambda link=False: seen.append("gnome") or 0)
+    assert cli.main(["setup"]) == 0
+    assert seen == ["local", "service", "gnome"]
+    seen.clear()
+    monkeypatch.setattr(service, "packaged", lambda: True)  # the .deb already enables the unit
+    monkeypatch.setattr(service, "start_packaged", lambda: seen.append("start") or 0)
+    assert cli.main(["setup"]) == 0
+    assert seen == ["local", "start", "gnome"]
+
+
+def test_extension_spawns_only_argv_lists():
+    """The "Add server" button runs the agentail tool: no shell, no command line strings."""
+    code = re.sub(r"//.*", "", (EXT / "extension.js").read_text())
+    for banned in ("spawn_command_line", "spawn_async", "sh -c", "bash", "/bin/sh"):
+        assert banned not in code, banned
+    assert code.count("Gio.Subprocess.new([") == 2  # list-ssh-hosts, and add/remove-host
+    assert "M.validAlias(alias)" in code  # checked before the alias reaches the tool

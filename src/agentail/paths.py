@@ -40,6 +40,10 @@ def config_dir() -> Path:
     return Path(base) / APP
 
 
+def settings_file() -> Path:
+    return config_dir() / "config.toml"
+
+
 def hosts_file() -> Path:
     return config_dir() / "hosts.toml"
 
@@ -47,6 +51,11 @@ def hosts_file() -> Path:
 def state_dir() -> Path:
     base = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
     return Path(base) / APP
+
+
+def sessions_file() -> Path:
+    """Sessions saved across daemon restarts (mode 0600)."""
+    return state_dir() / "sessions.json"
 
 
 def agentail_home() -> Path:

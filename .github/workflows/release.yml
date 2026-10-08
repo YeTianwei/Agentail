@@ -1,0 +1,31 @@
+# Build the .deb and attach it to the GitHub release when a v* tag is pushed.
+# Not yet run on GitHub: if it fails, build locally with packaging/build-deb.sh and upload by hand.
+name: release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  deb:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gjs python3-pip
+          pip install --break-system-packages -e '.[dev]'
+      - name: Test
+        run: python3 -m pytest -q && ruff check . && ruff format --check .
+      - name: Check the tag matches the version
+        run: |
+          v=$(python3 -c 'import agentail; print(agentail.__version__)')
+          [ "v$v" = "${GITHUB_REF_NAME}" ] || { echo "tag ${GITHUB_REF_NAME} != version $v"; exit 1; }
+      - name: Build
+        run: packaging/build-deb.sh dist
+      - name: Publish
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.deb
+          generate_release_notes: true

@@ -25,6 +25,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="append raw hook messages to DIR/<agent>/<source>.jsonl",
     )
 
+    d.add_argument(
+        "--auto-setup",
+        action="store_true",
+        help="once per user: install hooks and enable the GNOME extension (.deb)",
+    )
+
     t = sub.add_parser("tail", help="print session changes from the running daemon")
     t.add_argument("--json", action="store_true", help="print raw UI protocol messages")
     st = sub.add_parser("status", help="print current sessions and hosts")
@@ -65,6 +71,10 @@ def _build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("install-service", help="start the daemon with your desktop session (systemd)")
     sub.add_parser("uninstall-service", help="remove the systemd user service")
+    sub.add_parser("list-ssh-hosts", help="print the ~/.ssh/config aliases that are not added yet")
+    sub.add_parser(
+        "setup", help="one step after installing the .deb: hooks, autostart and the top bar panel"
+    )
     sub.add_parser("doctor", help="check the daemon, hooks, tunnels and panel")
 
     sub.add_parser("paths", help="print the sockets and files agentail uses")
@@ -86,7 +96,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "daemon":
         from agentail.daemon.main import run_daemon
 
-        return run_daemon(print_events=args.print_events, record_dir=args.record)
+        return run_daemon(
+            print_events=args.print_events, record_dir=args.record, auto_setup=args.auto_setup
+        )
     if args.command in ("tail", "status"):
         from agentail import client
 
@@ -99,8 +111,20 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install.local import uninstall_local
 
         return uninstall_local(dry_run=args.dry_run)
+    if args.command == "list-ssh-hosts":
+        from agentail.config import load_hosts
+        from agentail.sshconfig import list_aliases
+
+        added = {h.alias for h in load_hosts()}
+        print("\n".join(a for a in list_aliases() if a not in added))
+        return 0
     if args.command == "add-host":
         from agentail.install.remote import add_host
+        from agentail.sshconfig import valid_alias
+
+        if not valid_alias(args.alias):
+            print(f"error: {args.alias!r} is not a valid host alias", file=sys.stderr)
+            return 2
 
         return add_host(
             args.alias,
@@ -128,6 +152,18 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install import service
 
         return service.install() if args.command == "install-service" else service.uninstall()
+    if args.command == "setup":
+        from agentail.install import gnome, service
+        from agentail.install.local import install_local
+
+        rc = install_local(agents=None, dry_run=False)
+        if rc == 0:
+            rc = service.start_packaged() if service.packaged() else service.install()
+        if rc == 0:
+            rc = gnome.install()
+        if rc == 0:
+            print("Setup done. Run `agentail doctor` after you log in again to check everything.")
+        return rc
     if args.command == "doctor":
         from agentail.doctor import doctor
 

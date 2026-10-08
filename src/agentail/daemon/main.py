@@ -11,18 +11,20 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import signal
 import socket
 import time
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 from agentail import paths
 from agentail.adapters import get_adapter
-from agentail.config import Host, load_hosts
+from agentail.config import Host, load_hosts, load_retention
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
-from agentail.daemon.state import Change, Store
+from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict
 from agentail.protocol import HookMessage
@@ -49,12 +51,19 @@ class Daemon:
         tunnel_opts: dict[str, float] | None = None,
         hosts_poll: float = HOSTS_POLL_S,
     ) -> None:
-        self.store = Store()
+        try:
+            retention = load_retention()
+        except ValueError as exc:
+            log.warning("%s; using the default session timeouts", exc)
+            retention = Retention()
+        self.store = Store(retention)
+        self._dirty = False  # sessions changed since they were last saved
         self.print_events = print_events
         self.record_dir = record_dir
         self.ssh = ssh
         self.tunnel_opts = tunnel_opts or {}  # backoff/ping timings; tests shorten them
         self.hosts_poll = hosts_poll
+        self.on_started: Callable[[], None] | None = None  # run in a thread once serving
         self.listeners: list[Listener] = []
         self.remotes: dict[str, _RemoteHost] = {}
         self.ui: UiServer | None = None
@@ -112,6 +121,7 @@ class Daemon:
         }
 
     def _publish(self, change: Change) -> None:
+        self._dirty = True
         # TODO(M4): desktop notifications.
         if self.ui is not None:
             self.ui.publish(change)
@@ -218,12 +228,49 @@ class Daemon:
             if alias not in self.remotes:
                 await self._start_host(host)
 
+    # -- sessions on disk ----------------------------------------------------------
+    #
+    # Sessions are saved so a daemon restart (an upgrade, `systemctl restart`, a crash) does
+    # not empty the panel: a session waiting for the user sends no event until it is used
+    # again. Remote sessions come back stale until their tunnel delivers new events.
+
+    def _load_sessions(self) -> None:
+        path = paths.sessions_file()
+        try:
+            items = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as exc:
+            log.warning("ignoring %s: %s", path, exc)
+            return
+        n = self.store.load(items)
+        for host in {k.host for k in self.store.sessions if k.host != LOCAL_SOURCE}:
+            self.store.mark_host_offline(host)
+        self.store.sweep(time.time())
+        log.info("restored %d session(s) from %s", n, path)
+
+    def _save_sessions(self) -> None:
+        if not self._dirty:
+            return
+        path = paths.sessions_file()
+        try:
+            paths.ensure_private_dir(path.parent)
+            tmp = path.with_suffix(".tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(self.store.dump(), fh)
+            os.replace(tmp, path)
+            self._dirty = False
+        except OSError as exc:
+            log.warning("cannot save sessions to %s: %s", path, exc)
+
     # -- main loop ---------------------------------------------------------------
 
     async def run(self, handle_signals: bool = True) -> None:
         paths.ensure_private_dir(paths.runtime_dir())
         if _socket_alive(paths.ui_sock()):
             raise DaemonAlreadyRunning(f"another agentail daemon is serving {paths.ui_sock()}")
+        self._load_sessions()
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
         self.ui = UiServer(paths.ui_sock(), self.snapshot)
         try:
@@ -236,6 +283,8 @@ class Daemon:
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     loop.add_signal_handler(sig, self.stop)
             self.started.set()
+            if self.on_started is not None:
+                asyncio.get_running_loop().run_in_executor(None, self.on_started)
             next_sweep = time.monotonic() + SWEEP_INTERVAL_S
             while not self._stop.is_set():
                 try:
@@ -246,7 +295,9 @@ class Daemon:
                         next_sweep = time.monotonic() + SWEEP_INTERVAL_S
                         for change in self.store.sweep(time.time()):
                             self._publish(change)
+                        self._save_sessions()
         finally:
+            self._save_sessions()
             for alias in list(self.remotes):
                 await self._stop_host(alias)
             for listener in self.listeners:
@@ -270,9 +321,23 @@ def _socket_alive(path: Path) -> bool:
         s.close()
 
 
-def run_daemon(print_events: bool, record_dir: Path | None, ssh: str = "ssh") -> int:
+def _auto_setup() -> None:
+    from agentail import firstrun
+
     try:
-        asyncio.run(Daemon(print_events=print_events, record_dir=record_dir, ssh=ssh).run())
+        firstrun.run_setup()
+    except Exception:
+        log.exception("first-start setup failed")
+
+
+def run_daemon(
+    print_events: bool, record_dir: Path | None, ssh: str = "ssh", auto_setup: bool = False
+) -> int:
+    daemon = Daemon(print_events=print_events, record_dir=record_dir, ssh=ssh)
+    if auto_setup:
+        daemon.on_started = _auto_setup
+    try:
+        asyncio.run(daemon.run())
     except DaemonAlreadyRunning as exc:
         log.error("%s", exc)
         # A distinct status, so the systemd unit does not restart in a loop.

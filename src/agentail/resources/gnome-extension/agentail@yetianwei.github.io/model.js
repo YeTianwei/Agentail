@@ -158,17 +158,24 @@ export function summary(state) {
     if (!state.connected) {
         return {
             level: 'offline', counts: {attention: 0, running: 0, waiting: 0},
-            text: 'Not connected', hostsDown: [],
+            agents: [], total: 0, lead: '', text: 'Not connected', hostsDown: [],
         };
     }
     const counts = {attention: 0, running: 0, waiting: 0};
+    const agents = new Set();
+    let lead = '';
     for (const s of state.sessions.values()) {
-        if (s.status === 'needs_attention')
+        if (s.status === 'needs_attention') {
             counts.attention++;
-        else if (s.status === 'running')
+            lead = lead || clean(basename(s.cwd), LIMITS.project);
+        } else if (s.status === 'running') {
             counts.running++;
-        else if (s.status === 'waiting_input')
+        } else if (s.status === 'waiting_input') {
             counts.waiting++;
+        } else {
+            continue;
+        }
+        agents.add(keyOf(s.key)[1]);
     }
     const hostsDown = [];
     for (const [alias, h] of state.hosts) {
@@ -192,7 +199,11 @@ export function summary(state) {
         level = 'busy';
     else if (counts.waiting)
         level = 'waiting';
-    return {level, counts, text: parts.join(' · ') || 'No active sessions', hostsDown};
+    return {
+        level, counts, agents: sortAgents(agents), lead,
+        total: counts.attention + counts.running + counts.waiting,
+        text: parts.join(' · ') || 'No active sessions', hostsDown,
+    };
 }
 
 // ---- panel -----------------------------------------------------------------------
@@ -211,6 +222,7 @@ export function card(s, now) {
         id: sid,
         agent,
         agentName: AGENT_NAME[agent] ?? agent,
+        host: keyOf(s.key)[0] === 'local' ? 'This computer' : keyOf(s.key)[0],
         project: clean(basename(s.cwd), LIMITS.project) || '?',
         cwd: clean(s.cwd),
         subtitle,
@@ -223,52 +235,108 @@ export function card(s, now) {
     };
 }
 
-// Sessions grouped by host: this computer first, then hosts in daemon order, then
-// hosts that only appear in sessions. Ended sessions are only counted.
-export function groups(state, now) {
-    const byHost = new Map();
-    for (const s of state.sessions.values()) {
-        const host = keyOf(s.key)[0];
-        if (!byHost.has(host))
-            byHost.set(host, []);
-        byHost.get(host).push(s);
-    }
-    const aliases = [];
-    if (state.hosts.has('local') || byHost.has('local'))
-        aliases.push('local');
-    for (const a of state.hosts.keys()) {
-        if (a !== 'local')
-            aliases.push(a);
-    }
-    for (const a of [...byHost.keys()].sort()) {
-        if (!aliases.includes(a))
-            aliases.push(a);
-    }
+// Known agents first (in AGENT_NAME order), then any other agent by name.
+function sortAgents(agents) {
+    const known = Object.keys(AGENT_NAME);
+    return [...agents].sort((a, b) => {
+        const ia = known.indexOf(a), ib = known.indexOf(b);
+        if (ia !== -1 || ib !== -1)
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        return a < b ? -1 : a > b ? 1 : 0;
+    });
+}
 
-    const out = [];
-    for (const alias of aliases) {
-        const sessions = byHost.get(alias) ?? [];
-        const live = sessions
-            .filter(s => s.status !== 'ended')
+// Sessions grouped by agent (Claude Code, Codex, ...), most urgent first inside a group.
+// Ended sessions are not listed; see footer().
+export function agentGroups(state, now) {
+    const byAgent = new Map();
+    for (const s of state.sessions.values()) {
+        if (s.status === 'ended')
+            continue;
+        const agent = keyOf(s.key)[1];
+        if (!byAgent.has(agent))
+            byAgent.set(agent, []);
+        byAgent.get(agent).push(s);
+    }
+    return sortAgents(byAgent.keys()).map(agent => {
+        const cards = byAgent.get(agent)
             .sort((a, b) =>
                 STATUS[statusOf(a)].order - STATUS[statusOf(b)].order ||
-                (b.last_ts || 0) - (a.last_ts || 0));
-        const h = state.hosts.get(alias);
-        const hostState = h ? clean(h.state) : 'unknown';
+                (b.last_ts || 0) - (a.last_ts || 0))
+            .map(s => card(s, now));
+        return {agent, name: AGENT_NAME[agent] ?? agent, count: cards.length, cards};
+    });
+}
+
+// Remote hosts in daemon order, with how many live sessions each has. This computer
+// is only listed when it has a problem (it never does today).
+export function hostRows(state) {
+    const live = new Map();
+    for (const s of state.sessions.values()) {
+        if (s.status !== 'ended') {
+            const host = keyOf(s.key)[0];
+            live.set(host, (live.get(host) ?? 0) + 1);
+        }
+    }
+    const rows = [];
+    for (const [alias, h] of state.hosts) {
+        if (alias === 'local')
+            continue;
+        const hostState = clean(h.state);
         const level = HOST_LEVEL[hostState] ?? 'off';
-        out.push({
+        rows.push({
             alias,
             title: state.hostTitle(alias),
-            local: alias === 'local',
             level,
             stateText: HOST_STATE_TEXT[hostState] ?? (hostState || 'unknown'),
             problem: level === 'pending' || level === 'error'
-                ? clean(h?.detail, LIMITS.hostDetail) : '',
-            cards: live.map(s => card(s, now)),
-            ended: sessions.length - live.length,
+                ? clean(h.detail, LIMITS.hostDetail) : '',
+            sessions: live.get(alias) ?? 0,
         });
     }
-    return out;
+    return rows;
+}
+
+// Host chips wrapped into rows that fit the panel. Clutter's FlowLayout under-reports its
+// height inside a vertical box (the last rows overlap what follows), so rows are fixed here,
+// from an estimate of each chip's width (monospace text plus padding).
+export function chipRows(aliases, maxWidth = 350, charWidth = 7.5, padding = 22, gap = 6) {
+    const rows = [];
+    let row = [], used = 0;
+    for (const alias of aliases) {
+        const w = Array.from(alias).length * charWidth + padding;
+        if (row.length && used + gap + w > maxWidth) {
+            rows.push(row);
+            row = [];
+            used = 0;
+        }
+        used += (row.length ? gap : 0) + w;
+        row.push(alias);
+    }
+    if (row.length)
+        rows.push(row);
+    return rows;
+}
+
+// One line for the collapsed Servers header: "2 connected", "1 unreachable", ...
+export function serversSummary(rows) {
+    if (!rows.length)
+        return {text: 'none yet', level: 'off'};
+    const down = rows.filter(r => r.level === 'pending' || r.level === 'error').length;
+    if (down)
+        return {text: `${down} unreachable`, level: 'error'};
+    const ok = rows.filter(r => r.level === 'ok').length;
+    if (ok === rows.length)
+        return {text: `${ok} connected`, level: 'ok'};
+    return {text: `${ok} of ${rows.length} connected`, level: 'off'};
+}
+
+// Panel colours: the user's choice, else the desktop's colour scheme. GNOME Shell's own
+// menus are dark unless the desktop asks for light, so dark is the default.
+export function resolveTheme(choice, colorScheme) {
+    if (choice === 'light' || choice === 'dark')
+        return choice;
+    return colorScheme === 'prefer-light' ? 'light' : 'dark';
 }
 
 export function footer(state) {
@@ -277,20 +345,50 @@ export function footer(state) {
         if (s.status === 'ended')
             ended++;
     }
-    const remote = [...state.hosts].filter(([a]) => a !== 'local');
-    const down = summary(state).hostsDown.length;
-    const connected = remote.filter(([, h]) => HOST_LEVEL[clean(h.state)] === 'ok').length;
-    let hosts = '';
-    if (remote.length) {
-        hosts = `${remote.length} host${remote.length > 1 ? 's' : ''}`;
-        if (down)
-            hosts += ` · ${down} unreachable`;
-        else if (connected === remote.length)
-            hosts += ' · all connected';
-        else
-            hosts += ` · ${connected} connected`;
+    return {ended: ended ? `${ended} ended recently` : ''};
+}
+
+// ---- adding a server -----------------------------------------------------------------
+
+// Same rule as agentail.sshconfig.valid_alias: a name ssh cannot take for an option.
+const ALIAS = /^[A-Za-z0-9][A-Za-z0-9._@-]{0,127}$/;
+
+export function validAlias(alias) {
+    return typeof alias === 'string' && ALIAS.test(alias);
+}
+
+// Output of `agentail list-ssh-hosts`: one alias per line; anything odd is dropped.
+export function parseAliases(stdout) {
+    const seen = new Set();
+    for (const line of String(stdout ?? '').split('\n')) {
+        const alias = line.trim();
+        if (validAlias(alias))
+            seen.add(alias);
     }
-    return {ended: ended ? `${ended} ended in the last 10 minutes` : '', hosts};
+    // Natural order: gpu2 before gpu10.
+    return [...seen].sort((a, b) => a.localeCompare(b, 'en', {numeric: true}));
+}
+
+// What to tell the user after `agentail add-host` ran: the last line it printed
+// (preferring an "error:" line), cleaned and bounded.
+export function addHostMessage(output, ok) {
+    const lines = String(output ?? '').split('\n').map(l => l.trim()).filter(l => l);
+    const error = lines.filter(l => l.startsWith('error:')).pop();
+    const text = ok ? lines[lines.length - 1] : (error ?? lines[lines.length - 1]);
+    return clean(text ?? (ok ? 'Done' : 'Failed'), 240);
+}
+
+// "Added gpu7. connected (end-to-end ping received)": the tool's last line, minus its own
+// "gpu7:" prefix.
+export function addedMessage(alias, output) {
+    const last = addHostMessage(output, true);
+    const tail = last.startsWith(`${alias}: `) ? last.slice(alias.length + 2) : last;
+    return `Added ${alias}.${tail && tail !== 'Done' ? ` ${tail}` : ''}`;
+}
+
+export function removedMessage(alias, output) {
+    const shared = String(output ?? '').includes('shares its $HOME');
+    return `Removed ${alias}.${shared ? ' Its settings stay: another server shares the same home.' : ''}`;
 }
 
 // ---- notifications ------------------------------------------------------------------

@@ -1,0 +1,9 @@
+#!/bin/sh
+set -e
+case "$1" in
+remove | purge)
+    # The install id (see postinst): a later install is a fresh one.
+    rm -rf /var/lib/agentail
+    ;;
+esac
+exit 0

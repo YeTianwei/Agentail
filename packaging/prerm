@@ -1,0 +1,18 @@
+#!/bin/sh
+set -e
+case "$1" in
+remove | deconfigure)
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl --global disable agentail.service >/dev/null 2>&1 || true
+    fi
+    if command -v py3clean >/dev/null 2>&1; then
+        py3clean -p agentail || true
+    fi
+    cat <<'MSG'
+Removing agentail. Hooks that `agentail setup` added to ~/.claude/settings.json and
+~/.codex/hooks.json stay (they do nothing without the daemon). To restore your original files,
+run `agentail uninstall-local` (and `agentail remove-host <alias>` for servers) first.
+MSG
+    ;;
+esac
+exit 0

@@ -41,15 +41,19 @@ const make = (sessions, hosts) => {
 
 test('summary counts and levels', () => {
     eq(M.summary(new M.UiState()).level, 'offline');
-    const st = make([s('local', 'a', 'running'), s('gpu1', 'b', 'running'),
-        s('gpu1', 'c', 'waiting_input'), s('gpu1', 'd', 'ended')]);
+    const st = make([s('local', 'a', 'running'), s('gpu1', 'b', 'running', {agent: 'codex'}),
+        s('gpu1', 'c', 'waiting_input'), s('gpu1', 'd', 'ended', {agent: 'zed'})]);
     let sum = M.summary(st);
     eq([sum.level, sum.counts, sum.text], ['busy', {attention: 0, running: 2, waiting: 1}, '2 running · 1 waiting']);
-    st.apply({type: 'session_update', session: s('local', 'a', 'needs_attention')});
+    eq([sum.agents, sum.total, sum.lead], [['claude', 'codex'], 3, '']);
+    st.apply({type: 'session_update', session: s('local', 'a', 'needs_attention', {cwd: '/x/SpatialVLA'})});
     sum = M.summary(st);
-    eq([sum.level, sum.text], ['attention', '1 needs you · 1 running · 1 waiting']);
+    eq([sum.level, sum.text, sum.lead], ['attention', '1 needs you · 1 running · 1 waiting', 'SpatialVLA']);
     eq(M.summary(make([])).text, 'No active sessions');
+    eq(M.summary(make([])).agents, []);
     eq(M.summary(make([s('local', 'w', 'waiting_input')])).level, 'waiting');
+    eq(M.summary(make([s('local', 'x', 'running', {agent: 'zed'}), s('local', 'y', 'running', {agent: 'aider'}),
+        s('local', 'z', 'running', {agent: 'codex'})])).agents, ['codex', 'aider', 'zed']);
 });
 
 test('hosts down', () => {
@@ -60,14 +64,14 @@ test('hosts down', () => {
         eq(M.summary(st).hostsDown.length, down ? 1 : 0, state);
     }
     st.apply({type: 'host_status', host: host('gpu1', 'backoff', '', 'ssh exited (255)')});
-    const g = M.groups(st, NOW).find(x => x.alias === 'gpu1');
-    eq([g.level, g.stateText, g.problem], ['pending', 'reconnecting', 'ssh exited (255)']);
+    const h = M.hostRows(st).find(x => x.alias === 'gpu1');
+    eq([h.level, h.stateText, h.problem], ['pending', 'reconnecting', 'ssh exited (255)']);
     eq(M.summary(st).text, '1 host unreachable');
     st.apply({type: 'host_remove', alias: 'gpu1'});
     eq(M.summary(st).hostsDown, []);
 });
 
-test('groups order, cards and ended count', () => {
+test('agent groups, cards and ended count', () => {
     const st = make([
         s('gpu1', 'w', 'waiting_input', {last: NOW - 120}),
         s('gpu1', 'n', 'needs_attention', {tool: 'Bash', detail: 'rm -rf build', message: 'Claude needs your permission to use Bash', last: NOW - 30}),
@@ -76,36 +80,32 @@ test('groups order, cards and ended count', () => {
         s('local', 'l', 'running'),
         s('gpu9', 'x', 'stale', {prompt: ''}),
     ]);
-    const gs = M.groups(st, NOW);
-    eq(gs.map(g => g.alias), ['local', 'gpu1', 'gpu9']);
-    eq(gs[0].title, 'This computer');
-    eq(gs[1].title, 'GPU one (gpu1)');
-    eq(gs[1].cards.map(c => c.id), ['n', 'w', 'r']);
-    eq(gs[1].ended, 1);
-    const n = gs[1].cards[0];
-    eq([n.project, n.subtitle, n.statusLabel, n.tool, n.toolDetail, n.age, n.agentName],
-        ['app', 'Claude needs your permission to use Bash', 'Needs you', 'Bash', 'rm -rf build', '30s', 'Claude Code']);
-    const r = gs[1].cards[2];
+    const gs = M.agentGroups(st, NOW);
+    eq(gs.map(g => [g.agent, g.name, g.count]), [['claude', 'Claude Code', 4], ['codex', 'Codex', 1]]);
+    eq(gs[0].cards.map(c => c.id), ['n', 'w', 'l', 'x']);
+    const n = gs[0].cards[0];
+    eq([n.project, n.subtitle, n.statusLabel, n.tool, n.toolDetail, n.age, n.agentName, n.host],
+        ['app', 'Claude needs your permission to use Bash', 'Needs you', 'Bash', 'rm -rf build', '30s', 'Claude Code', 'gpu1']);
+    eq(gs[0].cards[2].host, 'This computer');
+    const r = gs[1].cards[0];
     eq([r.project, r.agent, r.agentName, r.style], ['openpi', 'codex', 'Codex', 'running']);
-    eq([gs[2].level, gs[2].stateText, gs[2].cards[0].subtitle], ['off', 'unknown', 'Last seen running']);
-    const f = M.footer(st);
-    eq(f, {ended: '1 ended in the last 10 minutes', hosts: '1 host · all connected'});
+    eq(gs[0].cards[3].subtitle, 'Last seen running');
+    eq(M.footer(st), {ended: '1 ended recently'});
+    eq(M.footer(make([])), {ended: ''});
 });
 
-test('footer host summary', () => {
-    eq(M.footer(make([], [host('local', 'local'), host('a', 'connected'), host('b', 'stopped')])).hosts, '2 hosts · 1 connected');
-    eq(M.footer(make([], [host('a', 'backoff'), host('b', 'connected')])).hosts, '2 hosts · 1 unreachable');
-    eq(M.footer(make([], [host('local', 'local')])), {ended: '', hosts: ''});
-});
-
-test('remote host without sessions is listed', () => {
-    eq(M.groups(make([]), NOW).map(g => [g.alias, g.cards.length]), [['local', 0], ['gpu1', 0]]);
+test('host rows', () => {
+    const st = make([s('gpu1', 'a', 'running'), s('gpu1', 'b', 'ended'), s('local', 'c', 'running')],
+        [host('local', 'local'), host('gpu1', 'connected', 'GPU one'), host('b', 'stopped')]);
+    eq(M.hostRows(st).map(h => [h.alias, h.title, h.level, h.stateText, h.sessions]),
+        [['gpu1', 'GPU one (gpu1)', 'ok', 'connected', 1], ['b', 'b', 'off', 'not set up', 0]]);
+    eq(M.hostRows(make([], [host('local', 'local')])), []);
 });
 
 test('untrusted strings are cleaned and bounded', () => {
     const evil = '\x1b]8;;http://x\x07click\x1b]8;;\x07 <b>bold</b>\n‮' + 'y'.repeat(500);
     const st = make([s('gpu1', 'e', 'running', {prompt: evil, cwd: '/a/\x1b[2Jb/' + 'c'.repeat(100)})]);
-    const c = M.groups(st, NOW).find(g => g.alias === 'gpu1').cards[0];
+    const c = M.agentGroups(st, NOW)[0].cards[0];
     ok(!/[\x1b\x07\n‮]/.test(c.subtitle), 'no control chars in subtitle');
     ok(Array.from(c.subtitle).length <= M.LIMITS.subtitle, 'subtitle bounded');
     ok(Array.from(c.project).length <= M.LIMITS.project, 'project bounded');
@@ -124,6 +124,43 @@ test('notices', () => {
     eq(M.notice({kind: 'other', key: {}}, st), null);
 });
 
+test('add server helpers', () => {
+    eq(['gpu7', 'me@h.example', 'a-b_c.d'].map(M.validAlias), [true, true, true]);
+    eq(['', '-oProxyCommand=x', 'a b', 'a;b', '$(x)', 'x'.repeat(200), null, 5].map(M.validAlias),
+        [false, false, false, false, false, false, false, false]);
+    eq(M.parseAliases('gpu8\n  gpu7 \n-bad\ngpu7\n\x1b[31mx\n'), ['gpu7', 'gpu8']);
+    eq(M.parseAliases(null), []);
+    eq(M.addHostMessage('probing\ngpu7: connected (end-to-end ping received)\n', true),
+        'gpu7: connected (end-to-end ping received)');
+    eq(M.addHostMessage('gpu7: x\nerror: gpu7: no python3\nbye', false), 'error: gpu7: no python3');
+    eq(M.addHostMessage('', false), 'Failed');
+    eq(M.addedMessage('gpu7', 'x\ngpu7: connected (end-to-end ping received)\n'), 'Added gpu7. connected (end-to-end ping received)');
+    eq(M.addedMessage('gpu7', ''), 'Added gpu7.');
+    eq(M.removedMessage('gpu7', 'removed gpu7 from x'), 'Removed gpu7.');
+    eq(M.removedMessage('gpu8', 'gpu8 shares its $HOME with gpu7: leaving'), 'Removed gpu8. Its settings stay: another server shares the same home.');
+    ok(Array.from(M.addHostMessage('y'.repeat(900), false)).length <= 240, 'bounded');
+});
+
+test('servers summary, alias order, theme', () => {
+    const r = (level) => ({level});
+    eq(M.serversSummary([]), {text: 'none yet', level: 'off'});
+    eq(M.serversSummary([r('ok'), r('ok')]), {text: '2 connected', level: 'ok'});
+    eq(M.serversSummary([r('ok'), r('pending'), r('error')]), {text: '2 unreachable', level: 'error'});
+    eq(M.serversSummary([r('ok'), r('off')]), {text: '1 of 2 connected', level: 'off'});
+    eq(M.parseAliases('gpu10\ngpu2\ngpu1\nbastion\ngpu0'), ['bastion', 'gpu0', 'gpu1', 'gpu2', 'gpu10']);
+    eq([M.resolveTheme('light', 'prefer-dark'), M.resolveTheme('dark', 'prefer-light'),
+        M.resolveTheme(null, 'prefer-light'), M.resolveTheme(undefined, 'default'),
+        M.resolveTheme('weird', 'prefer-dark')], ['light', 'dark', 'light', 'dark', 'dark']);
+});
+
+test('chip rows', () => {
+    eq(M.chipRows([]), []);
+    eq(M.chipRows(['a', 'b', 'c'], 100, 10, 20, 5), [['a', 'b', 'c']]);  // 30+5+30+5+30
+    eq(M.chipRows(['aaaa', 'bbbb', 'cccc'], 100, 10, 20, 5), [['aaaa'], ['bbbb'], ['cccc']]);
+    eq(M.chipRows(['a', 'b', 'c', 'd'], 100, 10, 20, 5), [['a', 'b', 'c'], ['d']]);
+    eq(M.chipRows(['x'.repeat(60)], 100), [['x'.repeat(60)]]);  // a long name still gets a row
+});
+
 test('rate limiter', () => {
     const rl = new M.RateLimiter(10);
     const a = {key: 'k', kind: 'turn_done'}, b = {key: 'k', kind: 'attention'};
@@ -133,7 +170,7 @@ test('rate limiter', () => {
 test('disconnect clears state', () => {
     const st = make([s('local', 'a', 'running')]);
     st.disconnect();
-    eq([M.summary(st).level, M.groups(st, NOW)], ['offline', []]);
+    eq([M.summary(st).level, M.agentGroups(st, NOW)], ['offline', []]);
 });
 
 test('helpers', () => {

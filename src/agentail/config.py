@@ -23,6 +23,7 @@ from pathlib import Path
 import tomlkit
 
 from agentail import paths
+from agentail.daemon.state import Retention
 
 
 @dataclass(frozen=True)
@@ -68,6 +69,55 @@ def load_hosts(path: Path | None = None) -> list[Host]:
             )
         )
     return hosts
+
+
+_RETENTION_KEYS = {
+    "stale_after_minutes": "stale_after_s",
+    "forget_after_minutes": "forget_after_s",
+    "ended_minutes": "ended_s",
+}
+
+
+def load_retention(path: Path | None = None) -> Retention:
+    """Read ``[sessions]`` from config.toml; missing file or keys keep the defaults.
+
+        [sessions]
+        stale_after_minutes = 30    # running, then silent: shown greyed out
+        forget_after_minutes = 120  # stale or waiting for you, then silent: removed
+        ended_minutes = 10          # ended: removed
+
+    Raises ValueError for unreadable TOML or a value that is not a positive number.
+    """
+    path = path or paths.settings_file()
+    if not path.exists():
+        return Retention()
+    try:
+        with path.open("rb") as fh:
+            section = tomllib.load(fh).get("sessions", {})
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"{path}: {exc}") from exc
+    if not isinstance(section, dict):
+        raise ValueError(f"{path}: [sessions] must be a table")
+    values = {}
+    for key, attr in _RETENTION_KEYS.items():
+        if key not in section:
+            continue
+        v = section[key]
+        if isinstance(v, bool) or not isinstance(v, int | float) or v <= 0:
+            raise ValueError(f"{path}: sessions.{key} must be a positive number of minutes")
+        values[attr] = float(v) * 60
+    return Retention(**values)
+
+
+def load_auto_setup(path: Path | None = None) -> bool:
+    """``[setup] auto = false`` in config.toml turns the first-start setup off (default: on)."""
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            value = tomllib.load(fh).get("setup", {}).get("auto", True)
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return True
+    return value is not False
 
 
 def _load_doc(path: Path) -> tomlkit.TOMLDocument:

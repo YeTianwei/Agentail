@@ -42,3 +42,18 @@ def fake_ssh(short_tmp):
     root = short_tmp / "ssh"
     root.mkdir()
     return FakeSsh(root)
+
+
+@pytest.fixture(autouse=True)
+def _no_packaged_files(monkeypatch, tmp_path_factory):
+    """Tests must not depend on the .deb being installed, nor touch the real state dir."""
+    from agentail.install import gnome, service
+
+    nothing = tmp_path_factory.mktemp("no-package")
+    # Never read or write the real ~/.local/state (the daemon saves sessions there).
+    monkeypatch.setenv("XDG_STATE_HOME", str(nothing / "state"))
+    monkeypatch.setattr(gnome, "SYSTEM_EXTENSIONS", nothing / "extensions")
+    monkeypatch.setattr(service, "PACKAGED_UNIT", nothing / "agentail.service")
+    from agentail import firstrun
+
+    monkeypatch.setattr(firstrun, "INSTALL_ID_FILE", nothing / "install-id")

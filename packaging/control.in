@@ -1,0 +1,18 @@
+Package: agentail
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: all
+Installed-Size: @SIZE@
+Depends: python3 (>= 3.11), python3-tomlkit
+Recommends: gnome-shell (>= 45), openssh-client
+Suggests: python3-gi, gir1.2-ayatanaappindicator3-0.1
+Maintainer: Tianwei Ye <tianweiye@u.nus.edu>
+Homepage: https://github.com/YeTianwei/Agentail
+Description: live status of AI coding agents on this desktop and your SSH servers
+ Agentail installs a tiny hook into Claude Code and Codex. Hook events reach a
+ daemon on your desktop (through an ssh -R tunnel for remote servers), and a
+ GNOME Shell top bar panel shows which agents are running, which wait for you
+ and which need permission.
+ .
+ After installing, run "agentail setup" as your normal user.

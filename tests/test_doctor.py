@@ -109,3 +109,16 @@ def test_doctor_output_and_exit_code(runtime_env, monkeypatch):
     assert doctor.doctor(out=lines.append, run=fake_run()) == 1
     assert lines[0].startswith("✗ daemon") and "→ agentail install-service" in lines[1]
     assert lines[-1].endswith("warning(s)")
+
+
+def test_user_unit_shadowing_the_packaged_one_is_flagged(
+    runtime_env, isolated_home, monkeypatch, tmp_path
+):
+    packaged = tmp_path / "agentail.service"
+    packaged.write_text("[Service]\n")
+    monkeypatch.setattr(service, "PACKAGED_UNIT", packaged)
+    service.unit_path().parent.mkdir(parents=True)
+    service.unit_path().write_text("[Service]\n")
+    checks = doctor.daemon_checks(None, lambda argv: (0, ""))
+    shadow = next(c for c in checks if c.name == "autostart")
+    assert shadow.status == WARN and "uninstall-service" in shadow.hint

@@ -8,6 +8,10 @@ the uuid is added to ``org.gnome.shell enabled-extensions`` directly (the shell
 loads it on its next start).
 
 ``--link`` installs a symlink to the source tree instead, for development.
+
+When the .deb package is installed, the extension is already in
+``/usr/share/gnome-shell/extensions``; installing then only enables it (and removes a
+stale per-user copy, which would shadow the packaged one).
 """
 
 from __future__ import annotations
@@ -27,6 +31,13 @@ Runner = Callable[[list[str]], tuple[int, str]]
 
 def source_dir() -> Path:
     return Path(__file__).resolve().parent.parent / "resources" / "gnome-extension" / UUID
+
+
+SYSTEM_EXTENSIONS = Path("/usr/share/gnome-shell/extensions")
+
+
+def system_dir() -> Path:
+    return SYSTEM_EXTENSIONS / UUID
 
 
 def target_dir() -> Path:
@@ -68,28 +79,45 @@ def _remove_target(dest: Path) -> None:
         shutil.rmtree(dest)
 
 
+def enable(out: Out = print, run: Runner = _run) -> bool:
+    """Enable the extension; before the shell has scanned it, only the setting is changed."""
+    if run(["gnome-extensions", "enable", UUID])[0] == 0:
+        out(f"enabled {UUID}")
+        return True
+    enabled = _enabled(run)
+    if enabled is not None and (UUID in enabled or _set_enabled(run, [*enabled, UUID])):
+        out(f"enabled {UUID} (takes effect when GNOME Shell restarts)")
+        return True
+    out(f"could not enable it automatically: run `gnome-extensions enable {UUID}`")
+    return False
+
+
+def shell_knows_extension(run: Runner = _run) -> bool:
+    return run(["gnome-extensions", "info", UUID])[0] == 0
+
+
 def install(link: bool = False, out: Out = print, run: Runner = _run) -> int:
     src, dest = source_dir(), target_dir()
     if not (src / "metadata.json").is_file():
         out(f"error: extension sources not found at {src}")
         return 1
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    _remove_target(dest)
-    if link:
-        dest.symlink_to(src, target_is_directory=True)
-        out(f"linked {dest} -> {src}")
-    else:
-        shutil.copytree(src, dest)
-        out(f"installed {dest}")
-
-    if run(["gnome-extensions", "enable", UUID])[0] == 0:
-        out(f"enabled {UUID}")
-    else:
-        enabled = _enabled(run)
-        if enabled is not None and (UUID in enabled or _set_enabled(run, [*enabled, UUID])):
-            out(f"enabled {UUID} (takes effect when GNOME Shell restarts)")
+    if not link and (system_dir() / "metadata.json").is_file():
+        if dest.exists() or dest.is_symlink():
+            _remove_target(dest)
+            out(f"removed {dest} (the packaged copy in {system_dir()} is used)")
         else:
-            out(f"could not enable it automatically: run `gnome-extensions enable {UUID}`")
+            out(f"using the packaged extension in {system_dir()}")
+    else:
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        _remove_target(dest)
+        if link:
+            dest.symlink_to(src, target_is_directory=True)
+            out(f"linked {dest} -> {src}")
+        else:
+            shutil.copytree(src, dest)
+            out(f"installed {dest}")
+
+    enable(out, run)
     out(
         "GNOME Shell loads new extensions on restart: press Alt+F2, type r, Enter (X11), "
         "or log out and back in (Wayland). It needs a running `agentail daemon`."

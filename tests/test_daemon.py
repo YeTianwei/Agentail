@@ -192,3 +192,45 @@ async def test_host_without_remote_sock_is_stopped(runtime_env):
     finally:
         daemon.stop()
         await asyncio.wait_for(task, 10)
+
+
+async def test_sessions_survive_a_restart(runtime_env):
+    payload = b'{"session_id": "s1", "cwd": "/w", "hook_event_name": "Stop"}'
+    daemon = Daemon()
+    task = await _start(daemon)
+    try:
+        await _hook("Stop", payload)
+        for _ in range(50):
+            if daemon.store.sessions:
+                break
+            await asyncio.sleep(0.05)
+    finally:
+        daemon.stop()
+        await task
+    saved = paths.sessions_file()
+    assert saved.exists() and (saved.stat().st_mode & 0o777) == 0o600
+
+    again = Daemon()
+    task = await _start(again)
+    try:
+        r, _w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        snap = json.loads(await asyncio.wait_for(r.readline(), 2))
+        assert [(s["key"]["session_id"], s["status"]) for s in snap["sessions"]] == [
+            ("s1", "waiting_input")
+        ]
+    finally:
+        again.stop()
+        await task
+
+
+async def test_restored_remote_sessions_are_stale(runtime_env):
+    paths.ensure_private_dir(paths.state_dir())
+    item = {"host": "gpu1", "agent": "claude", "session_id": "r", "status": "running"}
+    paths.sessions_file().write_text(json.dumps([{**item, "last_ts": 9e9}]))
+    daemon = Daemon()
+    task = await _start(daemon)
+    try:
+        assert [s.status.value for s in daemon.store.sessions.values()] == ["stale"]
+    finally:
+        daemon.stop()
+        await task

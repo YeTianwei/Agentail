@@ -30,6 +30,14 @@ Out = Callable[[str], None]
 Runner = Callable[[list[str]], tuple[int, str]]
 
 
+# Shipped by the .deb package and enabled for every user (`systemctl --global enable`).
+PACKAGED_UNIT = Path("/usr/lib/systemd/user") / UNIT
+
+
+def packaged() -> bool:
+    return PACKAGED_UNIT.is_file()
+
+
 def unit_path() -> Path:
     base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
     return Path(base) / "systemd" / "user" / UNIT
@@ -106,6 +114,20 @@ def install(out: Out = print, run: Runner = _run, python: str | None = None) -> 
             "note: an agentail daemon started by hand is still running. Stop it (Ctrl+C in its "
             f"terminal), then run `systemctl --user start {UNIT}`."
         )
+        return 0
+    rc, msg = run(["systemctl", "--user", "start", UNIT])
+    out(f"started {UNIT}" if rc == 0 else f"error: start failed: {msg}")
+    return 0 if rc == 0 else 1
+
+
+def start_packaged(out: Out = print, run: Runner = _run) -> int:
+    """Start the unit the .deb shipped (it is enabled globally, but starts at the next login)."""
+    run(["systemctl", "--user", "daemon-reload"])
+    if service_active(run):
+        out(f"{UNIT} is already running")
+        return 0
+    if _daemon_running():
+        out("note: an agentail daemon started by hand is running; the service starts at next login")
         return 0
     rc, msg = run(["systemctl", "--user", "start", UNIT])
     out(f"started {UNIT}" if rc == 0 else f"error: start failed: {msg}")
