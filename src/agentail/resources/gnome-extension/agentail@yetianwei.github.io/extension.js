@@ -145,6 +145,15 @@ class UiClient {
         });
     }
 
+    // Tell the daemon something (today only {type: 'refresh_usage'}: the panel was opened).
+    send(obj) {
+        try {
+            this._conn?.get_output_stream().write_all(`${JSON.stringify(obj)}\n`, null);
+        } catch (e) {
+            console.warn(`agentail: cannot send to the daemon: ${e.message}`);
+        }
+    }
+
     _retry() {
         this._timer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, this._delay, () => {
             this._timer = 0;
@@ -225,6 +234,8 @@ class AgentailIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(item);
         this.menu.connect('open-state-changed', (_menu, open) => {
             if (open) {
+                // The daemon asks Codex for its current limits only when someone looks.
+                this._client.send({type: 'refresh_usage'});
                 this._renderPanel();
                 this._ageTimer = GLib.timeout_add_seconds(GLib.PRIORITY_DEFAULT, AGE_REFRESH_S, () => {
                     if (this._add.mode !== 'picking')

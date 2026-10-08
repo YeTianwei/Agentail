@@ -94,9 +94,16 @@ class _Client:
 
 
 class UiServer:
-    def __init__(self, path: Path, snapshot: Snapshot, queue_size: int = QUEUE_SIZE) -> None:
+    def __init__(
+        self,
+        path: Path,
+        snapshot: Snapshot,
+        queue_size: int = QUEUE_SIZE,
+        on_refresh_usage: Callable[[], None] | None = None,
+    ) -> None:
         self.path = path
         self.snapshot = snapshot
+        self.on_refresh_usage = on_refresh_usage
         self.queue_size = queue_size
         self._clients: set[_Client] = set()
         self._server: asyncio.base_events.Server | None = None
@@ -147,7 +154,7 @@ class UiServer:
         client.queue.put_nowait(encode({"type": "snapshot", **self.snapshot()}))
         self._clients.add(client)
         sender = asyncio.create_task(self._send_loop(client))
-        eof = asyncio.create_task(self._wait_eof(reader))
+        eof = asyncio.create_task(self._read_requests(reader))
         try:
             await asyncio.wait({sender, eof}, return_when=asyncio.FIRST_COMPLETED)
         finally:
@@ -171,11 +178,23 @@ class UiServer:
         except (ConnectionError, OSError):
             pass
 
-    @staticmethod
-    async def _wait_eof(reader: asyncio.StreamReader) -> None:
-        # Clients never send anything meaningful; reading only detects disconnects.
+    async def _read_requests(self, reader: asyncio.StreamReader) -> None:
+        """The only thing a client may send is ``{"type": "refresh_usage"}`` (the panel was
+        opened); anything else is ignored. A client that sends junk lines is disconnected."""
         try:
-            while await reader.read(4096):
-                pass
-        except (ConnectionError, OSError):
+            while True:
+                line = await reader.readline()
+                if not line:
+                    return
+                try:
+                    msg = json.loads(line)
+                except ValueError:
+                    continue
+                if (
+                    isinstance(msg, dict)
+                    and msg.get("type") == "refresh_usage"
+                    and self.on_refresh_usage is not None
+                ):
+                    self.on_refresh_usage()
+        except (ConnectionError, OSError, ValueError):  # ValueError: line over the stream limit
             pass

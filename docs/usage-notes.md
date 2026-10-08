@@ -100,19 +100,21 @@ codex-cli 0.160.1。路径 `~/.codex/sessions/YYYY/MM/DD/*.jsonl`,事件 `payloa
 - **大文件**:只需要最后一个 `token_count`,从文件尾部往前读即可,不要整文件解析。
 - **格式不稳定**:没有官方文档,字段可能随版本变,所有字段访问都要容忍缺失和类型错误(同 `adapters/claude.py` 的做法)。
 
-### 3.3 备选:`codex app-server` [实测类型定义]
+### 3.3 `codex app-server` 主动查询 [实测]
 
-`codex app-server generate-ts`(0.160.1)生成的类型里有 `RateLimitSnapshot`、`RateLimitWindow`:
+codex-cli 0.160.1(2026-10-08)。启动 `codex -s read-only -a never app-server`(与 CodexBar 的文档一致,
+<https://github.com/steipete/CodexBar> 的 `docs/codex.md`,只读了文档),通过 stdin/stdout 发 JSON-RPC:
 
-```ts
-RateLimitWindow = { usedPercent: number, windowDurationMins: number | null, resetsAt: number | null }
-RateLimitSnapshot = { ..., primary: RateLimitWindow | null, secondary: RateLimitWindow | null,
-                      credits, individualLimit, spendControlReached, planType, rateLimitReachedType, ... }
-```
+1. `{"id":1,"method":"initialize","params":{"clientInfo":{"name":..,"title":null,"version":..},"capabilities":null}}`
+2. `{"method":"initialized"}`
+3. `{"id":2,"method":"account/rateLimits/read"}`
 
-请求 `account/rateLimits/read`,推送 `account/rateLimits/updated`(来自 [openai/codex PR #5302](https://github.com/openai/codex/pull/5302) 和第三方镜像)。含义和 jsonl 一致,字段是 camelCase。
+结果里的 `rateLimits.primary` / `secondary` 是 `{usedPercent, windowDurationMins, resetsAt}`,另有 `planType`、
+`accountId`(账号标识,可以用来区分账号)和按 `limitId` 分组的 `rateLimitsByLimitId`。整个过程约 1 秒,关闭 stdin 后进程
+正常退出。它不发消息,Codex 用自己的登录态查询,Agentail 不读 `auth.json`。
 
-不选它的原因:官方 README 说 app-server 协议目前不稳定;需要额外起一个子进程并带登录态;而 jsonl 已经足够。留作以后 jsonl 失效时的备选。
+实测时它返回的 5 小时用量(11%)比 jsonl 里的(10%)新:jsonl 只在 Codex 回答时才更新。上游标明 app-server 协议不稳定,
+所以失败时回退到读 jsonl。
 
 ---
 

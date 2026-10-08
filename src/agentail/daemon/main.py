@@ -30,6 +30,7 @@ from agentail.config import (
     load_ignore_cwd,
     load_retention,
 )
+from agentail.daemon.codex_appserver import read_codex_usage_live
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
@@ -44,6 +45,7 @@ log = logging.getLogger(__name__)
 SWEEP_INTERVAL_S = 30.0
 HOSTS_POLL_S = 2.0
 CODEX_USAGE_POLL_S = 60.0
+LIVE_USAGE_MIN_INTERVAL_S = 60.0  # at most one live Codex query per this long
 CODEX_USAGE_DEBOUNCE_S = 5.0  # after a local Codex event, before re-reading its files
 
 
@@ -63,6 +65,8 @@ class Daemon:
         tunnel_opts: dict[str, float] | None = None,
         hosts_poll: float = HOSTS_POLL_S,
         codex_usage_home: Path | None = None,
+        codex_argv: list[str] | None = None,
+        live_usage_interval: float = LIVE_USAGE_MIN_INTERVAL_S,
     ) -> None:
         try:
             retention = load_retention()
@@ -77,6 +81,10 @@ class Daemon:
             self.ignore_cwd = default_ignore_cwd()
         self.usage = UsageStore()
         self._codex_home = codex_usage_home
+        self._codex_argv = codex_argv
+        self._live_interval = live_usage_interval
+        self._live_task: asyncio.Task[None] | None = None
+        self._live_last = -float("inf")  # monotonic time of the last live query
         self._codex_usage_due = 0.0  # monotonic time of the next read of the Codex files
         self._dirty = False  # sessions changed since they were last saved
         self.print_events = print_events
@@ -165,6 +173,26 @@ class Daemon:
                 ),
                 flush=True,
             )
+
+    def request_live_usage(self) -> None:
+        """The panel was opened: ask Codex for its current limits, at most once a minute.
+        Opening the panel is the only trigger, so nothing is queried while nobody looks."""
+        now = time.monotonic()
+        if self._live_task is not None and not self._live_task.done():
+            return
+        if now - self._live_last < self._live_interval:
+            return
+        self._live_last = now
+        self._live_task = asyncio.get_running_loop().create_task(self._live_usage())
+
+    async def _live_usage(self) -> None:
+        try:
+            reading = await read_codex_usage_live(self._codex_argv)
+        except Exception:  # a broken app-server must never take the daemon down
+            log.exception("live Codex usage failed")
+            return
+        if reading is not None:
+            self._on_usage(reading)
 
     async def _read_codex_usage(self) -> None:
         """Local Codex only: its hooks carry no usage, but its session files do."""
@@ -343,7 +371,7 @@ class Daemon:
             raise DaemonAlreadyRunning(f"another agentail daemon is serving {paths.ui_sock()}")
         self._load_sessions()
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
-        self.ui = UiServer(paths.ui_sock(), self.snapshot)
+        self.ui = UiServer(paths.ui_sock(), self.snapshot, on_refresh_usage=self.request_live_usage)
         try:
             await self.ui.start()
             for listener in self.listeners:
@@ -371,6 +399,8 @@ class Daemon:
                             self._publish(change)
                         self._save_sessions()
         finally:
+            if self._live_task is not None:
+                self._live_task.cancel()
             self._save_sessions()
             for alias in list(self.remotes):
                 await self._stop_host(alias)

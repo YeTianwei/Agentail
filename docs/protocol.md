@@ -80,4 +80,7 @@ control characters before writing to a terminal (`agentail tail` / `status` do).
 
 Clients hold no state of their own; after a reconnect they rebuild from the next snapshot.
 A client that cannot keep up (more than 1024 queued messages) is disconnected rather than slowing
-the daemon. Clients never send anything; the daemon only reads to detect disconnects.
+the daemon. A client may send one line, `{"type": "refresh_usage"}`, when the user opens the panel: the daemon
+then asks `codex app-server` for Codex's current limits (at most once a minute) and answers with an
+ordinary `usage_update`. Nothing else a client sends is acted on; the daemon otherwise reads only
+to detect disconnects.
