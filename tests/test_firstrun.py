@@ -92,3 +92,23 @@ def test_can_be_turned_off_and_skips_without_gnome(isolated_home, monkeypatch, t
     firstrun.run_setup(run=run, sleep=lambda s: None, out=lambda s: None)
     assert (isolated_home / ".claude" / "settings.json").exists()
     assert not any(a[0] == "gsettings" for a in run.calls)
+
+
+def test_a_fresh_package_install_sets_up_again(isolated_home, monkeypatch, tmp_path):
+    _env(isolated_home, monkeypatch, tmp_path)
+    install_id = tmp_path / "install-id"
+    monkeypatch.setattr(firstrun, "INSTALL_ID_FILE", install_id)
+    install_id.write_text("1\n")
+    (isolated_home / ".claude").mkdir()
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    settings = isolated_home / ".claude" / "settings.json"
+    settings.unlink()  # uninstall-local, then apt remove
+
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    assert not settings.exists()  # same install: the removal is respected
+
+    install_id.write_text("2\n")  # apt install again
+    run = Runner()
+    firstrun.run_setup(run=run, sleep=lambda s: None, out=lambda s: None)
+    assert "agentail-hook" in settings.read_text()
+    assert any(a[:2] == ["gsettings", "set"] for a in run.calls)  # extension enabled again

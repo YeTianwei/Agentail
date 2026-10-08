@@ -4,18 +4,28 @@ if [ "$1" = configure ]; then
     if command -v py3compile >/dev/null 2>&1; then
         py3compile -p agentail || true
     fi
+    # A new id for each fresh install (not for upgrades or --reinstall): it tells each user's
+    # daemon to set them up again, even if they had removed the hooks before removing the
+    # package (agentail.firstrun). Also written when missing (packages before this file).
+    if [ -z "$2" ] || [ ! -s /var/lib/agentail/install-id ]; then
+        mkdir -p /var/lib/agentail
+        date +%s.%N > /var/lib/agentail/install-id
+        chmod 644 /var/lib/agentail/install-id
+    fi
     # Start the daemon with every user's desktop session.
     if command -v systemctl >/dev/null 2>&1; then
         systemctl --global enable agentail.service >/dev/null 2>&1 || true
     fi
-    # Start the daemon now for people who are logged in, so nothing has to be run by hand:
-    # it installs their agent hooks and enables the panel (see agentail.firstrun).
+    # (Re)start the daemon now for people who are logged in, so nothing has to be run by
+    # hand and an upgrade takes effect: it installs their agent hooks and enables the panel
+    # (see agentail.firstrun). A daemon left from before the package was installed is
+    # replaced too.
     if command -v loginctl >/dev/null 2>&1 && command -v systemctl >/dev/null 2>&1; then
         for uid in $(loginctl list-users --no-legend 2>/dev/null | awk '{print $1}'); do
             [ "$uid" -ge 1000 ] 2>/dev/null || continue
             user=$(id -nu "$uid" 2>/dev/null) || continue
             systemctl --user --machine="$user@.host" daemon-reload >/dev/null 2>&1 || true
-            systemctl --user --machine="$user@.host" start agentail.service >/dev/null 2>&1 || true
+            systemctl --user --machine="$user@.host" restart agentail.service >/dev/null 2>&1 || true
         done
     fi
     echo "agentail is installed. Log out and back in once to show the panel in the top bar."

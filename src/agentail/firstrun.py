@@ -11,6 +11,11 @@ and the daemon then does the per-user part once:
 - enables the GNOME Shell extension. A shell that started before the package was installed
   does not know the extension until the next login; then a notification says so.
 
+Removing the package and installing it again counts as a new start: the package writes a
+new ``/var/lib/agentail/install-id`` on each fresh install, and a different id resets
+what ``setup.json`` remembers (``uninstall-local`` before ``apt remove`` is not a reason
+to stay unconfigured after the next ``apt install``).
+
 ``[setup] auto = false`` in config.toml turns all of this off. Everything here is best
 effort: a failure is logged and never stops the daemon.
 """
@@ -21,6 +26,7 @@ import json
 import logging
 import time
 from collections.abc import Callable
+from pathlib import Path
 
 from agentail import paths
 from agentail.config import load_auto_setup
@@ -30,6 +36,7 @@ from agentail.install.local import atomic_write
 log = logging.getLogger(__name__)
 
 SHELL_WAIT_S = 20.0
+INSTALL_ID_FILE = Path("/var/lib/agentail/install-id")
 RELOGIN_TITLE = "Agentail is installed"
 RELOGIN_BODY = "Log out and back in once to show the Agentail panel in the top bar."
 
@@ -49,6 +56,13 @@ def _load_state() -> dict:
 def _save_state(state: dict) -> None:
     paths.ensure_private_dir(paths.state_dir())
     atomic_write(_state_file(), json.dumps(state, indent=2).encode("utf-8"))
+
+
+def _install_id() -> str:
+    try:
+        return INSTALL_ID_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 
 def notify(title: str, body: str, run: gnome.Runner = gnome._run) -> None:
@@ -72,6 +86,10 @@ def run_setup(
     if not load_auto_setup():
         return
     state = _load_state()
+    install_id = _install_id()
+    if install_id and state.get("install_id") != install_id:
+        state = {"install_id": install_id}  # a fresh package install: set up again
+        _save_state(state)
     done = [a for a in state.get("agents", []) if isinstance(a, str)]
 
     all_targets = local.targets(

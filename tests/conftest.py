@@ -54,3 +54,6 @@ def _no_packaged_files(monkeypatch, tmp_path_factory):
     monkeypatch.setenv("XDG_STATE_HOME", str(nothing / "state"))
     monkeypatch.setattr(gnome, "SYSTEM_EXTENSIONS", nothing / "extensions")
     monkeypatch.setattr(service, "PACKAGED_UNIT", nothing / "agentail.service")
+    from agentail import firstrun
+
+    monkeypatch.setattr(firstrun, "INSTALL_ID_FILE", nothing / "install-id")
