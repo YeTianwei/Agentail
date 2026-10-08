@@ -1,40 +1,39 @@
-/* Agentail panel. Colours follow GNOME's palette: blue = running, green = your
- * turn, orange = needs you, red = host problem. They also differ in lightness. */
+/* Agentail. Colours: blue = running, green = your turn, orange = needs you,
+ * red = host problem. They also differ in lightness and shape. */
 
-/* ---- top bar button ---- */
-.agentail-button-box { spacing: 6px; }
-.agentail-badges { spacing: 4px; }
-
-.agentail-badge {
-  min-width: 9px;
-  height: 17px;
-  padding: 0 4px;
-  border-radius: 9px;
-  font-size: 11px;
-  font-weight: bold;
-  text-align: center;
+/* ---- top bar: the "island" capsule ---- */
+.panel-button.agentail-button { padding: 0 4px; }
+.agentail-capsule {
+  height: 24px;
+  max-width: 300px;
+  padding: 0 9px;
+  spacing: 6px;
+  border-radius: 12px;
+  background-color: rgba(255, 255, 255, 0.13);
+  color: #ffffff;
 }
-.agentail-badge-attention { background-color: #ff9c38; color: #1b1000; }
-.agentail-badge-running { background-color: #3584e4; color: #ffffff; }
-.agentail-badge-waiting { background-color: #8ff0a4; color: #062b12; }
+.agentail-capsule-idle { padding: 0 10px; background-color: rgba(255, 255, 255, 0.10); }
+.agentail-capsule-offline { padding: 0 10px; background-color: rgba(255, 255, 255, 0.05); }
+.agentail-idle-dot { width: 8px; height: 8px; border-radius: 4px; background-color: rgba(255, 255, 255, 0.75); }
+.agentail-idle-dot-offline { background-color: transparent; border: 1.5px solid rgba(255, 255, 255, 0.45); }
+.agentail-capsule-attention { background-color: #ff9c38; color: #1b1000; }
+.agentail-capsule-letter { font-size: 11px; font-weight: bold; }
+.agentail-capsule-count { font-size: 12px; font-weight: bold; }
+.agentail-capsule-text { font-size: 12px; font-weight: bold; max-width: 170px; }
 .agentail-host-down-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 4px;
+  width: 6px;
+  height: 6px;
+  margin-top: 3px;
+  border-radius: 3px;
   background-color: #ff6b6b;
-}
-
-.panel-button.agentail-attention {
-  background-color: rgba(255, 156, 56, 0.20);
-  box-shadow: inset 0 0 0 1px rgba(255, 156, 56, 0.60);
 }
 
 /* ---- popup ---- */
 .agentail-menu .popup-menu-content {
-  background-color: #2a2a2e;
-  border-radius: 18px;
+  background-color: #28282c;
+  border-radius: 20px;
   border: 1px solid rgba(255, 255, 255, 0.07);
-  padding: 14px 14px 10px 14px;
+  padding: 12px;
 }
 .agentail-item,
 .agentail-item:hover,
@@ -46,108 +45,63 @@
 }
 
 .agentail-panel {
-  width: 440px;
-  spacing: 12px;
+  width: 400px;
+  spacing: 10px;
   color: #ffffff;
   font-size: 13px;
 }
-
-.agentail-header { spacing: 8px; padding: 2px 4px 0 4px; }
-.agentail-title { font-size: 15px; font-weight: bold; }
-.agentail-summary { font-size: 12px; color: #b9b9be; }
-.agentail-pills { spacing: 6px; }
-.agentail-pill {
-  height: 26px;
-  padding: 0 10px;
-  border-radius: 13px;
-  spacing: 6px;
-  font-size: 12px;
-  font-weight: bold;
-}
-.agentail-pill-attention { background-color: rgba(255, 163, 72, 0.16); color: #ffbe7a; }
-.agentail-pill-running { background-color: rgba(98, 160, 234, 0.16); color: #99c1f1; }
-.agentail-pill-waiting { background-color: rgba(87, 227, 137, 0.14); color: #8ff0a4; }
-.agentail-pill-dot { width: 7px; height: 7px; border-radius: 4px; }
-.agentail-pill-attention .agentail-pill-dot { background-color: #ff9c38; }
-.agentail-pill-running .agentail-pill-dot { background-color: #62a0ea; }
-.agentail-pill-waiting .agentail-pill-dot { background-color: #57e389; }
-
 .agentail-scroll { max-height: 640px; }
 .agentail-scroll StScrollBar { padding-left: 4px; }
-.agentail-groups { spacing: 12px; }
+.agentail-groups { spacing: 14px; }
+.agentail-group { spacing: 8px; }
 
-/* host group */
-.agentail-group { spacing: 6px; }
-.agentail-host-row { padding: 0 6px; spacing: 8px; }
-.agentail-host-icon { color: #c0c0c5; icon-size: 14px; }
-.agentail-host-name { font-size: 12px; font-weight: bold; color: #d8d8dc; letter-spacing: 0.6px; }
-.agentail-host-state { font-size: 11px; spacing: 5px; }
-.agentail-host-dot { width: 6px; height: 6px; border-radius: 3px; }
-.agentail-host-ok { color: #8ff0a4; }
-.agentail-host-ok .agentail-host-dot { background-color: #57e389; }
-.agentail-host-pending, .agentail-host-error { color: #ffa8a8; }
-.agentail-host-pending .agentail-host-dot,
-.agentail-host-error .agentail-host-dot { background-color: #ff6b6b; }
-.agentail-host-off { color: #8e8e94; }
-.agentail-host-off .agentail-host-dot { background-color: #777777; }
-.agentail-host-local { color: #8e8e94; }
-.agentail-host-problem {
-  padding: 10px 12px;
-  border-radius: 12px;
-  background-color: rgba(255, 107, 107, 0.10);
-  border: 1px solid rgba(255, 107, 107, 0.30);
-  font-size: 12px;
-  color: #f2c9c9;
+/* agent chip */
+.agentail-chip {
+  height: 26px;
+  padding: 0 10px 0 8px;
+  spacing: 6px;
+  border-radius: 9px;
+  background-color: rgba(255, 255, 255, 0.10);
 }
+.agentail-chip-claude { background-color: rgba(222, 115, 86, 0.22); }
+.agentail-chip-codex { background-color: rgba(80, 200, 190, 0.20); }
+.agentail-chip-other { padding-left: 10px; }
+.agentail-chip-text { font-size: 13px; font-weight: bold; }
 
 /* session card */
 .agentail-card {
-  spacing: 12px;
-  padding: 11px 12px;
-  border-radius: 12px;
-  background-color: #36363b;
+  spacing: 4px;
+  padding: 11px 14px;
+  border-radius: 14px;
+  background-color: #35353a;
 }
 .agentail-card-attention {
   background-color: #3d3328;
-  border: 1px solid rgba(255, 156, 56, 0.40);
+  border: 1px solid rgba(255, 156, 56, 0.45);
 }
-.agentail-card-stale { background-color: #303034; }
-.agentail-card-left { spacing: 7px; }
-.agentail-tile { width: 30px; height: 30px; border-radius: 9px; }
-.agentail-tile-running { background-color: rgba(98, 160, 234, 0.18); }
-.agentail-tile-waiting { background-color: rgba(87, 227, 137, 0.16); }
-.agentail-tile-attention { background-color: rgba(255, 156, 56, 0.22); }
-.agentail-tile-stale { background-color: rgba(255, 255, 255, 0.06); }
-.agentail-agent-letter {
-  width: 22px;
-  height: 22px;
-  border-radius: 6px;
-  background-color: #55555b;
-  font-size: 12px;
-  font-weight: bold;
-  text-align: center;
-}
-
-.agentail-card-body { spacing: 3px; }
-.agentail-project { font-size: 14px; font-weight: bold; }
-.agentail-age { font-size: 11px; color: #8e8e94; }
-.agentail-subtitle { font-size: 12.5px; color: #c6c6cb; }
-.agentail-card-attention .agentail-subtitle { color: #e6d3c0; }
-.agentail-card-attention .agentail-age { color: #c9a37c; }
-.agentail-card-stale .agentail-project,
-.agentail-card-stale .agentail-subtitle { color: #9a9aa0; }
-.agentail-meta { spacing: 6px; padding-top: 3px; }
-.agentail-status { font-size: 11px; font-weight: bold; }
+.agentail-card-stale { background-color: #2f2f33; }
+.agentail-card-top { spacing: 8px; }
+.agentail-card-second { spacing: 8px; padding-left: 17px; }
+.agentail-dot { width: 9px; height: 9px; border-radius: 5px; background-color: #777777; }
+.agentail-dot-running { background-color: #62a0ea; }
+.agentail-dot-waiting { background-color: #57e389; }
+.agentail-dot-attention { background-color: #ff9c38; }
+.agentail-dot-stale { background-color: #6f6f75; }
+.agentail-project { font-size: 15px; font-weight: bold; }
+.agentail-card-stale .agentail-project { color: #9a9aa0; }
+.agentail-status { font-size: 12px; font-weight: bold; }
 .agentail-status-running { color: #99c1f1; }
 .agentail-status-waiting { color: #8ff0a4; }
 .agentail-status-attention { color: #ffbe7a; }
 .agentail-status-stale { color: #9a9aa0; }
-.agentail-sep { font-size: 11px; color: #6f6f75; }
+.agentail-age { font-size: 12px; color: #8e8e94; }
+.agentail-subtitle { font-size: 12.5px; color: #a9a9af; }
+.agentail-card-attention .agentail-subtitle { color: #d9c4ae; }
 .agentail-tool {
   font-family: monospace;
   font-size: 11px;
   color: #d0d0d5;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(255, 255, 255, 0.09);
   padding: 1px 6px;
   border-radius: 5px;
 }
@@ -158,14 +112,35 @@
   background-color: rgba(0, 0, 0, 0.30);
   border-radius: 8px;
   padding: 8px 10px;
-  margin-top: 6px;
+  margin: 6px 0 0 17px;
 }
-.agentail-hint { font-size: 11.5px; color: #c9b39c; padding-top: 4px; }
+.agentail-hint { font-size: 11.5px; color: #c9b39c; padding: 4px 0 0 17px; }
+
+/* servers */
+.agentail-section { font-size: 12px; font-weight: bold; color: #8e8e94; padding: 0 4px; }
+.agentail-hosts { spacing: 8px; padding: 10px 14px; }
+.agentail-host-row { spacing: 8px; }
+.agentail-host-name { font-size: 13px; }
+.agentail-host-state { font-size: 12px; }
+.agentail-host-ok { background-color: #57e389; }
+.agentail-host-pending, .agentail-host-error { background-color: #ff6b6b; }
+.agentail-host-off { background-color: #6f6f75; }
+.agentail-host-text-ok { color: #8ff0a4; }
+.agentail-host-text-pending, .agentail-host-text-error { color: #ffa8a8; }
+.agentail-host-text-off { color: #8e8e94; }
+.agentail-host-problem {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background-color: rgba(255, 107, 107, 0.10);
+  border: 1px solid rgba(255, 107, 107, 0.30);
+  font-size: 12px;
+  color: #f2c9c9;
+}
 
 /* empty and offline */
 .agentail-empty {
   padding: 26px 12px 22px 12px;
-  border-radius: 12px;
+  border-radius: 14px;
   background-color: #323236;
   spacing: 10px;
 }
@@ -179,7 +154,5 @@
 .agentail-empty-title { font-size: 14px; font-weight: bold; text-align: center; }
 .agentail-empty-text { font-size: 12px; color: #9a9aa0; text-align: center; }
 
-.agentail-divider { height: 1px; background-color: rgba(255, 255, 255, 0.08); margin: 0 4px; }
-.agentail-footer { padding: 0 6px 2px 6px; spacing: 8px; }
-.agentail-footer-left { font-size: 12px; color: #9a9aa0; }
-.agentail-footer-right { font-size: 11px; color: #6f6f75; }
+.agentail-footer { font-size: 12px; color: #8e8e94; padding: 0 4px 2px 4px; }
+

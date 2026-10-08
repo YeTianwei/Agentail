@@ -26,12 +26,7 @@ import * as M from './model.js';
 const RECONNECT_MAX_S = 10;
 const AGE_REFRESH_S = 5;
 const KNOWN_AGENTS = ['claude', 'codex'];
-const STATUS_ICON = {
-    running: 'status-running.svg',
-    waiting: 'status-waiting.svg',
-    attention: 'status-attention.svg',
-    stale: 'status-stale.svg',
-};
+const AGENT_ICON_SIZE = 16;
 
 function uiSocketPath() {
     return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
@@ -159,28 +154,18 @@ class AgentailIndicator extends PanelMenu.Button {
     _init(extension) {
         super._init(0.0, 'Agentail', false);
         this._ext = extension;
+        this.add_style_class_name('agentail-button');
         this._state = new M.UiState();
         this._limiter = new M.RateLimiter();
         this._renderId = 0;
         this._ageTimer = 0;
         this._source = null;
-        this._pulsing = false;
 
-        const box = hbox('agentail-button-box', {y_align: Clutter.ActorAlign.CENTER});
-        this._mark = new St.Icon({
-            gicon: this._gicon('agentail-mark.svg'),
-            style_class: 'system-status-icon agentail-mark',
-        });
-        this._downDot = new St.Widget({
-            style_class: 'agentail-host-down-dot',
-            visible: false,
-            y_align: Clutter.ActorAlign.END,
-        });
-        this._badges = hbox('agentail-badges', {y_align: Clutter.ActorAlign.CENTER});
-        box.add_child(this._mark);
-        box.add_child(this._downDot);
-        box.add_child(this._badges);
-        this.add_child(box);
+        // The "island": a dark capsule inside the panel button. Its content is rebuilt
+        // by _renderTopBar() whenever the summary changes.
+        this._capsule = hbox('agentail-capsule', {y_align: Clutter.ActorAlign.CENTER});
+        this._topSig = '';
+        this.add_child(this._capsule);
 
         this.menu.actor.add_style_class_name('agentail-menu');
         const item = new PopupMenu.PopupBaseMenuItem({
@@ -244,43 +229,85 @@ class AgentailIndicator extends PanelMenu.Button {
 
     // -- top bar -------------------------------------------------------------------------
 
+    // Idle: a small dot. Otherwise: the agents that have live sessions, then one segment
+    // per kind (needs you / running / your turn). "Needs you" turns the whole capsule
+    // orange and names the project.
     _renderTopBar() {
         const sum = M.summary(this._state);
-        const offline = sum.level === 'offline';
-        const mark = {offline: 'agentail-mark-offline.svg', attention: 'agentail-mark-attention.svg'};
-        this._mark.gicon = this._gicon(mark[sum.level] ?? 'agentail-mark.svg');
-        this._downDot.visible = sum.hostsDown.length > 0;
-        this._badges.destroy_all_children();
-        for (const [kind, n] of [['attention', sum.counts.attention],
-            ['running', sum.counts.running], ['waiting', sum.counts.waiting]]) {
-            if (n)
-                this._badges.add_child(label(String(n), `agentail-badge agentail-badge-${kind}`));
-        }
+        const sig = JSON.stringify([sum.level, sum.counts, sum.agents, sum.lead,
+            sum.hostsDown.length > 0]);
         this.accessible_name = `Agentail: ${sum.text}`;
-        for (const cls of ['agentail-attention', 'agentail-offline'])
-            this.remove_style_class_name(cls);
-        if (offline)
-            this.add_style_class_name('agentail-offline');
-        this._setPulse(sum.level === 'attention');
-    }
-
-    _setPulse(on) {
-        if (on)
-            this.add_style_class_name('agentail-attention');
-        if (on === this._pulsing)
+        if (sig === this._topSig)
             return;
-        this._pulsing = on;
-        this._badges.remove_all_transitions();
-        if (on) {
-            this._badges.ease({
-                opacity: 110,
-                duration: 900,
-                mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
-                repeatCount: -1,
-                autoReverse: true,
-            });
+        this._topSig = sig;
+
+        const c = this._capsule;
+        c.remove_all_transitions();
+        c.opacity = 255;
+        c.destroy_all_children();
+        for (const cls of ['agentail-capsule-idle', 'agentail-capsule-attention',
+            'agentail-capsule-offline'])
+            c.remove_style_class_name(cls);
+
+        if (sum.level === 'offline' || sum.level === 'idle') {
+            const offline = sum.level === 'offline';
+            c.add_style_class_name(offline ? 'agentail-capsule-offline' : 'agentail-capsule-idle');
+            // The resting island: just a small dot (hollow when the daemon is unreachable).
+            c.add_child(new St.Widget({
+                style_class: offline ? 'agentail-idle-dot agentail-idle-dot-offline' : 'agentail-idle-dot',
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
         } else {
-            this._badges.opacity = 255;
+            for (const agent of sum.agents) {
+                c.add_child(KNOWN_AGENTS.includes(agent)
+                    ? new St.Icon({
+                        gicon: this._gicon(`agent-${agent}.png`),
+                        icon_size: AGENT_ICON_SIZE,
+                        style_class: 'agentail-capsule-agent',
+                    })
+                    : label(Array.from(agent)[0]?.toUpperCase() ?? '?', 'agentail-capsule-letter'));
+            }
+            const {attention, running, waiting} = sum.counts;
+            if (attention) {
+                // Orange capsule: the one thing that needs you, plus how many others run.
+                c.add_style_class_name('agentail-capsule-attention');
+                const glyph = new St.Icon({gicon: this._gicon('spinner-attention.svg'), icon_size: 14});
+                c.add_child(glyph);
+                const text = attention > 1 ? `${attention} need you` : `${sum.lead || 'Agent'} needs you`;
+                c.add_child(label(text, 'agentail-capsule-text', {ellipsize: true}));
+                const others = running + waiting;
+                if (others)
+                    c.add_child(label(`+${others}`, 'agentail-capsule-count'));
+                glyph.ease({
+                    opacity: 90,
+                    duration: 800,
+                    mode: Clutter.AnimationMode.EASE_IN_OUT_SINE,
+                    repeatCount: -1,
+                    autoReverse: true,
+                });
+            } else {
+                if (running) {
+                    const spinner = new St.Icon({gicon: this._gicon('spinner.svg'), icon_size: 14});
+                    spinner.set_pivot_point(0.5, 0.5);
+                    spinner.ease({
+                        rotation_angle_z: 360,
+                        duration: 1000,
+                        mode: Clutter.AnimationMode.LINEAR,
+                        repeatCount: -1,
+                    });
+                    c.add_child(spinner);
+                    c.add_child(label(String(running), 'agentail-capsule-count'));
+                }
+                if (waiting) {
+                    c.add_child(new St.Icon({gicon: this._gicon('dot-waiting.svg'), icon_size: 14}));
+                    c.add_child(label(String(waiting), 'agentail-capsule-count'));
+                }
+            }
+        }
+        if (sum.hostsDown.length) {
+            c.add_child(new St.Widget({
+                style_class: 'agentail-host-down-dot', y_align: Clutter.ActorAlign.START,
+            }));
         }
     }
 
@@ -293,29 +320,29 @@ class AgentailIndicator extends PanelMenu.Button {
             // Never leave the menu unusable because one session could not be drawn.
             console.error(`agentail: cannot render the panel: ${e}\n${e.stack}`);
             this._panel.destroy_all_children();
-            this._panel.add_child(label('Agentail could not draw this panel. See the GNOME Shell log.', 'agentail-summary'));
+            this._panel.add_child(label('Agentail could not draw this panel. See the GNOME Shell log.', 'agentail-empty-text'));
         }
     }
 
     _buildPanel() {
         const now = Date.now() / 1000;
         const st = this._state;
-        const sum = M.summary(st);
         this._panel.destroy_all_children();
-        this._panel.add_child(this._header(sum));
 
         if (!st.connected) {
             this._panel.add_child(this._offline());
             return;
         }
-        // Remote hosts are always listed (an idle one is a single header row); this
-        // computer only when it has sessions.
-        const groups = M.groups(st, now).filter(g => g.cards.length || g.problem || !g.local);
+        const groups = M.agentGroups(st, now);
         const content = vbox('agentail-groups', {x_expand: true});
-        if (!groups.some(g => g.cards.length))
+        if (!groups.length)
             content.add_child(this._empty());
         for (const g of groups)
-            content.add_child(this._group(g));
+            content.add_child(this._agentGroup(g));
+        const hosts = M.hostRows(st);
+        if (hosts.length)
+            content.add_child(this._hosts(hosts));
+
         const scroll = new St.ScrollView({
             style_class: 'agentail-scroll',
             hscrollbar_policy: St.PolicyType.NEVER,
@@ -330,108 +357,82 @@ class AgentailIndicator extends PanelMenu.Button {
         this._panel.add_child(scroll);
 
         const foot = M.footer(st);
-        if (foot.ended || foot.hosts) {
-            this._panel.add_child(new St.Widget({style_class: 'agentail-divider', x_expand: true}));
-            const row = hbox('agentail-footer', {x_expand: true});
-            row.add_child(label(foot.ended, 'agentail-footer-left', {xExpand: true}));
-            row.add_child(label(foot.hosts, 'agentail-footer-right'));
-            this._panel.add_child(row);
-        }
+        if (foot.ended)
+            this._panel.add_child(label(foot.ended, 'agentail-footer'));
     }
 
-    _header(sum) {
-        const row = hbox('agentail-header', {x_expand: true});
-        const titles = vbox('', {x_expand: true});
-        titles.add_child(label('Agents', 'agentail-title'));
-        titles.add_child(label(sum.text, 'agentail-summary', {ellipsize: true}));
-        row.add_child(titles);
-        const pills = hbox('agentail-pills', {y_align: Clutter.ActorAlign.CENTER});
-        for (const [kind, n] of [['attention', sum.counts.attention],
-            ['running', sum.counts.running], ['waiting', sum.counts.waiting]]) {
-            if (!n)
-                continue;
-            const pill = hbox(`agentail-pill agentail-pill-${kind}`);
-            pill.add_child(new St.Widget({style_class: 'agentail-pill-dot', y_align: Clutter.ActorAlign.CENTER}));
-            pill.add_child(label(String(n), ''));
-            pills.add_child(pill);
-        }
-        row.add_child(pills);
-        return row;
-    }
-
-    _group(g) {
+    _agentGroup(g) {
         const box = vbox('agentail-group', {x_expand: true});
-        const head = hbox('agentail-host-row', {x_expand: true});
-        head.add_child(new St.Icon({
-            icon_name: g.local ? 'computer-symbolic' : 'network-server-symbolic',
-            style_class: 'agentail-host-icon',
-        }));
-        head.add_child(label(g.title.toUpperCase(), 'agentail-host-name', {ellipsize: true, xExpand: true}));
-        const state = hbox(`agentail-host-state agentail-host-${g.local ? 'local' : g.level}`,
-            {y_align: Clutter.ActorAlign.CENTER});
-        if (!g.local)
-            state.add_child(new St.Widget({style_class: 'agentail-host-dot', y_align: Clutter.ActorAlign.CENTER}));
-        const idle = !g.cards.length && !g.problem;
-        state.add_child(label(idle ? `${g.stateText} · idle` : g.stateText, ''));
-        head.add_child(state);
-        box.add_child(head);
-        if (g.problem) {
-            const problem = label(`${g.problem}. Sessions below may be out of date.`, 'agentail-host-problem');
-            problem.clutter_text.line_wrap = true;
-            box.add_child(problem);
+        const chip = hbox(`agentail-chip agentail-chip-${KNOWN_AGENTS.includes(g.agent) ? g.agent : 'other'}`,
+            {x_align: Clutter.ActorAlign.START});
+        if (KNOWN_AGENTS.includes(g.agent)) {
+            chip.add_child(new St.Icon({
+                gicon: this._gicon(`agent-${g.agent}.png`),
+                icon_size: 16,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
         }
+        chip.add_child(label(`${g.name} · ${g.count}`, 'agentail-chip-text'));
+        box.add_child(chip);
         for (const c of g.cards)
-            box.add_child(this._card(c, g));
+            box.add_child(this._card(c));
         return box;
     }
 
-    _card(c, g) {
-        const row = hbox(`agentail-card agentail-card-${c.style}`, {x_expand: true});
+    _card(c) {
+        const box = vbox(`agentail-card agentail-card-${c.style}`, {x_expand: true});
 
-        const left = vbox('agentail-card-left');
-        left.add_child(new St.Bin({
-            style_class: `agentail-tile agentail-tile-${c.style}`,
-            child: new St.Icon({gicon: this._gicon(STATUS_ICON[c.style] ?? STATUS_ICON.stale), icon_size: 16}),
+        const top = hbox('agentail-card-top', {x_expand: true});
+        top.add_child(new St.Widget({
+            style_class: `agentail-dot agentail-dot-${c.style}`,
+            y_align: Clutter.ActorAlign.CENTER,
         }));
-        if (KNOWN_AGENTS.includes(c.agent)) {
-            left.add_child(new St.Icon({
-                gicon: this._gicon(`agent-${c.agent}.png`),
-                icon_size: 22,
-                accessible_name: c.agentName,
-                x_align: Clutter.ActorAlign.CENTER,
-            }));
-        } else {
-            const letter = label(Array.from(c.agentName)[0]?.toUpperCase() ?? '?', 'agentail-agent-letter');
-            letter.x_align = Clutter.ActorAlign.CENTER;
-            left.add_child(letter);
-        }
-        row.add_child(left);
-
-        const body = vbox('agentail-card-body', {x_expand: true});
-        const top = hbox('', {x_expand: true});
         top.add_child(label(c.project, 'agentail-project', {ellipsize: true, xExpand: true}));
-        const age = c.style === 'attention' && c.age ? `waiting ${c.age}` : c.age;
-        top.add_child(label(age, 'agentail-age'));
-        body.add_child(top);
-        if (c.subtitle)
-            body.add_child(label(c.subtitle, 'agentail-subtitle', {ellipsize: true}));
+        const age = c.style === 'attention' && c.age ? `for ${c.age}` : c.age;
+        top.add_child(label(c.statusLabel, `agentail-status agentail-status-${c.style}`));
+        if (age)
+            top.add_child(label(age, 'agentail-age'));
+        box.add_child(top);
 
-        if (c.style === 'attention' && c.toolDetail)
-            body.add_child(label(c.toolDetail, 'agentail-command', {ellipsize: true}));
+        const second = hbox('agentail-card-second', {x_expand: true});
+        const line = [c.host, c.subtitle].filter(x => x).join(' · ');
+        second.add_child(label(line, 'agentail-subtitle', {ellipsize: true, xExpand: true}));
+        if (c.tool && (c.style === 'running' || c.style === 'attention'))
+            second.add_child(label(c.tool, 'agentail-tool'));
+        box.add_child(second);
 
-        const meta = hbox('agentail-meta');
-        meta.add_child(label(c.statusLabel, `agentail-status agentail-status-${c.style}`));
-        if (c.tool && c.style !== 'stale') {
-            meta.add_child(label('·', 'agentail-sep'));
-            meta.add_child(label(c.tool, 'agentail-tool'));
-        }
-        body.add_child(meta);
         if (c.style === 'attention') {
-            const where = g.local ? 'Answer it in the terminal' : `Answer it in the terminal on ${g.alias}`;
-            body.add_child(label(where, 'agentail-hint', {ellipsize: true}));
+            if (c.toolDetail)
+                box.add_child(label(c.toolDetail, 'agentail-command', {ellipsize: true}));
+            const where = c.host === 'This computer' ? 'Answer it in the terminal' : `Answer it in the terminal on ${c.host}`;
+            box.add_child(label(where, 'agentail-hint', {ellipsize: true}));
         }
-        row.add_child(body);
-        return row;
+        return box;
+    }
+
+    _hosts(rows) {
+        const box = vbox('agentail-group', {x_expand: true});
+        box.add_child(label('Servers', 'agentail-section'));
+        const card = vbox('agentail-card agentail-hosts', {x_expand: true});
+        for (const h of rows) {
+            const row = hbox('agentail-host-row', {x_expand: true});
+            row.add_child(new St.Widget({
+                style_class: `agentail-dot agentail-host-${h.level}`,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+            row.add_child(label(h.title, 'agentail-host-name', {ellipsize: true, xExpand: true}));
+            const detail = h.level === 'ok' && h.sessions
+                ? `${h.stateText} · ${h.sessions} active` : h.stateText;
+            row.add_child(label(detail, `agentail-host-state agentail-host-text-${h.level}`));
+            card.add_child(row);
+            if (h.problem) {
+                const problem = label(`${h.problem}. Sessions may be out of date.`, 'agentail-host-problem');
+                problem.clutter_text.line_wrap = true;
+                card.add_child(problem);
+            }
+        }
+        box.add_child(card);
+        return box;
     }
 
     _empty() {

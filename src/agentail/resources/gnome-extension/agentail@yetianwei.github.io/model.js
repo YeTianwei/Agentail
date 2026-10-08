@@ -158,17 +158,24 @@ export function summary(state) {
     if (!state.connected) {
         return {
             level: 'offline', counts: {attention: 0, running: 0, waiting: 0},
-            text: 'Not connected', hostsDown: [],
+            agents: [], total: 0, lead: '', text: 'Not connected', hostsDown: [],
         };
     }
     const counts = {attention: 0, running: 0, waiting: 0};
+    const agents = new Set();
+    let lead = '';
     for (const s of state.sessions.values()) {
-        if (s.status === 'needs_attention')
+        if (s.status === 'needs_attention') {
             counts.attention++;
-        else if (s.status === 'running')
+            lead = lead || clean(basename(s.cwd), LIMITS.project);
+        } else if (s.status === 'running') {
             counts.running++;
-        else if (s.status === 'waiting_input')
+        } else if (s.status === 'waiting_input') {
             counts.waiting++;
+        } else {
+            continue;
+        }
+        agents.add(keyOf(s.key)[1]);
     }
     const hostsDown = [];
     for (const [alias, h] of state.hosts) {
@@ -192,7 +199,11 @@ export function summary(state) {
         level = 'busy';
     else if (counts.waiting)
         level = 'waiting';
-    return {level, counts, text: parts.join(' · ') || 'No active sessions', hostsDown};
+    return {
+        level, counts, agents: sortAgents(agents), lead,
+        total: counts.attention + counts.running + counts.waiting,
+        text: parts.join(' · ') || 'No active sessions', hostsDown,
+    };
 }
 
 // ---- panel -----------------------------------------------------------------------
@@ -211,6 +222,7 @@ export function card(s, now) {
         id: sid,
         agent,
         agentName: AGENT_NAME[agent] ?? agent,
+        host: keyOf(s.key)[0] === 'local' ? 'This computer' : keyOf(s.key)[0],
         project: clean(basename(s.cwd), LIMITS.project) || '?',
         cwd: clean(s.cwd),
         subtitle,
@@ -223,52 +235,66 @@ export function card(s, now) {
     };
 }
 
-// Sessions grouped by host: this computer first, then hosts in daemon order, then
-// hosts that only appear in sessions. Ended sessions are only counted.
-export function groups(state, now) {
-    const byHost = new Map();
-    for (const s of state.sessions.values()) {
-        const host = keyOf(s.key)[0];
-        if (!byHost.has(host))
-            byHost.set(host, []);
-        byHost.get(host).push(s);
-    }
-    const aliases = [];
-    if (state.hosts.has('local') || byHost.has('local'))
-        aliases.push('local');
-    for (const a of state.hosts.keys()) {
-        if (a !== 'local')
-            aliases.push(a);
-    }
-    for (const a of [...byHost.keys()].sort()) {
-        if (!aliases.includes(a))
-            aliases.push(a);
-    }
+// Known agents first (in AGENT_NAME order), then any other agent by name.
+function sortAgents(agents) {
+    const known = Object.keys(AGENT_NAME);
+    return [...agents].sort((a, b) => {
+        const ia = known.indexOf(a), ib = known.indexOf(b);
+        if (ia !== -1 || ib !== -1)
+            return (ia === -1 ? 99 : ia) - (ib === -1 ? 99 : ib);
+        return a < b ? -1 : a > b ? 1 : 0;
+    });
+}
 
-    const out = [];
-    for (const alias of aliases) {
-        const sessions = byHost.get(alias) ?? [];
-        const live = sessions
-            .filter(s => s.status !== 'ended')
+// Sessions grouped by agent (Claude Code, Codex, ...), most urgent first inside a group.
+// Ended sessions are not listed; see footer().
+export function agentGroups(state, now) {
+    const byAgent = new Map();
+    for (const s of state.sessions.values()) {
+        if (s.status === 'ended')
+            continue;
+        const agent = keyOf(s.key)[1];
+        if (!byAgent.has(agent))
+            byAgent.set(agent, []);
+        byAgent.get(agent).push(s);
+    }
+    return sortAgents(byAgent.keys()).map(agent => {
+        const cards = byAgent.get(agent)
             .sort((a, b) =>
                 STATUS[statusOf(a)].order - STATUS[statusOf(b)].order ||
-                (b.last_ts || 0) - (a.last_ts || 0));
-        const h = state.hosts.get(alias);
-        const hostState = h ? clean(h.state) : 'unknown';
+                (b.last_ts || 0) - (a.last_ts || 0))
+            .map(s => card(s, now));
+        return {agent, name: AGENT_NAME[agent] ?? agent, count: cards.length, cards};
+    });
+}
+
+// Remote hosts in daemon order, with how many live sessions each has. This computer
+// is only listed when it has a problem (it never does today).
+export function hostRows(state) {
+    const live = new Map();
+    for (const s of state.sessions.values()) {
+        if (s.status !== 'ended') {
+            const host = keyOf(s.key)[0];
+            live.set(host, (live.get(host) ?? 0) + 1);
+        }
+    }
+    const rows = [];
+    for (const [alias, h] of state.hosts) {
+        if (alias === 'local')
+            continue;
+        const hostState = clean(h.state);
         const level = HOST_LEVEL[hostState] ?? 'off';
-        out.push({
+        rows.push({
             alias,
             title: state.hostTitle(alias),
-            local: alias === 'local',
             level,
             stateText: HOST_STATE_TEXT[hostState] ?? (hostState || 'unknown'),
             problem: level === 'pending' || level === 'error'
-                ? clean(h?.detail, LIMITS.hostDetail) : '',
-            cards: live.map(s => card(s, now)),
-            ended: sessions.length - live.length,
+                ? clean(h.detail, LIMITS.hostDetail) : '',
+            sessions: live.get(alias) ?? 0,
         });
     }
-    return out;
+    return rows;
 }
 
 export function footer(state) {
@@ -277,20 +303,7 @@ export function footer(state) {
         if (s.status === 'ended')
             ended++;
     }
-    const remote = [...state.hosts].filter(([a]) => a !== 'local');
-    const down = summary(state).hostsDown.length;
-    const connected = remote.filter(([, h]) => HOST_LEVEL[clean(h.state)] === 'ok').length;
-    let hosts = '';
-    if (remote.length) {
-        hosts = `${remote.length} host${remote.length > 1 ? 's' : ''}`;
-        if (down)
-            hosts += ` · ${down} unreachable`;
-        else if (connected === remote.length)
-            hosts += ' · all connected';
-        else
-            hosts += ` · ${connected} connected`;
-    }
-    return {ended: ended ? `${ended} ended in the last 10 minutes` : '', hosts};
+    return {ended: ended ? `${ended} ended recently` : ''};
 }
 
 // ---- notifications ------------------------------------------------------------------
