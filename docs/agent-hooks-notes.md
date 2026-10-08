@@ -197,3 +197,75 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 - **Codex 其他观察**:所有事件都有 `model`、`permission_mode`,回合内事件有 `turn_id`;`SessionStart` 有 `source: "startup"`;`Stop` 有 `last_assistant_message`。失败的 `apply_patch` 只有 `PreToolUse` 没有 `PostToolUse`。
 - **Claude 设置热加载**:正在运行的 Claude 会话会热加载 `settings.json`,安装后无需重启即开始发事件;卸载后到重新加载之前,还会用旧命令调用已删除的脚本。`python3 missing.py` 退出码 2 被 Claude 当作阻塞错误(实测出现 `PostToolUse:Bash hook blocking error`)。修复:hook 命令末尾加 `2>/dev/null || true`(`install/hookjson.py`)。
 - 未测:Claude 的 Esc 中断与 `idle_prompt`;Codex 的 `Interrupt`、`SessionEnd`。
+
+---
+
+## 4. 0.0.3 新 agent(A1 调研,2026-10-08)
+
+查阅日期 **2026-10-08**,标注同上([文档] / [源码] / [推断])。只读、只记录接口事实,没有复制代码。来源:
+
+- Qwen Code:<https://github.com/QwenLM/qwen-code>(Apache-2.0)`main` commit `2e962b6`,`docs/users/features/hooks.md`、`docs/users/configuration/settings.md`、`packages/core/src/hooks/{hookRunner,types}.ts`、`packages/core/src/utils/sanitize-child-env.ts`。
+- Qoder CLI:<https://docs.qoder.com/cli/hooks>、<https://docs.qoder.com/zh/cli/hooks.md>(闭源,只有文档)。
+- Gemini CLI:<https://geminicli.com/docs/hooks/reference/>;<https://github.com/google-gemini/gemini-cli>(Apache-2.0)`main` commit `44d764e`,`docs/hooks/index.md`、`docs/reference/configuration.md`、`packages/core/src/hooks/{hookRunner,hookRegistry,trustedHooks,types}.ts`、`packages/core/src/services/environmentSanitization.ts`、`packages/core/src/utils/shell-utils.ts`。
+
+### 4.1 总结
+
+| | Qwen Code | Qoder CLI | Gemini CLI |
+|---|---|---|---|
+| 格式 | **Claude 兼容**(事件名、结构、字段都是 Claude 那套) | **Claude 兼容** | **自有格式**(BeforeTool 等) |
+| 用户级配置 | `~/.qwen/settings.json`;`QWEN_HOME` 覆盖目录 | `~/.qoder/settings.json`(国内版 `~/.qoder-cn/`) | `~/.gemini/settings.json`;`GEMINI_CLI_HOME` 覆盖的是 **$HOME**(目录变成 `$GEMINI_CLI_HOME/.gemini`) |
+| 默认启用 | 是(`disableAllHooks: true` 关闭) | 文档未写 | 是(`hooksConfig.enabled` 默认 true) |
+| 用户 hook 需信任 | 否 | 文档未写 | 用户 hook 不需要;但见 4.4 folder trust |
+| 执行方式 | `bash -c` | `bash -c` | `bash -c` |
+| `timeout` 单位 | 秒(≥1000 仍按毫秒,兼容旧配置) | 秒 | **毫秒** |
+| 授权信号 | `Notification`(`permission_prompt`)、`PermissionRequest` | 同左 | `Notification`(`ToolPermission`) |
+| 空闲信号 | `Notification`(`idle_prompt`) | 同左 | 无 |
+| 回合结束 | `Stop` | `Stop` | `AfterAgent` |
+
+**最重要的修正**:PLAN 原先担心 Qwen 是 Gemini fork 所以格式更接近 Gemini。实际上 Qwen Code 的 hooks 是 Claude 那一套 [文档+源码],可以和 Qoder 一起放在 A2。
+
+### 4.2 Qwen Code [文档 + 源码]
+
+- 配置:`settings.json` 顶层 `hooks`,结构与 Claude 相同(`{"<Event>": [{"matcher": "...", "hooks": [{"type": "command", "command": "...", "timeout": 10}]}]}`)。用户级 `~/.qwen/settings.json`;环境变量 `QWEN_HOME` 改全局配置目录(空串视为未设)[文档:settings.md]。
+- 默认启用;顶层 `disableAllHooks: true` 全部关闭;`--safe-mode`、`--bare` 下也不跑 [文档]。项目级 hook 只在受信任目录加载,**用户级不受影响**,没有逐条审核 [文档]。
+- 执行:`bash -c <command>`,`shell: false` 的 spawn [源码:hookRunner.ts]。环境变量只删掉内部令牌(`QWEN_SERVER_TOKEN` 等),其他原样继承 [源码:sanitize-child-env.ts],所以我们白名单里的变量能到 hook。另设 `QWEN_PROJECT_DIR`、`CLAUDE_PROJECT_DIR`、`GEMINI_PROJECT_DIR`。
+- 事件(22 个)与 Claude 同名:`SessionStart`、`SessionEnd`、`UserPromptSubmit`、`PreToolUse`、`PostToolUse`、`PostToolUseFailure`、`Notification`、`PermissionRequest`、`Stop`、`StopFailure`、`SubagentStop` 等 [文档]。
+- 公共字段:`session_id`、`transcript_path`、`cwd`、`hook_event_name`、`timestamp`、`permission_mode` [文档]。`UserPromptSubmit.prompt`;`PreToolUse` 有 `tool_name`、`tool_input`、`tool_use_id`;`PermissionRequest` 有 `tool_name`、`tool_input`。
+- `notification_type`:`permission_prompt`、`idle_prompt`、`auth_success`;`elicitation_dialog` 已定义但未实现 [文档 + 源码 types.ts]。
+- 工具名是 Qwen 自己的(`run_shell_command`、`write_file` 等,继承自 Gemini),但文档说 Claude 的 matcher 如 `Bash`、`Write|Edit` 也能用 [文档]。我们 `matcher: ""` 不受影响;`tool_input` 里的键名(`command`、`file_path`/`path`)需要录制确认 `TODO(M0)`。
+- 退出码:0 时 stdout 若是 JSON 则解析,否则当作普通文本(`SessionStart`/`UserPromptSubmit` 时注入上下文)[文档]。我们的 hook 什么都不输出,无影响。
+- **结论**:可直接复用 `ClaudeAdapter` 的解码逻辑和 `claude_config.merge_hooks`(不带 statusLine 包装),`timeout` 秒。
+
+### 4.3 Qoder CLI [文档]
+
+- 配置:用户级 `~/.qoder/settings.json`,另有项目级 `.qoder/settings.json`、`.qoder/settings.local.json`,合并加载,同事件的 hook 不互相覆盖。改文件**立即生效**,无需重启。结构与 Claude 相同。国内版用 `~/.qoder-cn/`。文档没有写改配置目录的环境变量。
+- 执行:shell 形式走 `bash -c "<command>"`;`timeout` 单位秒,command 默认 600。
+- 事件(23 个)与 Claude 同名,含 `Notification`(`notification_type`:`permission_prompt`、`idle_prompt`、`auth_success`、`elicitation_*`)、`PermissionRequest`、`Stop`。公共字段 `session_id`、`transcript_path`、`cwd`、`hook_event_name`。
+- 文档没有提到 hook 信任或审核,也没有提到 Claude 兼容或读取 `~/.claude`。
+- 环境变量:设 `QODER_PROJECT_DIR`;是否净化父进程环境,文档未写 `TODO(M0)`。
+- 二进制名文档里没写(社区常见 `qodercli`)`TODO(M0)`;只影响 add-host 的"未找到"提示。
+- **结论**:与 Qwen 同样处理。另外要决定是否同时支持 `~/.qoder-cn`(见 4.6)。
+
+### 4.4 Gemini CLI [文档 + 源码]
+
+- 配置:`~/.gemini/settings.json` 顶层 `hooks`,结构 `{"<Event>": [{"matcher": "...", "sequential": false, "hooks": [{"type": "command", "command": "...", "name": "...", "timeout": 60000}]}]}`。`timeout` **毫秒**,默认 60000 [文档]。工具事件的 matcher 是正则,生命周期事件是精确字符串,`""` / `"*"` 匹配全部 [文档]。
+- 启用:`hooksConfig.enabled` 默认 true [文档:configuration.md]。旧文档提到的 `tools.enableHooks` / `hooks.enabled` 是实验期的开关,已不需要。
+- 执行:Linux 上 `bash -c <command>`,同步执行(Gemini 等所有匹配的 hook 跑完才继续)[源码 + 文档]。命令里的 `$GEMINI_PROJECT_DIR`、`$GEMINI_SESSION_ID`、`$CLAUDE_PROJECT_DIR` 等会被**文本替换**[源码:expandCommand],我们的命令里没有这些字样,不受影响。
+- 环境:默认原样继承;只有开启 `enableEnvironmentVariableRedaction` 或在 GitHub Actions 里才净化 [源码:environmentSanitization.ts]。净化时白名单外的变量(如 `TMUX`)会丢,只影响终端定位,不影响状态。
+- 输出:exit 0 时 stdout 不是 JSON 就当作 `systemMessage`,决定为 allow [源码:convertPlainTextToHookOutput]。我们 stdout 为空,`TODO(M0)` 确认空 `systemMessage` 不会在界面上显示空行。退出码 1 是非阻塞警告;**2 及其他非零码是阻塞**,所以命令末尾的 `|| true` 对 Gemini 同样必要。
+- 信任 / folder trust [源码:hookRegistry.ts]:**项目级** hook 有指纹(名称+命令),变化后会警告。另外 `security.folderTrust.enabled` 默认 true;从 settings 合并来的 hook(含用户级)在 `processHooksFromConfig` 里一律按 `ConfigSource.Project` 注册,并且**只有在受信任目录下才注册**。[推断] 在未信任的目录里启动 Gemini 时,我们的用户级 hook 可能一个都不跑,会话就不会显示。`TODO(M0)` A4 必须实测。
+- 事件:`SessionStart`(`source`)、`SessionEnd`(`reason`)、`BeforeAgent`(`prompt`)、`AfterAgent`(`prompt`、`prompt_response`)、`BeforeTool` / `AfterTool`(`tool_name`、`tool_input`、`tool_response`)、`Notification`、`BeforeModel`、`AfterModel`、`BeforeToolSelection`、`PreCompress`。公共字段 `session_id`、`transcript_path`、`cwd`、`hook_event_name`、`timestamp` [文档]。
+- `Notification.notification_type` 只有 `ToolPermission`,另有 `message`、`details` [文档 + 源码 types.ts]。**没有空闲通知**。
+- 映射建议:`SessionStart`→SESSION_START,`BeforeAgent`→PROMPT_SUBMIT,`BeforeTool`/`AfterTool`→TOOL_START/TOOL_END,`Notification`(ToolPermission)→ATTENTION/PERMISSION,`AfterAgent`→STOP,`SessionEnd`→SESSION_END。不装 `BeforeModel`/`AfterModel`/`BeforeToolSelection`(每次模型调用都触发,同步执行会拖慢 Gemini)。
+- 中断:用户 Esc 时是否触发 `AfterAgent` 未知 `TODO(M0)`。
+- **结论**:需要独立的 `GeminiAdapter` 和 `gemini_config`;`hookjson.merge_hooks` 能复用,但 timeout 传毫秒,matcher 用 `""`(或省略)。`AgentSpec` 需要表达"`GEMINI_CLI_HOME` 是 `.gemini` 的父目录"(A0 的 `dir_env` 目前假设环境变量就是配置目录本身)。
+
+### 4.5 远程(SSH)
+
+三者都是 CLI,在哪台机器运行,hook 就在哪台机器执行(与 Claude / Codex 相同)[推断:都是本进程 spawn `bash -c`]。远程安装复用 A0 的通用探测脚本即可;Gemini 需要探测脚本支持"父目录型"环境变量。
+
+### 4.6 待你决定 / 待实测
+
+1. Qoder 国内版 `~/.qoder-cn/`:作为单独的 agent(显示名相同),还是只支持国际版?建议先只支持 `~/.qoder`,有需要再加。
+2. 三个 agent 的真实录制(A4):每个 agent 一个会话,至少包括一次工具调用、一次授权提示、正常结束和 Esc 中断;Gemini 另外在一个未信任目录里启动一次。
+3. 版本号记到 `docs/m0-verification.md`。

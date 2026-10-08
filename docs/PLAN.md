@@ -250,7 +250,14 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 - Qoder 是否真的兼容 Claude 的 `settings.json` 格式。
 - 没有稳定 hook 来源的 agent 不硬做,写进结论后顺延。
 
-**A2~A3 ☁️ 逐个接入(每个 agent 一个 PR)**:先 Claude 兼容的一组(Qoder,以及确认兼容的 Qwen),再 Gemini CLI。每个 agent 的统一清单:
+✅ **A0 完成**(2026-10-08):`src/agentail/agents.py`(`AgentSpec` + `AGENTS`);本机 / 远程安装、doctor、firstrun、CLI、AppIndicator 都从注册表读取;远程探测改成一个固定脚本、agent 作参数传入;`model.js` 的 `AGENT_NAME` 由测试与注册表对齐。Claude / Codex 行为不变,本机 `doctor` 与 `install-local --dry-run` 结果与重构前一致。
+
+✅ **A1 完成**(2026-10-08):`docs/agent-hooks-notes.md` §4。要点:
+- **Qwen Code 是 Claude 格式**(不是 Gemini 格式),和 Qoder 一起放 A2;两者都可复用 Claude 的解码与合并(不带 statusLine 包装),`timeout` 秒;配置 `~/.qwen/settings.json`(`QWEN_HOME`)、`~/.qoder/settings.json`;用户级 hook 都不需要信任。
+- **Gemini CLI**:自有事件名(`BeforeAgent`/`BeforeTool`/`AfterTool`/`AfterAgent`/`Notification`…),`timeout` 是**毫秒**,没有空闲通知;`GEMINI_CLI_HOME` 是 `.gemini` 的父目录(`AgentSpec` 要扩展);按源码,folder trust 默认开启时**未信任目录里可能连用户级 hook 都不跑**,A4 必须实测。
+- 待你决定:是否支持 Qoder 国内版 `~/.qoder-cn/`(建议先不支持)。
+
+**A2~A3 ☁️ 逐个接入(每个 agent 一个 PR)**:先 Claude 兼容的一组(Qwen Code、Qoder),再 Gemini CLI。每个 agent 的统一清单:
 1. `adapters/<x>.py`:未知字段一律忽略、字段类型不对也忽略;未验证的假设标 `TODO(M0)`。
 2. `install/<x>_config.py`:合并而非覆盖,按 `agentail-hook` 识别,先备份,卸载还原(不变量 5)。
 3. 注册表登记;`install-local`、`add-host`、`doctor` 自动覆盖(含测试,用临时 HOME,不碰真实配置)。
