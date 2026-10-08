@@ -23,7 +23,7 @@ from typing import Any
 
 from agentail.daemon.state import Change, Session, SessionKey
 from agentail.paths import ensure_private_dir
-from agentail.usage import UsageReading
+from agentail.usage import reading_to_dict
 
 log = logging.getLogger(__name__)
 
@@ -50,21 +50,7 @@ def session_to_dict(s: Session) -> dict[str, Any]:
     }
 
 
-def usage_to_dict(r: UsageReading) -> dict[str, Any]:
-    return {
-        "host": r.host,
-        "agent": r.agent,
-        "plan": r.plan,
-        "windows": [
-            {
-                "used_percent": w.used_percent,
-                "window_minutes": w.window_minutes,
-                "resets_at": w.resets_at,
-            }
-            for w in r.windows
-        ],
-        "updated_ts": r.ts,
-    }
+usage_to_dict = reading_to_dict
 
 
 def change_messages(change: Change) -> list[dict[str, Any]]:

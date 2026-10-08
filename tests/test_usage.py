@@ -246,3 +246,63 @@ async def test_wrapped_status_line_reaches_the_daemon_through_the_real_hook(runt
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)
+
+
+def test_store_dump_and_load_validate_everything():
+    st = UsageStore()
+    st.update(
+        UsageReading("local", "claude", (UsageWindow(46, 300, int(NOW) + 100),), NOW - 600, "max")
+    )
+    saved = json.loads(json.dumps(st.dump()))
+    other = UsageStore()
+    assert other.load(saved, NOW) == 1
+    assert other.readings == st.readings
+    junk = [
+        "x",
+        {},
+        {"host": "", "agent": "claude", "updated_ts": 1, "windows": [{"used_percent": 1}]},
+        {"host": "h", "agent": "a", "updated_ts": "1", "windows": [{"used_percent": 1}]},
+        {"host": "h", "agent": "a", "updated_ts": 1, "windows": []},
+        {"host": "h", "agent": "a", "updated_ts": 1, "windows": [{"used_percent": "x"}]},
+        {
+            "host": "h",
+            "agent": "a",
+            "updated_ts": NOW * 2,
+            "windows": [{"used_percent": 7}],
+            "plan": "P q",
+        },
+    ]
+    third = UsageStore()
+    assert third.load(junk, NOW) == 1 and third.load("nope", NOW) == 0
+    r = third.readings[("h", "a")]
+    assert r.ts == NOW and r.plan is None  # a timestamp from the future is clamped
+
+
+async def test_usage_survives_a_daemon_restart(runtime_env, tmp_path):
+    async def run(body):
+        d = Daemon(codex_usage_home=tmp_path / "none")
+        task = asyncio.create_task(d.run(handle_signals=False))
+        await asyncio.wait_for(d.started.wait(), 5)
+        try:
+            await body(d)
+        finally:
+            d.stop()
+            await asyncio.wait_for(task, 5)
+
+    payload = {
+        "rate_limits": {"five_hour": {"used_percentage": 46, "resets_at": time.time() + 600}}
+    }
+
+    async def first(d):
+        await d.handle("local", _statusline(payload))
+
+    async def second(d):
+        r = d.usage.readings[("local", "claude")]
+        assert r.windows[0].used_percent == 46.0
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        assert (await _read(r))["usage"][0]["agent"] == "claude"  # shown right after the restart
+        w.close()
+
+    await run(first)
+    assert oct(paths.usage_file().stat().st_mode & 0o777) == "0o600"
+    await run(second)

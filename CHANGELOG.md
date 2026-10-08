@@ -21,6 +21,9 @@
 - `[sessions] ignore_cwd` in `config.toml`: sessions whose working directory is one of these
   folders (or inside one) are not shown. The default hides CodexBar's background probes
   (`~/.local/share/CodexBar`), which otherwise leave a session each time it reads Claude's limits.
+- Usage readings are saved (`~/.local/state/agentail/usage.json`) and restored when the daemon
+  restarts; Claude only reports while it answers, so the card would otherwise stay empty until then.
+  A restored reading keeps its time, so an old one is greyed out.
 - UI protocol: `usage` in the snapshot, `usage_update` and `usage_remove` messages
   (docs/protocol.md). The hook protocol is unchanged.
 

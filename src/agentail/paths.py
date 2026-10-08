@@ -58,6 +58,11 @@ def sessions_file() -> Path:
     return state_dir() / "sessions.json"
 
 
+def usage_file() -> Path:
+    """Last usage readings saved across daemon restarts (mode 0600)."""
+    return state_dir() / "usage.json"
+
+
 def agentail_home() -> Path:
     """~/.agentail on this machine: the installed hook script and install manifest."""
     return Path.home() / f".{APP}"

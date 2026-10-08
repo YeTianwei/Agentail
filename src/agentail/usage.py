@@ -105,3 +105,53 @@ class UsageStore:
         for k in gone:
             del self.readings[k]
         return gone
+
+    def dump(self) -> list[dict[str, Any]]:
+        return [reading_to_dict(r) for r in self.readings.values()]
+
+    def load(self, items: Any, now: float) -> int:
+        """Restore readings saved by dump(); anything malformed is skipped. A saved reading keeps
+        its own timestamp, so the panel greys it out if it is old. Returns the count."""
+        n = 0
+        for item in items if isinstance(items, list) else []:
+            reading = reading_from_dict(item, now)
+            if reading is not None:
+                self.readings[UsageKey(reading.host, reading.agent)] = reading
+                n += 1
+        return n
+
+
+def reading_to_dict(r: UsageReading) -> dict[str, Any]:
+    """The USAGE record of the UI protocol (docs/protocol.md)."""
+    return {
+        "host": r.host,
+        "agent": r.agent,
+        "plan": r.plan,
+        "windows": [
+            {
+                "used_percent": w.used_percent,
+                "window_minutes": w.window_minutes,
+                "resets_at": w.resets_at,
+            }
+            for w in r.windows
+        ],
+        "updated_ts": r.ts,
+    }
+
+
+def reading_from_dict(d: Any, now: float) -> UsageReading | None:
+    """Inverse of reading_to_dict, validating every field."""
+    if not isinstance(d, dict):
+        return None
+    host, agent, ts = d.get("host"), d.get("agent"), _number(d.get("updated_ts"))
+    if not (isinstance(host, str) and host and isinstance(agent, str) and agent) or ts is None:
+        return None
+    windows = [
+        make_window(w.get("used_percent"), w.get("window_minutes"), w.get("resets_at"), now)
+        for w in (d.get("windows") if isinstance(d.get("windows"), list) else [])
+        if isinstance(w, dict)
+    ]
+    ordered = sorted_windows(windows)
+    if not ordered:
+        return None
+    return UsageReading(host, agent, ordered, min(ts, now), clean_plan(d.get("plan")))

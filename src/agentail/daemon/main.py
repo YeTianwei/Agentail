@@ -87,6 +87,7 @@ class Daemon:
         self._live_last = -float("inf")  # monotonic time of the last live query
         self._codex_usage_due = 0.0  # monotonic time of the next read of the Codex files
         self._dirty = False  # sessions changed since they were last saved
+        self._usage_dirty = False
         self.print_events = print_events
         self.record_dir = record_dir
         self.ssh = ssh
@@ -160,6 +161,7 @@ class Daemon:
     def _on_usage(self, reading: UsageReading) -> None:
         if not self.usage.update(reading):
             return
+        self._usage_dirty = True
         if self.ui is not None:
             self.ui.broadcast({"type": "usage_update", "usage": usage_to_dict(reading)})
         if self.print_events:
@@ -363,6 +365,41 @@ class Daemon:
         except OSError as exc:
             log.warning("cannot save sessions to %s: %s", path, exc)
 
+    # Usage is saved too: Claude reports only while it is answering, so after a restart the panel
+    # would show nothing for it until then. Old readings keep their timestamp and show as stale.
+
+    def _load_usage(self) -> None:
+        path = paths.usage_file()
+        try:
+            items = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return
+        except (OSError, ValueError) as exc:
+            log.warning("ignoring %s: %s", path, exc)
+            return
+        log.info("restored %d usage reading(s)", self.usage.load(items, time.time()))
+
+    def _prune_usage(self) -> None:
+        """Forget readings of hosts that are no longer configured."""
+        known = {LOCAL_SOURCE, *self.remotes}
+        for host in {k.host for k in self.usage.readings} - known:
+            self.usage.drop_host(host)
+
+    def _save_usage(self) -> None:
+        if not self._usage_dirty:
+            return
+        path = paths.usage_file()
+        try:
+            paths.ensure_private_dir(path.parent)
+            tmp = path.with_suffix(".tmp")
+            fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(self.usage.dump(), fh)
+            os.replace(tmp, path)
+            self._usage_dirty = False
+        except OSError as exc:
+            log.warning("cannot save usage to %s: %s", path, exc)
+
     # -- main loop ---------------------------------------------------------------
 
     async def run(self, handle_signals: bool = True) -> None:
@@ -370,6 +407,7 @@ class Daemon:
         if _socket_alive(paths.ui_sock()):
             raise DaemonAlreadyRunning(f"another agentail daemon is serving {paths.ui_sock()}")
         self._load_sessions()
+        self._load_usage()
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
         self.ui = UiServer(paths.ui_sock(), self.snapshot, on_refresh_usage=self.request_live_usage)
         try:
@@ -377,6 +415,7 @@ class Daemon:
             for listener in self.listeners:
                 await listener.start()
             await self.sync_hosts(force=True)
+            self._prune_usage()
             if handle_signals:
                 loop = asyncio.get_running_loop()
                 for sig in (signal.SIGINT, signal.SIGTERM):
@@ -398,10 +437,12 @@ class Daemon:
                         for change in self.store.sweep(time.time()):
                             self._publish(change)
                         self._save_sessions()
+                        self._save_usage()
         finally:
             if self._live_task is not None:
                 self._live_task.cancel()
             self._save_sessions()
+            self._save_usage()
             for alias in list(self.remotes):
                 await self._stop_host(alias)
             for listener in self.listeners:
