@@ -51,6 +51,7 @@ def test_first_start_installs_hooks_and_enables_extension(isolated_home, monkeyp
     assert not run.notified()  # the shell already knew the extension
     assert json.loads(paths.state_dir().joinpath("setup.json").read_text()) == {
         "agents": ["claude"],
+        "version": firstrun.SETUP_VERSION,
         "extension": True,
     }
 
@@ -112,3 +113,45 @@ def test_a_fresh_package_install_sets_up_again(isolated_home, monkeypatch, tmp_p
     firstrun.run_setup(run=run, sleep=lambda s: None, out=lambda s: None)
     assert "agentail-hook" in settings.read_text()
     assert any(a[:2] == ["gsettings", "set"] for a in run.calls)  # extension enabled again
+
+
+def _settings(home):
+    return json.loads((home / ".claude" / "settings.json").read_text())
+
+
+def test_an_upgrade_brings_the_claude_config_up_to_date(isolated_home, monkeypatch, tmp_path):
+    from agentail.install import local
+
+    _env(isolated_home, monkeypatch, tmp_path)
+    (isolated_home / ".claude").mkdir()
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    # Make it look like 0.0.1 set it up: hooks, no status line wrapper, no version.
+    doc = _settings(isolated_home)
+    del doc["statusLine"]
+    (isolated_home / ".claude" / "settings.json").write_text(json.dumps(doc))
+    state = json.loads(paths.state_dir().joinpath("setup.json").read_text())
+    del state["version"]
+    paths.state_dir().joinpath("setup.json").write_text(json.dumps(state))
+
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    assert "agentail-hook" in _settings(isolated_home)["statusLine"]["command"]
+    state = json.loads(paths.state_dir().joinpath("setup.json").read_text())
+    assert state["version"] == firstrun.SETUP_VERSION
+
+    # Once is enough: a user who removes the wrapper later is not overruled at every start.
+    monkeypatch.setattr(local, "install_local", lambda **kw: (_ for _ in ()).throw(AssertionError))
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+
+
+def test_an_upgrade_leaves_uninstalled_agents_alone(isolated_home, monkeypatch, tmp_path):
+    _env(isolated_home, monkeypatch, tmp_path)
+    (isolated_home / ".claude").mkdir()
+    (isolated_home / ".claude" / "settings.json").write_text('{"model": "opus"}')
+    paths.ensure_private_dir(paths.state_dir())
+    paths.state_dir().joinpath("setup.json").write_text(
+        json.dumps({"agents": ["claude"], "extension": True})  # 0.0.1, then uninstall-local
+    )
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    assert _settings(isolated_home) == {"model": "opus"}
+    state = json.loads(paths.state_dir().joinpath("setup.json").read_text())
+    assert state["version"] == firstrun.SETUP_VERSION

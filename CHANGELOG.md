@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased (0.0.2)
+## 0.0.2 — 2026-10-08
 
 ### Added
 
@@ -18,6 +18,8 @@
 - Opening the panel also asks Codex for its current limits (`codex app-server`, at most once a
   minute), so the numbers are right even when you have not talked to Codex for a while. Nothing is
   queried while the panel is closed. Without `codex` or when it fails, the session files are used.
+- Upgrading from 0.0.1 updates the Claude config once by itself (adds the status line wrapper)
+  where Agentail's hooks are installed; an agent you uninstalled stays uninstalled.
 - `[sessions] ignore_cwd` in `config.toml`: sessions whose working directory is one of these
   folders (or inside one) are not shown. The default hides CodexBar's background probes
   (`~/.local/share/CodexBar`), which otherwise leave a session each time it reads Claude's limits.

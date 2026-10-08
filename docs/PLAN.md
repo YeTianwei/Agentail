@@ -220,6 +220,20 @@ git tag v0.0.1 && git push origin v0.0.1        # .github/workflows/release.yml 
 
 ✅ 亮色主题下的 Usage 区已由你确认(2026-10-08)。0.0.2 的用量功能全部验证完毕。
 
+### 0.0.2 发布 ☁️ + 👤
+
+☁️ 已完成:版本号 0.0.2、CHANGELOG、README(Usage limits 一节、路线图)、`.github/release-notes/v0.0.2.md`、`dist/agentail_0.0.2.deb`。
+升级时 `firstrun.SETUP_VERSION = 2` 让已装 hook 的 Claude 配置自动补上 statusLine 包装(只一次;卸载过的 agent 不动)。
+
+👤 你要做的:用 `.deb` 替换开发安装并确认,再推送和打 tag:
+
+```bash
+rm ~/.local/share/gnome-shell/extensions/agentail@yetianwei.github.io   # 开发时的符号链接,会盖住系统里的扩展
+sudo apt install ./dist/agentail_0.0.2.deb
+# 注销再登录一次(X11:Alt+F2,r,回车);agentail doctor 全绿,面板 Usage 区正常
+git push origin main && git tag v0.0.2 && git push origin v0.0.2
+```
+
 ### 0.0.3(再下一步)
 
 支持更多 agent。顺序:Claude 兼容 fork(Qoder、Qwen,格式最接近,成本最低)→ Gemini CLI → Cursor(hook 机制差异最大,放最后)→ 插件类 agent。每个 agent 先像 M0-b 那样写调研笔记(`docs/agent-hooks-notes.md`),确认 hook 事件和字段后再写适配器;调研发现没有稳定 hook 来源的,继续顺延。同时把"新增 agent 的清单"(适配器、`install/` 配置合并、真实录制测试、远程验证)整理成文档。

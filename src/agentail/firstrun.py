@@ -11,6 +11,10 @@ and the daemon then does the per-user part once:
 - enables the GNOME Shell extension. A shell that started before the package was installed
   does not know the extension until the next login; then a notification says so.
 
+An upgrade that writes something new into the agent configs bumps ``SETUP_VERSION``: the
+hooks are then merged again, once, for every agent whose config still has them (0.0.2 adds the
+Claude status line wrapper). An agent the user uninstalled stays uninstalled.
+
 Removing the package and installing it again counts as a new start: the package writes a
 new ``/var/lib/agentail/install-id`` on each fresh install, and a different id resets
 what ``setup.json`` remembers (``uninstall-local`` before ``apt remove`` is not a reason
@@ -30,13 +34,15 @@ from pathlib import Path
 
 from agentail import paths
 from agentail.config import load_auto_setup
-from agentail.install import gnome, local
+from agentail.install import gnome, hookjson, local
 from agentail.install.local import atomic_write
 
 log = logging.getLogger(__name__)
 
 SHELL_WAIT_S = 20.0
 INSTALL_ID_FILE = Path("/var/lib/agentail/install-id")
+# Bump when install_local writes something new into an agent config. 2: Claude statusLine.
+SETUP_VERSION = 2
 RELOGIN_TITLE = "Agentail is installed"
 RELOGIN_BODY = "Log out and back in once to show the Agentail panel in the top bar."
 
@@ -63,6 +69,14 @@ def _install_id() -> str:
         return INSTALL_ID_FILE.read_text(encoding="utf-8").strip()
     except OSError:
         return ""
+
+
+def _has_our_hooks(path: Path) -> bool:
+    try:
+        doc = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return isinstance(doc, dict) and hookjson.has_hooks(doc)
 
 
 def notify(title: str, body: str, run: gnome.Runner = gnome._run) -> None:
@@ -102,6 +116,16 @@ def run_setup(
             _save_state(state)
         else:
             log.warning("could not install hooks for %s; run `agentail install-local`", todo)
+
+    if state.get("version", 1) < SETUP_VERSION:
+        # After an upgrade: bring the configs we manage up to date, but only where our hooks
+        # still are (an agent the user ran uninstall-local for stays uninstalled).
+        refresh = [a for a in done if a in all_targets and _has_our_hooks(all_targets[a].path)]
+        if not refresh or local.install_local(agents=refresh, out=out) == 0:
+            state["version"] = SETUP_VERSION
+            _save_state(state)
+        else:
+            log.warning("could not update hooks for %s; run `agentail install-local`", refresh)
 
     if state.get("extension") or run(["gnome-shell", "--version"])[0] != 0:
         return

@@ -4,7 +4,8 @@
 
 **The AI coding agent status island for Linux.**
 
-Claude Code and Codex — on your desktop and on every SSH server — in the GNOME top bar.
+Claude Code and Codex — on your desktop and on every SSH server — in the GNOME top bar,
+with your subscription limits one click away.
 
 [![Release](https://img.shields.io/github/v/release/YeTianwei/Agentail?include_prereleases)](https://github.com/YeTianwei/Agentail/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -39,6 +40,8 @@ Agentail only watches. You still answer agents in their own terminal.
   set themselves up.
 - 🛡️ **Never in the agent's way.** The hook sends one message and exits. If your desktop is not
   listening it returns at once, prints nothing, and never blocks or fails a tool call.
+- 📊 **Usage limits at a glance.** Claude Code's 5-hour and weekly limits and Codex's, with when
+  each one resets, without reading your login files.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
   account, no cloud, no telemetry.
 - 🌗 **Light and dark.** One click, top right of the panel.
@@ -56,12 +59,29 @@ Agentail only watches. You still answer agents in their own terminal.
 
 You also get a desktop notification when a turn finishes or an agent asks for permission.
 
+## 📊 Usage limits
+
+The panel's **Usage** section shows how much of your subscription is left: one card per agent, a
+bar per window (5 hours, week), the percentage and when it resets. The bar turns orange from 70 %
+and red from 90 %.
+
+| Agent | Where the numbers come from | When they refresh |
+|---|---|---|
+| Claude Code (Pro / Max) | the input Claude Code gives its status line | whenever Claude answers, here or on a server |
+| Codex | Codex itself (`codex app-server`), else its session files | when you open the panel (at most once a minute) |
+
+To read Claude's numbers, Agentail wraps your status line command: it still gets the same input and
+prints the same output, and uninstalling puts it back. Agentail never reads `~/.claude/.credentials.json`
+or `~/.codex/auth.json`. A card that has not been updated for 30 minutes is greyed out; a window
+that has reset since shows no old percentage. Usage is per account: if your servers use the same
+account as your desktop, one card covers both.
+
 ## 🤖 Supported
 
 | Agent | Status | What you see |
 |---|---|---|
-| Claude Code | ✅ | working, your turn, needs permission (with the command), ended |
-| Codex CLI (0.155+) | ✅ | the same; trust the hooks once with `/hooks` |
+| Claude Code | ✅ | working, your turn, needs permission (with the command), ended; usage limits on Pro / Max |
+| Codex CLI (0.155+) | ✅ | the same, and usage limits; trust the hooks once with `/hooks` |
 | Cursor, Gemini CLI, Qwen Code, … | 🗓️ planned | |
 
 | Where | Status |
@@ -77,7 +97,7 @@ Download `agentail_<version>.deb` from
 [Releases](https://github.com/YeTianwei/Agentail/releases), then:
 
 ```bash
-sudo apt install ./agentail_0.0.1.deb
+sudo apt install ./agentail_0.0.2.deb
 ```
 
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.
@@ -184,7 +204,7 @@ the panel, and prints the command that fixes each problem.
 
 | Command | What it does |
 |---|---|
-| `agentail status` | machines and sessions in the terminal |
+| `agentail status` | machines, usage limits and sessions in the terminal |
 | `agentail tail` | live session changes |
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |
@@ -205,7 +225,7 @@ Hooks left behind are harmless: without the daemon they do nothing.
 
 ## 🗺️ Roadmap
 
-- **0.0.2**: usage limits in the panel (Claude 5-hour and weekly, Codex weekly); more agents.
+- **0.0.3**: more agents (Claude-compatible forks such as Qwen Code, then Gemini CLI and Cursor).
 - **Later**: answering permission prompts from the panel.
 
 ## 📄 License
