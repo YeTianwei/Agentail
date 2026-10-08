@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build dist/agentail_<version>_all.deb from the source tree. No debhelper needed:
+# Build dist/agentail_<version>.deb from the source tree. No debhelper needed:
 # the package is pure Python plus a GNOME Shell extension and a systemd user unit.
 #
 #   packaging/build-deb.sh [output-dir]
@@ -16,7 +16,7 @@ out=${1:-"$root/dist"}
 version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$root/src/agentail/__init__.py")
 [ -n "$version" ] || { echo "cannot read __version__" >&2; exit 1; }
 uuid=agentail@yetianwei.github.io
-name=agentail_${version}_all
+name=agentail_${version}
 
 stage=$(mktemp -d)
 trap 'rm -rf "$stage"' EXIT

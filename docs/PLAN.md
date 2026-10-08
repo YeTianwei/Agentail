@@ -187,8 +187,8 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 👤 发布前你要做的:
 
 ```bash
-git pull && packaging/build-deb.sh              # 生成 dist/agentail_0.0.1_all.deb
-sudo apt install ./dist/agentail_0.0.1_all.deb  # 在干净的用户或另一台 Ubuntu 24.04 上最好
+git pull && packaging/build-deb.sh              # 生成 dist/agentail_0.0.1.deb
+sudo apt install ./dist/agentail_0.0.1.deb  # 在干净的用户或另一台 Ubuntu 24.04 上最好
 # 不需要别的命令;注销再登录一次让 Shell 加载面板;agentail doctor 可随时检查
 ```
 
@@ -198,7 +198,7 @@ sudo apt install ./dist/agentail_0.0.1_all.deb  # 在干净的用户或另一台
 git tag v0.0.1 && git push origin v0.0.1        # .github/workflows/release.yml 构建并附到 Release
 ```
 
-(工作流没在 GitHub 上跑过;失败时用 `gh release create v0.0.1 dist/agentail_0.0.1_all.deb` 手动发。)
+(工作流没在 GitHub 上跑过;失败时用 `gh release create v0.0.1 dist/agentail_0.0.1.deb` 手动发。)
 
 仍未验证(沿用 M5):远程 Codex 信任、拔网线 / 休眠唤醒后重连、重启电脑后自启动。
 

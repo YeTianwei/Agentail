@@ -34,7 +34,7 @@ def test_build_deb(tmp_path):
         timeout=120,
     )
     assert proc.returncode == 0, proc.stderr
-    deb = tmp_path / f"agentail_{agentail.__version__}_all.deb"
+    deb = tmp_path / f"agentail_{agentail.__version__}.deb"
     assert deb.is_file()
     listing = subprocess.run(
         ["dpkg-deb", "-c", str(deb)], capture_output=True, text=True, check=True
