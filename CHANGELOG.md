@@ -4,17 +4,13 @@
 
 ### Added
 
-- **Qoder CLI**, international (`~/.qoder`) and China edition (`~/.qoder-cn`), shown as "Qoder" and
-  "Qoder CN": the same states as Claude Code (no usage limits). `install-local`, `add-host`,
-  `doctor` and the automatic setup cover them; an upgrade installs the hooks for an edition whose
-  config directory exists. Not yet verified with real Qoder sessions.
-- **Qwen Code** (`~/.qwen/settings.json`, or `$QWEN_HOME`), shown as "Qwen Code", the same way.
-  Not yet verified with real Qwen Code sessions.
-- **Gemini CLI** (`~/.gemini/settings.json`, or `$GEMINI_CLI_HOME/.gemini`), shown as "Gemini CLI":
-  working, your turn (after each answer), needs permission with the command, ended. Gemini has no
-  "idle" notification. A `settings.json` with comments is left alone (Agentail would have to drop
-  them); `doctor` warns when `hooksConfig.enabled` is false. Gemini's folder trust may skip the
-  hooks in folders you have not trusted. Not yet verified with real Gemini CLI sessions.
+- **Qoder** (CLI and IDE), international (`~/.qoder`) and China edition (`~/.qoder-cn`), shown as
+  "Qoder" and "Qoder CN": working, your turn, needs permission (with the command), ended; no usage
+  limits. `install-local`, `add-host`, `doctor` and the automatic setup cover them; an upgrade
+  installs the hooks for an edition whose config directory exists. Tested with qodercli 1.1.68 and
+  Qoder IDE 1.1.66 (the China edition only against the docs). Qoder sends nothing when you
+  interrupt a turn with Esc, so the session shows "running" until your next prompt or until it ends;
+  the CLI sends no session start, so a CLI session appears with its first prompt.
 
 - **Claude usage from VS Code and Claude Desktop.** Claude Code reports its limits only to the status
   line of a terminal session, so the Usage card never updated for the VS Code extension or Claude

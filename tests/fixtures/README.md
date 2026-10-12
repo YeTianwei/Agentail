@@ -17,11 +17,5 @@
   exit. Ids, timestamps (rebased to 1000.0) and the home path are replaced.
 - `qoder/synthetic.jsonl` is **hand-written** from the Qoder CLI hooks docs
   (https://docs.qoder.com/cli/hooks, 2026-10-08; docs/agent-hooks-notes.md section 4.3), which match
-  Claude Code's format. `TODO(M0)`: replace with a recording (PLAN.md 0.0.3 A4). The same file serves
-  `qoder_cn`.
-- `qwen/synthetic.jsonl` is **hand-written** from the Qwen Code hooks docs and sources
-  (QwenLM/qwen-code `2e962b6`, 2026-10-08; docs/agent-hooks-notes.md section 4.2), with Qwen's own
-  tool names (`run_shell_command`, `read_file`). `TODO(M0)`: replace with a recording.
-- `gemini/synthetic.jsonl` is **hand-written** from the Gemini CLI hooks reference and sources
-  (google-gemini/gemini-cli `44d764e`, 2026-10-08; docs/agent-hooks-notes.md section 4.4).
-  `TODO(M0)`: replace with a recording.
+  Claude Code's format. It covers events the recording lacks (SessionStart, idle_prompt) and also
+  serves `qoder_cn`, which is not verified (`TODO(M0)`).

@@ -91,9 +91,8 @@ account as your desktop, one card covers both.
 |---|---|---|
 | Claude Code | ✅ | working, your turn, needs permission (with the command), ended; usage limits on Pro / Max |
 | Codex CLI (0.155+) | ✅ | the same, and usage limits; trust the hooks once with `/hooks` |
-| Qoder CLI (international and China editions) | 🧪 next release, not yet tested with real sessions | working, your turn, needs permission, ended; no usage limits |
-| Qwen Code | 🧪 next release, not yet tested with real sessions | the same |
-| Gemini CLI | 🧪 next release, not yet tested with real sessions | working, your turn, needs permission (with the command), ended; may miss sessions in untrusted folders |
+| Qoder CLI and Qoder IDE (international and China editions) | ✅ from 0.0.3 (tested: CLI 1.1.68, IDE 1.1.66) | working, your turn, needs permission (with the command), ended; no usage limits |
+| Qwen Code, Gemini CLI | 🗓️ 0.0.4 | |
 | Cursor, OpenCode, … | 🗓️ planned | |
 
 | Where | Status |
@@ -115,9 +114,8 @@ sudo apt install ./agentail_0.0.2.deb
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.
 
 Behind the scenes the package started the daemon, which merged the hooks into
-`~/.claude/settings.json`, `~/.codex/hooks.json`, `~/.qoder/settings.json` /
-`~/.qoder-cn/settings.json`, `~/.qwen/settings.json` and `~/.gemini/settings.json` for the agents
-you have (backing each up) and
+`~/.claude/settings.json`, `~/.codex/hooks.json` and `~/.qoder/settings.json` /
+`~/.qoder-cn/settings.json` for the agents you have (backing each up) and
 enabled the panel.
 
 > **Codex** only runs hooks you trust: start `codex` once and approve the `agentail-hook` entries
@@ -243,7 +241,8 @@ Hooks left behind are harmless: without the daemon they do nothing.
 
 ## 🗺️ Roadmap
 
-- **0.0.3**: more agents (Claude-compatible forks such as Qwen Code, then Gemini CLI and Cursor).
+- **0.0.3**: Qoder (CLI and IDE).
+- **0.0.4**: Qwen Code and Gemini CLI.
 - **Later**: answering permission prompts from the panel.
 
 ## 📄 License

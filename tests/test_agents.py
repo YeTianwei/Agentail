@@ -4,6 +4,7 @@ import subprocess
 
 from agentail import agents
 from agentail.adapters import all_adapters, get_adapter
+from agentail.agents import AgentSpec
 from agentail.install import local
 from agentail.install.remote import PROBE_SCRIPT, config_files, parse_probe, probe_args
 from agentail.sshexec import sh_script
@@ -63,3 +64,35 @@ def test_probe_script_reports_every_agent(isolated_home):
     probe = _run_probe(isolated_home, {})
     assert probe.agent_dirs == ("claude",)
     assert probe.agent_homes["codex"] == f"{isolated_home}/.codex"
+
+
+def _spec(**kw):
+    base = dict(name="x", display_name="X", dir_default=".x", config_file="c.json", binary="x")
+    return AgentSpec(merge=lambda *a: {}, **{**base, **kw})
+
+
+def test_dir_env_expansion_and_parent(isolated_home, monkeypatch):
+    monkeypatch.setenv("X_HOME", "~/state")
+    assert _spec(dir_env="X_HOME").home() == isolated_home / "state"
+    assert _spec(dir_env="X_HOME", dir_env_is_parent=True).home() == isolated_home / "state" / ".x"
+    monkeypatch.setenv("X_HOME", "")  # empty means unset
+    assert _spec(dir_env="X_HOME").home() == isolated_home / ".x"
+
+
+def test_probe_script_env_kinds(isolated_home):
+    def homes(env):
+        args = ["a", "A_DIR", ".a", "a", "dir", "b", "B_HOME", ".b", "b", "parent"]
+        full = {"PATH": "/usr/bin:/bin", "HOME": str(isolated_home), **env}
+        res = subprocess.run(
+            sh_script(PROBE_SCRIPT, *args), capture_output=True, text=True, env=full, timeout=30
+        )
+        return {
+            k: v
+            for k, _, v in (ln.partition("=") for ln in res.stdout.splitlines())
+            if k in ("a_home", "b_home")
+        }
+
+    h = str(isolated_home)
+    assert homes({}) == {"a_home": f"{h}/.a", "b_home": f"{h}/.b"}
+    assert homes({"A_DIR": "~/x", "B_HOME": "~"}) == {"a_home": f"{h}/x", "b_home": f"{h}/.b"}
+    assert homes({"B_HOME": "/srv/u"})["b_home"] == "/srv/u/.b"

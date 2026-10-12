@@ -236,7 +236,7 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 ### 0.0.3(下一步):更多 agent
 
-**范围**:Qoder、Qwen Code、Gemini CLI(只显示状态,和 Claude / Codex 一样)。**不做**:Cursor(IDE 远程位置未核实,事件模型也不同,推迟到 0.0.4 或之后)、OpenCode 等插件类、新 agent 的用量监控(`adapter.usage()` 返回 None,用量区只列有读数的 agent)、审批(不变量 7)。
+**范围**(2026-10-12 你决定收窄):**只发 Qoder(CLI 和 IDE,国际版和国内版)**;Qwen Code、Gemini CLI 已实现但移到 0.0.4(见下)。原范围:Qoder、Qwen Code、Gemini CLI(只显示状态,和 Claude / Codex 一样)。**不做**:Cursor(IDE 远程位置未核实,事件模型也不同,推迟到 0.0.4 或之后)、OpenCode 等插件类、新 agent 的用量监控(`adapter.usage()` 返回 None,用量区只列有读数的 agent)、审批(不变量 7)。
 
 **现状**:agent 列表硬编码在多处:`config.py` 默认值,`install/local.py` 与 `install/remote.py` 的 `AGENTS`、配置路径、`claude_config if agent == "claude" else codex_config` 二选一和远程探测脚本,`doctor.py`,`firstrun.py`,`model.js` 的 `AGENT_NAME`,`ui/model.py`,图标。hook 脚本与 `Adapter` 协议不用改。
 
@@ -267,7 +267,7 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 ✅ **A3b Claude 额度主动查询**(2026-10-12 加入 0.0.3,同日完成;真实接口已用本机 Pro 账号验证,面板与 systemd 下的 daemon 待你验证):statusLine 在 VS Code 扩展和 Claude Desktop 里不运行,只用 VS Code 时 Claude 额度永远不更新。改为用 Claude Code 自己的 OAuth 登录只读查询 `api.anthropic.com/api/oauth/usage`(已实测可用),由 Stop 和打开面板触发;默认开启(`config.toml` 的 `[usage] claude_api = false` 或 `agentail usage-api off` 关闭),只查本机账号。设计见 `docs/usage-api-design.md`,调研与其他项目的对比见 `docs/usage-notes.md` §2.4、§6。
 
-**下一步**:A3b → A4(你的真机验证)→ A5 发布。
+**下一步**:A5 发布(只含 Qoder)。
 
 ✅ **A4-Qoder CLI 已验证**(2026-10-12,qodercli 1.1.68,本机):授权(橙色,显示命令)、轮到你、结束都正常;录制已作为 `tests/fixtures/qoder/recorded-1.1.68.jsonl` 加入测试。两个已知限制(Qoder 本身的行为,写进 `agent-hooks-notes.md` §4.3):启动时没有 `SessionStart`,会话在第一个问题后才出现;**Esc 中断不发任何事件**,会话停在 Running 直到下一个问题或退出。✅ Qoder IDE(1.1.66)也触发同一套 hook,会话出现在 Qoder 分组里(IDE 会发 `SessionStart`;没打开文件夹时标题是临时工作区目录名,即会话 id 前 8 位)。仍待验证:Qoder CN、Qwen Code、Gemini CLI、远程 `add-host`。
 
@@ -298,8 +298,12 @@ Gemini CLI 同样:运行 `gemini`,做同样的操作;**另外**在一个从没�
 
 **A5 发布 ☁️ + 👤**:CHANGELOG、版本号 0.0.3、`.deb`;同时整理"新增 agent 的清单"文档(A0 完成后的实际步骤)。升级时若安装器写入了新内容,按需提高 `firstrun.SETUP_VERSION`。
 
+### 0.0.4:Qwen Code、Gemini CLI
+
+两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
+
 ---
 
 ## 4. v1 之后(不在当前范围)
 
-Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder、Qwen、Gemini CLI 见 0.0.3;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
+Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,Qwen、Gemini CLI 见 0.0.4;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
