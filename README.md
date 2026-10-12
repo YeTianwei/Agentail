@@ -108,7 +108,7 @@ Download `agentail_<version>.deb` from
 [Releases](https://github.com/YeTianwei/Agentail/releases), then:
 
 ```bash
-sudo apt install ./agentail_0.0.2.deb
+sudo apt install ./agentail_0.0.3.deb
 ```
 
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.

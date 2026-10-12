@@ -267,7 +267,7 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 ✅ **A3b Claude 额度主动查询**(2026-10-12 加入 0.0.3,同日完成;真实接口已用本机 Pro 账号验证,面板与 systemd 下的 daemon 待你验证):statusLine 在 VS Code 扩展和 Claude Desktop 里不运行,只用 VS Code 时 Claude 额度永远不更新。改为用 Claude Code 自己的 OAuth 登录只读查询 `api.anthropic.com/api/oauth/usage`(已实测可用),由 Stop 和打开面板触发;默认开启(`config.toml` 的 `[usage] claude_api = false` 或 `agentail usage-api off` 关闭),只查本机账号。设计见 `docs/usage-api-design.md`,调研与其他项目的对比见 `docs/usage-notes.md` §2.4、§6。
 
-**下一步**:A5 发布(只含 Qoder)。
+**下一步**:A5 发布(只含 Qoder),见下方「0.0.3 发布」。
 
 ✅ **A4-Qoder CLI 已验证**(2026-10-12,qodercli 1.1.68,本机):授权(橙色,显示命令)、轮到你、结束都正常;录制已作为 `tests/fixtures/qoder/recorded-1.1.68.jsonl` 加入测试。两个已知限制(Qoder 本身的行为,写进 `agent-hooks-notes.md` §4.3):启动时没有 `SessionStart`,会话在第一个问题后才出现;**Esc 中断不发任何事件**,会话停在 Running 直到下一个问题或退出。✅ Qoder IDE(1.1.66)也触发同一套 hook,会话出现在 Qoder 分组里(IDE 会发 `SessionStart`;没打开文件夹时标题是临时工作区目录名,即会话 id 前 8 位)。仍待验证:Qoder CN、Qwen Code、Gemini CLI、远程 `add-host`。
 
@@ -297,6 +297,29 @@ Gemini CLI 同样:运行 `gemini`,做同样的操作;**另外**在一个从没�
 **A4 👤 你在本机验证**:每个 agent 录一份真实会话放进 `tests/fixtures/<agent>/recorded-<版本>.jsonl`;在一台真实服务器上跑 `add-host`;确认面板里的显示(图标、分组、需要授权时的状态)。PR 描述会写出确切步骤。
 
 **A5 发布 ☁️ + 👤**:CHANGELOG、版本号 0.0.3、`.deb`;同时整理"新增 agent 的清单"文档(A0 完成后的实际步骤)。升级时若安装器写入了新内容,按需提高 `firstrun.SETUP_VERSION`。
+
+### 0.0.3 发布 ☁️ + 👤
+
+☁️ 已完成(2026-10-12):版本号 0.0.3、CHANGELOG、README(支持列表、路线图)、`.github/release-notes/v0.0.3.md`、`dist/agentail_0.0.3.deb`(包内只有 Qoder,没有 Qwen / Gemini)。`SETUP_VERSION` 不变(Claude / Codex 的 hook 命令自 0.0.2 起没变);从 0.0.2 升级时,`firstrun` 会把 Qoder 当作新 agent,在 `~/.qoder` 存在时自动装 hook(`tests/test_firstrun.py`)。
+
+👤 你要做的:用 `.deb` 替换开发版并确认,再合并、推送、打 tag:
+
+```bash
+# 1. 停掉开发版:关掉跑着 `agentail daemon --record` 的终端(Ctrl+C),去掉开发版扩展的链接
+rm ~/.local/share/gnome-shell/extensions/agentail@yetianwei.github.io
+# 2. 装 0.0.3
+sudo apt install ./dist/agentail_0.0.3.deb
+# 3. 注销再登录一次(X11:Alt+F2,r,回车)
+# 4. 检查
+agentail --version          # 0.0.3(确认是 /usr/bin/agentail,不是 .venv 里的)
+agentail doctor             # 全绿;qoder hooks ✓
+#    面板:开一个 qodercli 会话问一个问题,Qoder 分组出现;Claude / Codex 照常
+# 5. 合并到 main 并发布(main 可以快进到 agents-0.0.3)
+git checkout main && git merge --ff-only agents-0.0.3
+git push origin main && git tag v0.0.3 && git push origin v0.0.3
+```
+
+`.github/workflows/release.yml` 会构建并附上 `.deb`;失败时用 `gh release create v0.0.3 dist/agentail_0.0.3.deb -F .github/release-notes/v0.0.3.md` 手动发。
 
 ### 0.0.4:Qwen Code、Gemini CLI
 

@@ -155,3 +155,20 @@ def test_an_upgrade_leaves_uninstalled_agents_alone(isolated_home, monkeypatch, 
     assert _settings(isolated_home) == {"model": "opus"}
     state = json.loads(paths.state_dir().joinpath("setup.json").read_text())
     assert state["version"] == firstrun.SETUP_VERSION
+
+
+def test_an_upgrade_to_0_0_3_installs_qoder_only(isolated_home, monkeypatch, tmp_path):
+    _env(isolated_home, monkeypatch, tmp_path)
+    (isolated_home / ".claude").mkdir()
+    (isolated_home / ".claude" / "settings.json").write_text('{"model": "opus"}')
+    (isolated_home / ".qoder").mkdir()
+    paths.ensure_private_dir(paths.state_dir())
+    paths.state_dir().joinpath("setup.json").write_text(
+        json.dumps({"agents": ["claude", "codex"], "version": 2, "extension": True})  # 0.0.2
+    )
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    qoder = (isolated_home / ".qoder" / "settings.json").read_text()
+    assert "--agent qoder " in qoder
+    assert _settings(isolated_home) == {"model": "opus"}  # Claude, uninstalled before, untouched
+    state = json.loads(paths.state_dir().joinpath("setup.json").read_text())
+    assert state["agents"] == ["claude", "codex", "qoder"]
