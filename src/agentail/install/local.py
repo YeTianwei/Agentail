@@ -259,6 +259,11 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
             out(f"warning: {warning}")
         if spec.trust_note:
             out(f"{spec.name}: {spec.trust_note}")
+    from agentail.config import load_claude_usage_api
+    from agentail.daemon.usage_claude_api import NOTE
+
+    if any(p.target.agent == "claude" for p in plans) and load_claude_usage_api():
+        out(NOTE)
     out(f"Events go to {paths.local_sock()}; start `agentail daemon` to receive them.")
     return 0
 

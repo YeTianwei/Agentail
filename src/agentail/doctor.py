@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import shlex
 import socket
+import time
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -24,7 +25,7 @@ from typing import Any
 from agentail import agents as registry
 from agentail import paths
 from agentail.client import clean
-from agentail.config import load_hosts
+from agentail.config import load_claude_usage_api, load_hosts
 from agentail.install import gnome, service, statusline
 from agentail.install.local import hook_dest
 
@@ -223,6 +224,54 @@ def local_checks() -> list[Check]:
     return checks
 
 
+def _ago(ts: Any, now: float) -> str:
+    if isinstance(ts, bool) or not isinstance(ts, int | float):
+        return ""
+    secs = max(0.0, now - ts)
+    if secs < 60:
+        return "just now"
+    if secs < 3600:
+        return f"{int(secs // 60)}m ago"
+    if secs < 86400:
+        return f"{int(secs // 3600)}h ago"
+    return f"{int(secs // 86400)}d ago"
+
+
+def usage_api_checks(snapshot: dict[str, Any] | None, now: float | None = None) -> list[Check]:
+    """How the daemon's query of Claude's usage endpoint is doing (daemon/usage_claude_api.py)."""
+    spec = registry.get("claude")
+    if spec is None or not spec.home().is_dir():
+        return []
+    name = "claude usage api"
+    if not load_claude_usage_api():
+        return [Check(name, INFO, "off ([usage] claude_api = false)", "agentail usage-api on")]
+    if snapshot is None:
+        return []  # the daemon check already says it is not running
+    api = snapshot.get("usage_api")
+    status = api.get("claude") if isinstance(api, dict) else None
+    if not isinstance(status, dict):
+        return [
+            Check(
+                name,
+                WARN,
+                "the daemon does not query it",
+                f"systemctl --user restart {service.UNIT}",
+            )
+        ]
+    state, detail = clean(status.get("state"), 20), clean(status.get("detail"), 120)
+    ago = _ago(status.get("ok_ts"), time.time() if now is None else now)
+    last = f" (last success {ago})" if ago else ""
+    if state == "ok":
+        return [Check(name, OK, f"last query {ago}" if ago else "last query succeeded")]
+    if state == "pending":
+        return [Check(name, INFO, "waiting for the first query")]
+    if state == "needs_login":
+        return [Check(name, WARN, detail + last, "run claude once: it refreshes its login")]
+    if state == "off":
+        return [Check(name, INFO, "off in the daemon; it picks up config.toml within seconds")]
+    return [Check(name, WARN, (detail or state) + last, f"journalctl --user -u {service.UNIT}")]
+
+
 # ---- daemon, service, hosts, extension ----------------------------------------------------
 
 
@@ -380,7 +429,13 @@ def run_checks(
 ) -> list[Check]:
     snap = fetch_snapshot() if snapshot is False else snapshot
     assert snap is None or isinstance(snap, dict)
-    return daemon_checks(snap, run) + local_checks() + host_checks(snap) + extension_checks(run)
+    return (
+        daemon_checks(snap, run)
+        + local_checks()
+        + usage_api_checks(snap)
+        + host_checks(snap)
+        + extension_checks(run)
+    )
 
 
 def doctor(out: Out = print, run: Runner = service._run) -> int:

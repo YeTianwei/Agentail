@@ -1,9 +1,9 @@
 """ui.sock: pushes state to UI processes (`agentail tail` / `status`, the top bar indicator).
 
 Protocol (docs/protocol.md, "UI protocol"): on connect the daemon sends one
-``{"type": "snapshot", "sessions": [...], "hosts": [...], "usage": [...]}`` line, then
-``session_update`` / ``session_remove`` / ``host_status`` / ``usage_update`` /
-``usage_remove`` / ``notify`` lines.
+``{"type": "snapshot", "sessions": [...], "hosts": [...], "usage": [...], "usage_api": {...}}``
+line, then ``session_update`` / ``session_remove`` / ``host_status`` / ``usage_update`` /
+``usage_remove`` / ``usage_api_status`` / ``notify`` lines.
 The UI holds no business state and rebuilds from a new snapshot after reconnecting.
 
 Each client has a bounded queue. ``broadcast`` never awaits: a client whose

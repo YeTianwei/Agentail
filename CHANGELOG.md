@@ -16,6 +16,16 @@
   them); `doctor` warns when `hooksConfig.enabled` is false. Gemini's folder trust may skip the
   hooks in folders you have not trusted. Not yet verified with real Gemini CLI sessions.
 
+- **Claude usage from VS Code and Claude Desktop.** Claude Code reports its limits only to the status
+  line of a terminal session, so the Usage card never updated for the VS Code extension or Claude
+  Desktop. The daemon now asks Anthropic's usage endpoint (what `/usage` shows) with the access
+  token of Claude Code's login, a few seconds after a Claude turn ends (here or on a server, at most
+  once a minute) and when you open the panel. The token is read for each request, sent only to
+  `api.anthropic.com`, never refreshed, stored or logged. **On by default, also after an upgrade**;
+  `agentail usage-api off` turns it off. An expired login shows "sign-in expired · run claude once"
+  on the card; `agentail doctor` shows the last query. Only this computer's login is used: servers
+  are assumed to use the same account.
+
 ### Changed
 
 - The supported agents are listed in one registry (`src/agentail/agents.py`); the installers,

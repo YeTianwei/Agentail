@@ -166,6 +166,31 @@ def load_auto_setup(path: Path | None = None) -> bool:
     return value is not False
 
 
+def load_claude_usage_api(path: Path | None = None) -> bool:
+    """``[usage] claude_api`` in config.toml (default: on). When on, the daemon reads Claude
+    Code's login to query Anthropic's usage endpoint (docs/usage-api-design.md). Anything
+    but ``false`` keeps the default."""
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            value = tomllib.load(fh).get("usage", {}).get("claude_api", True)
+    except (OSError, tomllib.TOMLDecodeError, AttributeError):
+        return True
+    return value is not False
+
+
+def set_claude_usage_api(on: bool, path: Path | None = None) -> None:
+    """Write ``[usage] claude_api``, keeping the rest of config.toml."""
+    path = path or paths.settings_file()
+    doc = _load_doc(path)
+    usage = doc.get("usage")
+    if usage is None:
+        usage = tomlkit.table()
+        doc.append("usage", usage)
+    usage["claude_api"] = on
+    _write_doc(path, doc)
+
+
 def _load_doc(path: Path) -> tomlkit.TOMLDocument:
     if not path.exists():
         return tomlkit.document()

@@ -75,6 +75,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("doctor", help="check the daemon, hooks, tunnels and panel")
 
+    ua = sub.add_parser(
+        "usage-api",
+        help="turn the Claude usage query (Claude Code's login, api.anthropic.com) on or off",
+    )
+    ua.add_argument("action", choices=["on", "off", "status"])
+
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -135,6 +141,19 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install.remote import remove_host
 
         return remove_host(args.alias, local_only=args.local_only, dry_run=args.dry_run)
+    if args.command == "usage-api":
+        from agentail import config, doctor
+        from agentail.daemon import usage_claude_api as claude_api
+
+        if args.action != "status":
+            config.set_claude_usage_api(args.action == "on")
+        print(claude_api.NOTE)
+        print(f"Now {'on' if config.load_claude_usage_api() else 'off'} ({paths.settings_file()}).")
+        for c in (
+            doctor.usage_api_checks(doctor.fetch_snapshot()) if args.action == "status" else []
+        ):
+            print(f"{doctor.MARK[c.status]} {c.detail}")
+        return 0
     if args.command == "paths":
         print(f"runtime dir : {paths.runtime_dir()}")
         print(f"local socket: {paths.local_sock()}")

@@ -22,14 +22,17 @@ from typing import Any
 
 from agentail import paths
 from agentail.adapters import get_adapter
+from agentail.adapters.base import EventKind
 from agentail.config import (
     Host,
     cwd_ignored,
     default_ignore_cwd,
+    load_claude_usage_api,
     load_hosts,
     load_ignore_cwd,
     load_retention,
 )
+from agentail.daemon import usage_claude_api as claude_api
 from agentail.daemon.codex_appserver import read_codex_usage_live
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.state import Change, Retention, Store
@@ -67,6 +70,9 @@ class Daemon:
         codex_usage_home: Path | None = None,
         codex_argv: list[str] | None = None,
         live_usage_interval: float = LIVE_USAGE_MIN_INTERVAL_S,
+        claude_credentials: Path | None = None,
+        claude_usage_url: str = claude_api.ENDPOINT,
+        claude_schedule: claude_api.Schedule | None = None,
     ) -> None:
         try:
             retention = load_retention()
@@ -86,6 +92,15 @@ class Daemon:
         self._live_task: asyncio.Task[None] | None = None
         self._live_last = -float("inf")  # monotonic time of the last live query
         self._codex_usage_due = 0.0  # monotonic time of the next read of the Codex files
+        self._claude_cred = claude_credentials
+        self._claude_url = claude_usage_url
+        self._claude_schedule = claude_schedule or claude_api.Schedule()
+        self._claude_task: asyncio.Task[None] | None = None
+        self._claude_cred_mtime: int | None = None
+        self._settings_mtime: int | None = -1  # -1: not read yet
+        self._claude_api_on = False
+        # The usage_api record of the UI protocol: how the Claude query is doing.
+        self.claude_api_status: dict[str, Any] = {"state": claude_api.OFF, "detail": ""}
         self._dirty = False  # sessions changed since they were last saved
         self._usage_dirty = False
         self.print_events = print_events
@@ -131,6 +146,9 @@ class Daemon:
                 self._codex_usage_due or float("inf"), time.monotonic() + CODEX_USAGE_DEBOUNCE_S
             )
         event = adapter.decode(msg, host=source) if adapter else None
+        if event is not None and event.kind is EventKind.STOP and msg.agent == "claude":
+            # Any host counts: the servers are assumed to use the same account.
+            self._claude_schedule.record_stop(time.monotonic())
         if self.print_events:
             print(
                 json.dumps(
@@ -156,6 +174,7 @@ class Daemon:
             "sessions": [session_to_dict(s) for s in self.store.sessions.values()],
             "hosts": list(self.hosts.values()),
             "usage": [usage_to_dict(r) for r in self.usage.readings.values()],
+            "usage_api": {"claude": dict(self.claude_api_status)},
         }
 
     def _on_usage(self, reading: UsageReading) -> None:
@@ -178,8 +197,11 @@ class Daemon:
 
     def request_live_usage(self) -> None:
         """The panel was opened: ask Codex for its current limits, at most once a minute.
-        Opening the panel is the only trigger, so nothing is queried while nobody looks."""
+        Opening the panel is the only trigger, so nothing is queried while nobody looks.
+        Claude's usage endpoint is asked too when its reading is over a minute old."""
         now = time.monotonic()
+        if self._claude_api_on and self._claude_schedule.panel_opened(now):
+            self._start_claude_query(now)
         if self._live_task is not None and not self._live_task.done():
             return
         if now - self._live_last < self._live_interval:
@@ -195,6 +217,86 @@ class Daemon:
             return
         if reading is not None:
             self._on_usage(reading)
+
+    # -- Claude usage endpoint (daemon/usage_claude_api.py) --------------------------------
+
+    def _cred_path(self) -> Path:
+        return self._claude_cred or claude_api.credentials_path()
+
+    def _set_claude_api_status(self, state: str, detail: str = "") -> None:
+        status = {"state": state, "detail": detail}
+        if state == claude_api.OK:
+            status["ok_ts"] = time.time()
+        elif "ok_ts" in self.claude_api_status:
+            status["ok_ts"] = self.claude_api_status["ok_ts"]
+        if status == self.claude_api_status:
+            return
+        self.claude_api_status = status
+        if self.ui is not None:
+            self.ui.broadcast({"type": "usage_api_status", "agent": "claude", "status": status})
+
+    def _sync_claude_api(self) -> None:
+        """Follow ``[usage] claude_api`` in config.toml and the login file; start a query
+        when one is due. Called from the main loop every few seconds."""
+        path = paths.settings_file()
+        try:
+            mtime: int | None = path.stat().st_mtime_ns
+        except OSError:
+            mtime = None
+        if mtime != self._settings_mtime:
+            self._settings_mtime = mtime
+            on = load_claude_usage_api(path)
+            if on != self._claude_api_on:
+                self._claude_api_on = on
+                log.info("Claude usage endpoint %s", "on" if on else "off")
+                if on:
+                    self._claude_schedule.reset()
+                    self._set_claude_api_status(claude_api.PENDING)
+                else:
+                    self._set_claude_api_status(claude_api.OFF)
+        if not self._claude_api_on:
+            return
+        try:
+            cred_mtime: int | None = self._cred_path().stat().st_mtime_ns
+        except OSError:
+            cred_mtime = None
+        if cred_mtime != self._claude_cred_mtime:
+            if self._claude_cred_mtime is not None or cred_mtime is not None:
+                self._claude_schedule.login_changed()
+            self._claude_cred_mtime = cred_mtime
+        now = time.monotonic()
+        due = self._claude_schedule.next_due(now)
+        if due is not None and now >= due:
+            self._start_claude_query(now)
+
+    def _start_claude_query(self, now: float) -> None:
+        if self._claude_task is not None and not self._claude_task.done():
+            return
+        self._claude_schedule.record_start(now)
+        self._claude_task = asyncio.get_running_loop().create_task(self._claude_query())
+
+    async def _claude_query(self) -> None:
+        try:
+            reading = await asyncio.to_thread(
+                claude_api.fetch_usage, self._cred_path(), LOCAL_SOURCE, self._claude_url
+            )
+        except claude_api.FetchError as exc:
+            self._claude_schedule.record_failure(exc.state, time.monotonic(), exc.retry_after)
+            log.info("Claude usage endpoint: %s", exc.detail)
+            if self._claude_api_on:
+                self._set_claude_api_status(exc.state, exc.detail)
+            return
+        except Exception:  # an unexpected response must never take the daemon down
+            self._claude_schedule.record_failure(claude_api.ERROR, time.monotonic())
+            log.exception("Claude usage query failed")
+            if self._claude_api_on:
+                self._set_claude_api_status(claude_api.ERROR, "unexpected error, see the log")
+            return
+        self._claude_schedule.record_success()
+        if not self._claude_api_on:  # switched off while the request was running
+            return
+        self._set_claude_api_status(claude_api.OK)
+        self._on_usage(reading)
 
     async def _read_codex_usage(self) -> None:
         """Local Codex only: its hooks carry no usage, but its session files do."""
@@ -422,6 +524,7 @@ class Daemon:
                 for sig in (signal.SIGINT, signal.SIGTERM):
                     loop.add_signal_handler(sig, self.stop)
             await self._read_codex_usage()
+            self._sync_claude_api()
             self.started.set()
             if self.on_started is not None:
                 asyncio.get_running_loop().run_in_executor(None, self.on_started)
@@ -431,6 +534,7 @@ class Daemon:
                     await asyncio.wait_for(self._stop.wait(), self.hosts_poll)
                 except TimeoutError:
                     await self.sync_hosts()
+                    self._sync_claude_api()
                     if time.monotonic() >= self._codex_usage_due:
                         await self._read_codex_usage()
                     if time.monotonic() >= next_sweep:
@@ -440,8 +544,9 @@ class Daemon:
                         self._save_sessions()
                         self._save_usage()
         finally:
-            if self._live_task is not None:
-                self._live_task.cancel()
+            for task in (self._live_task, self._claude_task):
+                if task is not None:
+                    task.cancel()
             self._save_sessions()
             self._save_usage()
             for alias in list(self.remotes):

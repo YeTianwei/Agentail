@@ -73,15 +73,19 @@ claude_api = false   # 不读 Claude Code 的登录、不查询 Anthropic 用量
 协议改动(`docs/protocol.md` §2,v1 的向后兼容扩展,旧扩展忽略未知字段):
 
 ```json
-{"type": "snapshot", ..., "usage_api": {"claude": "ok" | "needs_login" | "error" | "off"}}
-{"type": "usage_api_status", "agent": "claude", "state": "needs_login"}
+{"type": "snapshot", ..., "usage_api": {"claude": USAGE_API}}
+{"type": "usage_api_status", "agent": "claude", "status": USAGE_API}
+```
+
+```
+USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "...", "ok_ts": 上次成功的时间}
 ```
 
 扩展到 daemon 的方向不变(仍只有 `refresh_usage`)。
 
 ## 5. 何时查询
 
-纯函数的调度器 `ClaudeApiSchedule`(只记时间戳、算下次时间,不碰定时器,方便测试),参数参照 CodeIsland:
+纯函数的调度器 `Schedule`(只记时间戳、算下次时间,不碰定时器,方便测试),参数参照 CodeIsland:
 
 | 触发 | 规则 |
 |---|---|
@@ -120,7 +124,7 @@ claude_api = false   # 不读 Claude Code 的登录、不查询 Anthropic 用量
 
 ## 8. 模块与测试
 
-- `src/agentail/claude_usage_api.py`:读凭据(注入路径)、构造请求、解析响应、调度器;HTTP 用标准库 `urllib`,base URL 可注入。不引入新依赖。
+- `src/agentail/daemon/usage_claude_api.py`:读凭据(注入路径)、构造请求、解析响应、调度器;HTTP 用标准库 `urllib`,base URL 可注入。不引入新依赖。
 - `daemon/main.py`:读开关;在 `handle()` 里把 claude 的 `STOP` 交给调度器;`request_live_usage` 同时触发 Codex 和 Claude;主循环里检查调度时间。
 - `config.py`:`load_usage_settings()` / `set_usage_setting()`(CLI 用);`cli.py`:`usage-api` 子命令;`doctor.py`:新检查项。
 - `daemon/uiapi.py`:快照带 `usage_api`;广播 `usage_api_status`。

@@ -103,6 +103,7 @@ export class UiState {
         this.sessions = new Map(); // keyString -> session
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
+        this.usageApi = new Map(); // agent -> {state, detail} of the daemon's usage query
     }
 
     disconnect() {
@@ -110,6 +111,7 @@ export class UiState {
         this.sessions.clear();
         this.hosts.clear();
         this.usage.clear();
+        this.usageApi.clear();
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -130,6 +132,11 @@ export class UiState {
             this.usage.clear();
             for (const u of Array.isArray(msg.usage) ? msg.usage : [])
                 this._setUsage(u);
+            this.usageApi.clear();
+            if (msg.usage_api && typeof msg.usage_api === 'object') {
+                for (const [agent, status] of Object.entries(msg.usage_api))
+                    this._setUsageApi(agent, status);
+            }
             break;
         case 'session_update':
             if (msg.session && typeof msg.session === 'object')
@@ -150,6 +157,9 @@ export class UiState {
         case 'usage_remove':
             this.usage.delete(keyString([clean(msg.host), clean(msg.agent)]));
             break;
+        case 'usage_api_status':
+            this._setUsageApi(msg.agent, msg.status);
+            break;
         case 'notify':
             return msg;
         }
@@ -164,6 +174,11 @@ export class UiState {
     _setUsage(u) {
         if (u && typeof u === 'object')
             this.usage.set(keyString([clean(u.host), clean(u.agent)]), u);
+    }
+
+    _setUsageApi(agent, status) {
+        if (status && typeof status === 'object')
+            this.usageApi.set(clean(agent), {state: clean(status.state, 20)});
     }
 
     hostTitle(alias) {
@@ -398,7 +413,9 @@ export function usageCards(state, now) {
             name: AGENT_NAME[agent] ?? agent,
             plan: plan ? plan[0].toUpperCase() + plan.slice(1) : '',
             via: host && host !== 'local' ? state.hostTitle(host) : '',
-            updatedText: ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
+            updatedText: state.usageApi.get(agent)?.state === 'needs_login'
+                ? `sign-in expired · run ${agent} once`
+                : ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
             stale: !(ts > 0) || now - ts > USAGE_STALE_S,
             rows,
         });

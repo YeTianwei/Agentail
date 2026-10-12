@@ -253,6 +253,25 @@ test('usage ignores junk and agents without a usable window', () => {
     eq(M.usageCards(make([]), NOW), []);
 });
 
+test('usage: an expired Claude login is shown instead of the age', () => {
+    const list = [usage('local', 'claude', [win(10, 300)]), usage('local', 'codex', [win(4, 300)])];
+    const st = withUsage(list);
+    eq(M.usageCards(st, NOW).map(c => c.updatedText), ['updated 2m ago', 'updated 2m ago']);
+    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'needs_login', detail: 'x'}});
+    eq(M.usageCards(st, NOW).map(c => c.updatedText),
+        ['sign-in expired · run claude once', 'updated 2m ago']);
+    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok'}});
+    eq(M.usageCards(st, NOW)[0].updatedText, 'updated 2m ago');
+    st.apply({type: 'usage_api_status', agent: 'claude', status: 'junk'});
+    eq(M.usageCards(st, NOW)[0].updatedText, 'updated 2m ago');
+    const snap = make([]);
+    snap.apply({type: 'snapshot', sessions: [], hosts: [], usage: list,
+        usage_api: {claude: {state: 'needs_login'}}});
+    eq(M.usageCards(snap, NOW)[0].updatedText, 'sign-in expired · run claude once');
+    snap.apply({type: 'snapshot', sessions: [], hosts: [], usage: list, usage_api: 'junk'});
+    eq(M.usageCards(snap, NOW)[0].updatedText, 'updated 2m ago');
+});
+
 test('usage updates, removal, and disconnect', () => {
     const u = usage('gpu1', 'claude', [win(10, 300)]);
     const st = withUsage([], [{type: 'usage_update', usage: u}]);

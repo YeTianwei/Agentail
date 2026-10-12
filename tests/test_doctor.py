@@ -141,3 +141,48 @@ def test_claude_usage_check(runtime_env, isolated_home):
     doc["statusLine"] = {"type": "static", "text": "x"}
     settings.write_text(json.dumps(doc))
     assert by_name(run_checks(fake_run(), snapshot=None))["claude usage"].status == INFO
+
+
+def test_claude_usage_api_check(runtime_env, isolated_home):
+    from agentail.config import set_claude_usage_api
+
+    def check(snap):
+        return {c.name: c for c in doctor.usage_api_checks(snap, now=1000.0)}.get(
+            "claude usage api"
+        )
+
+    def snap(state, **kw):
+        return {"usage_api": {"claude": {"state": state, **kw}}}
+
+    assert check(snap("ok")) is None  # no ~/.claude: not mentioned
+    (isolated_home / ".claude").mkdir()
+    assert check(None) is None  # the daemon check reports that
+    assert check({}).status == WARN  # a daemon from before the feature
+    c = check(snap("ok", ok_ts=1000.0 - 300))
+    assert c.status == OK and c.detail == "last query 5m ago"
+    assert check(snap("pending")).status == INFO
+    c = check(snap("needs_login", detail="HTTP 401: login rejected", ok_ts=1000.0 - 7200))
+    assert c.status == WARN and c.detail == "HTTP 401: login rejected (last success 2h ago)"
+    assert "run claude once" in c.hint
+    c = check(snap("error", detail="HTTP 500\x1b[31m"))
+    assert c.status == WARN and "\x1b" not in c.detail
+    set_claude_usage_api(False)
+    c = check(snap("off"))
+    assert c.status == INFO and c.hint == "agentail usage-api on"
+
+
+def test_install_local_tells_about_the_usage_query(runtime_env, isolated_home):
+    from agentail.config import set_claude_usage_api
+    from agentail.daemon.usage_claude_api import NOTE
+
+    (isolated_home / ".codex").mkdir()
+    lines = []
+    assert install_local(out=lines.append) == 0
+    assert NOTE not in lines  # no Claude here
+    (isolated_home / ".claude").mkdir()
+    assert install_local(out=lines.append) == 0
+    assert NOTE in lines
+    set_claude_usage_api(False)
+    lines.clear()
+    assert install_local(out=lines.append) == 0
+    assert NOTE not in lines

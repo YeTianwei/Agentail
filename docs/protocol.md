@@ -34,7 +34,8 @@ Socket: `$XDG_RUNTIME_DIR/agentail/ui.sock`. Newline-delimited JSON, daemon → 
 On connect:
 
 ```json
-{"type": "snapshot", "sessions": [SESSION...], "hosts": [HOST...], "usage": [USAGE...]}
+{"type": "snapshot", "sessions": [SESSION...], "hosts": [HOST...], "usage": [USAGE...],
+ "usage_api": {"claude": USAGE_API}}
 ```
 
 Then any number of:
@@ -46,6 +47,7 @@ Then any number of:
 {"type": "host_remove", "alias": "gpu1"}
 {"type": "usage_update", "usage": USAGE}
 {"type": "usage_remove", "host": "gpu1", "agent": "claude"}
+{"type": "usage_api_status", "agent": "claude", "status": USAGE_API}
 {"type": "notify", "kind": "turn_done|attention", "key": {...}}
 ```
 
@@ -69,6 +71,19 @@ only `local` has them. A reading that did not change is not re-sent more than on
 `usage_remove` is sent when a host is removed. Clients ignore message types and snapshot keys
 they do not know. See `docs/usage-design.md`.
 
+Since 0.0.3 the daemon also asks Anthropic's usage endpoint with Claude Code's login (on by
+default, `[usage] claude_api = false` in `config.toml` turns it off; `docs/usage-api-design.md`).
+Its readings are ordinary `USAGE` records from `local`. How that query is doing:
+
+```
+USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "HTTP 401: login rejected",
+             "ok_ts": 1791772000.0}   # ok_ts: last success, absent if none
+```
+
+`needs_login` means Claude Code's login is missing, expired or rejected; running `claude` once
+refreshes it. `detail` is written by the daemon (no payload content); `usage_api_status` is sent
+when it changes.
+
 `tool_detail` is one line describing the current tool call (a shell command, a file path), kept
 while a permission prompt is open. `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not
 sent). A host from `hosts.toml` without a `remote_sock` (never set up by `add-host`) is reported
@@ -81,6 +96,7 @@ control characters before writing to a terminal (`agentail tail` / `status` do).
 Clients hold no state of their own; after a reconnect they rebuild from the next snapshot.
 A client that cannot keep up (more than 1024 queued messages) is disconnected rather than slowing
 the daemon. A client may send one line, `{"type": "refresh_usage"}`, when the user opens the panel: the daemon
-then asks `codex app-server` for Codex's current limits (at most once a minute) and answers with an
+then asks `codex app-server` for Codex's current limits (at most once a minute) and, when its
+reading is over a minute old, Anthropic's usage endpoint for Claude's; both answer with an
 ordinary `usage_update`. Nothing else a client sends is acted on; the daemon otherwise reads only
 to detect disconnects.

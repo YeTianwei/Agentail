@@ -57,3 +57,13 @@ def _no_packaged_files(monkeypatch, tmp_path_factory):
     from agentail import firstrun
 
     monkeypatch.setattr(firstrun, "INSTALL_ID_FILE", nothing / "install-id")
+
+
+@pytest.fixture(autouse=True)
+def _claude_usage_api_off(monkeypatch):
+    """The daemon queries Claude's usage endpoint by default. Keep it off in tests so its
+    status messages cannot interleave with what a test reads; the tests of that feature
+    turn it back on (and never reach the network: they point it at a local server)."""
+    from agentail.daemon import main
+
+    monkeypatch.setattr(main, "load_claude_usage_api", lambda path=None: False)
