@@ -1,4 +1,4 @@
-"""Merge/remove agentail hooks in the settings.json of a Claude-compatible agent (Qoder).
+"""Merge/remove agentail hooks in the settings.json of a Claude-compatible agent (Qoder, Qwen Code).
 
 Same document shape as Claude Code's settings.json (docs/agent-hooks-notes.md section 4.3),
 so this is ``hookjson.merge_hooks`` with Claude's matcher and timeout, minus the status

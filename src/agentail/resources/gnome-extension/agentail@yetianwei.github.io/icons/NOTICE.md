@@ -4,6 +4,8 @@
 `agent-codex.png` is the OpenAI logo app icon, a trademark of OpenAI.
 `agent-qoder.png` and `agent-qoder_cn.png` are the Qoder app icon (from qoder.com), a trademark
 of its owner (Alibaba Group).
+`agent-qwen.png` is the Qwen Code app icon (from the QwenLM/qwen-code repository), a trademark of
+its owner (Alibaba Group).
 
 They are included only to identify which agent a session belongs to. They are
 not covered by this project's MIT license; all rights stay with their owners.

@@ -37,7 +37,7 @@ class AgentSpec:
 
     def home(self) -> Path:
         env = os.environ.get(self.dir_env) if self.dir_env else None
-        return Path(env) if env else Path.home() / self.dir_default
+        return Path(env).expanduser() if env else Path.home() / self.dir_default
 
     def config_path(self) -> Path:
         return self.home() / self.config_file
@@ -88,6 +88,18 @@ AGENTS: tuple[AgentSpec, ...] = (
         config_file="settings.json",
         binary="qodercli",
         merge=claude_compat_config.merger("qoder_cn"),
+    ),
+    # Qwen Code: Claude-format hooks in ~/.qwen/settings.json; QWEN_HOME moves the dir
+    # (docs/users/configuration/settings.md). A relative QWEN_HOME (resolved by Qwen from
+    # its own working directory) is not supported.
+    AgentSpec(
+        name="qwen",
+        display_name="Qwen Code",
+        dir_default=".qwen",
+        dir_env="QWEN_HOME",
+        config_file="settings.json",
+        binary="qwen",
+        merge=claude_compat_config.merger("qwen"),
     ),
 )
 

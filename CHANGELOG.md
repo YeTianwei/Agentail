@@ -8,6 +8,8 @@
   "Qoder CN": the same states as Claude Code (no usage limits). `install-local`, `add-host`,
   `doctor` and the automatic setup cover them; an upgrade installs the hooks for an edition whose
   config directory exists. Not yet verified with real Qoder sessions.
+- **Qwen Code** (`~/.qwen/settings.json`, or `$QWEN_HOME`), shown as "Qwen Code", the same way.
+  Not yet verified with real Qwen Code sessions.
 
 ### Changed
 

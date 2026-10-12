@@ -16,3 +16,6 @@
   (https://docs.qoder.com/cli/hooks, 2026-10-08; docs/agent-hooks-notes.md section 4.3), which match
   Claude Code's format. `TODO(M0)`: replace with a recording (PLAN.md 0.0.3 A4). The same file serves
   `qoder_cn`.
+- `qwen/synthetic.jsonl` is **hand-written** from the Qwen Code hooks docs and sources
+  (QwenLM/qwen-code `2e962b6`, 2026-10-08; docs/agent-hooks-notes.md section 4.2), with Qwen's own
+  tool names (`run_shell_command`, `read_file`). `TODO(M0)`: replace with a recording.

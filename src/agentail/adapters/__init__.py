@@ -14,6 +14,7 @@ _ADAPTERS: dict[str, Adapter] = {
         CodexAdapter(),
         ClaudeCompatAdapter("qoder"),
         ClaudeCompatAdapter("qoder_cn"),
+        ClaudeCompatAdapter("qwen"),
     )
 }
 

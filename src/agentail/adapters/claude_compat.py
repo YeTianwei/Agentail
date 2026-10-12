@@ -1,8 +1,11 @@
 """Agents whose hooks use Claude Code's format (docs/agent-hooks-notes.md section 4).
 
-Qoder CLI (international ``~/.qoder`` and China ``~/.qoder-cn``) documents the same event
-names, payload fields and ``notification_type`` values as Claude Code
-(https://docs.qoder.com/cli/hooks, checked 2026-10-08), so decoding is Claude's. These
+Qoder CLI (international ``~/.qoder`` and China ``~/.qoder-cn``) and Qwen Code document the
+same event names, payload fields and ``notification_type`` values as Claude Code
+(https://docs.qoder.com/cli/hooks; QwenLM/qwen-code docs/users/features/hooks.md; both
+checked 2026-10-08), so decoding is Claude's. Qwen's tool names differ
+(``run_shell_command``, ``write_file``, ...) but its tool inputs use the keys
+``tool_preview`` knows (``command``, ``file_path``, ``path``, ``pattern``, ``url``). These
 agents have no status line rate limits: ``usage`` is always None.
 
 TODO(M0): payloads verified only against the docs; replace the synthetic fixtures in

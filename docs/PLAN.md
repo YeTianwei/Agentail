@@ -259,7 +259,9 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 **A2~A3 ☁️ 逐个接入(每个 agent 一个 PR)**:先 Claude 兼容的一组(Qoder、Qwen Code),再 Gemini CLI。
 
-✅ **A2-Qoder 完成**(2026-10-12,未经真机验证):注册表里两个 agent,`qoder`(`~/.qoder/settings.json`,显示 "Qoder")和 `qoder_cn`(`~/.qoder-cn/settings.json`,显示 "Qoder CN");`adapters/claude_compat.py` 复用 Claude 的解码(`claude.decode_claude_style`),`install/claude_compat_config.py` 复用合并逻辑但不包装 statusLine;图标取自 qoder.com 的 app 图标(`icons/agent-qoder.png`,`agent-qoder_cn.png` 是同一张);合成测试数据 `tests/fixtures/qoder/synthetic.jsonl`;安装 / 卸载 / doctor / add-host 测试在 `tests/test_qoder.py`。升级后 daemon 首次启动会给已存在配置目录的 Qoder 版本自动装 hook(`firstrun` 里没处理过的 agent)。下一步:Qwen Code(同样复用 `ClaudeCompatAdapter`,另需 `QWEN_HOME`)。
+✅ **A2-Qoder 完成**(2026-10-12,未经真机验证):注册表里两个 agent,`qoder`(`~/.qoder/settings.json`,显示 "Qoder")和 `qoder_cn`(`~/.qoder-cn/settings.json`,显示 "Qoder CN");`adapters/claude_compat.py` 复用 Claude 的解码(`claude.decode_claude_style`),`install/claude_compat_config.py` 复用合并逻辑但不包装 statusLine;图标取自 qoder.com 的 app 图标(`icons/agent-qoder.png`,`agent-qoder_cn.png` 是同一张);合成测试数据 `tests/fixtures/qoder/synthetic.jsonl`;安装 / 卸载 / doctor / add-host 测试在 `tests/test_qoder.py`。升级后 daemon 首次启动会给已存在配置目录的 Qoder 版本自动装 hook(`firstrun` 里没处理过的 agent)。
+
+✅ **A2-Qwen Code 完成**(2026-10-12,未经真机验证):注册项 `qwen`(`~/.qwen/settings.json`,`QWEN_HOME` 覆盖,开头的 `~` 本机与远程探测都会展开;相对路径的 `QWEN_HOME` 不支持),显示 "Qwen Code",二进制 `qwen`;同样用 `ClaudeCompatAdapter`;图标取自 QwenLM/qwen-code 仓库的桌面版 app 图标;合成数据 `tests/fixtures/qwen/synthetic.jsonl` 用 Qwen 自己的工具名(`run_shell_command`、`read_file`),测试在 `tests/test_qwen.py`。A2 全部完成,下一步 A3 Gemini CLI。
 
 👤 Qoder 真机验证(A4 的一部分):
 
@@ -272,7 +274,9 @@ qodercli                              # 若命令名不同请告诉我;问一个
 agentail doctor                       # qoder hooks 一行应为 ✓
 ```
 
-把 `recordings/qoder/`(或 `qoder_cn/`)下的 jsonl 去掉隐私后发给我,我替换掉合成数据;同时记下 Qoder 版本号(`qodercli --version`)和二进制名。面板里应出现 Qoder 分组和图标,授权时为橙色"需要你"。每个 agent 的统一清单:
+Qwen Code 同样:`install-local` 之后运行 `qwen`,做同样的操作(要跑命令的问题、批准一次、回答完、Esc 中断一次、退出),`doctor` 里 `qwen hooks` 应为 ✓,录制在 `recordings/qwen/`,版本号用 `qwen --version`。
+
+把 `recordings/qoder/`(或 `qoder_cn/`、`qwen/`)下的 jsonl 去掉隐私后发给我,我替换掉合成数据;同时记下 Qoder 版本号(`qodercli --version`)和二进制名。面板里应出现 Qoder 分组和图标,授权时为橙色"需要你"。每个 agent 的统一清单:
 1. `adapters/<x>.py`:未知字段一律忽略、字段类型不对也忽略;未验证的假设标 `TODO(M0)`。
 2. `install/<x>_config.py`:合并而非覆盖,按 `agentail-hook` 识别,先备份,卸载还原(不变量 5)。
 3. 注册表登记;`install-local`、`add-host`、`doctor` 自动覆盖(含测试,用临时 HOME,不碰真实配置)。

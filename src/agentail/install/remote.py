@@ -82,6 +82,7 @@ while [ $# -ge 4 ]; do
   a=$1; var=$2; rel=$3; bin=$4; shift 4
   dir=
   if [ -n "$var" ]; then dir=$(printenv "$var" 2>/dev/null); fi
+  case $dir in "~"/*) dir=$HOME/${dir#"~/"};; esac
   [ -n "$dir" ] || dir=$HOME/$rel
   echo "${a}_home=$dir"
   if [ -d "$dir" ]; then echo "${a}_dir=yes"; fi
