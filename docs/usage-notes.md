@@ -66,6 +66,8 @@ statusLine 命令的 stdin 会收到 JSON,其中:
 - 要读取 OAuth token,违背上面"不碰凭据"的原则。
 - 没有官方文档;同一来源称响应结构已经变过(旧的扁平 `seven_day_*` 键为 null,新数据在 limits 数组里)。
 
+**2026-10-12 更新 [实测]**:statusLine 在 VS Code 扩展和 Claude Desktop(`stream-json` 模式)里不运行,只用 VS Code 的用户永远拿不到 Claude 额度。实测这个接口可用(HTTP 200,同时有 `limits[]` 和 `five_hour` / `seven_day`),因此改为在用户开启后只读查询,设计见 [usage-api-design.md](usage-api-design.md)。
+
 ---
 
 ## 3. Codex
@@ -132,3 +134,46 @@ codex-cli 0.160.1(2026-10-08)。启动 `codex -s read-only -a never app-server`(
 - 👤 Claude statusLine:在真实订阅账号上确认 `rate_limits` 的实际出现时机、包装器不改变原 statusLine 的显示。
 - 👤 Codex:`primary` / `secondary` 为 null 的情形;长时间没有会话后,jsonl 里的数据多久过期;服务器上的 Codex 是否同账号。
 - 窗口刚过 `resets_at` 时两家各自的行为。
+
+---
+
+## 6. 其他项目的做法(2026-10-12)
+
+读了两个同类 macOS 项目的最新 `main`:
+
+- **CodeIsland**(<https://github.com/wxtsky/CodeIsland>,MIT):读了源码和 CHANGELOG。
+- **open-vibe-island**(<https://github.com/Octane0411/open-vibe-island>,GPL-3.0):读了 README 和额度相关源码,下面只记做法,**不复制任何代码**(不变量 6)。
+
+### 6.1 Claude
+
+| 项目 | 来源 | 刷新 |
+|---|---|---|
+| open-vibe-island | statusLine 包装器把 `rate_limits` 写进 `/tmp/open-island-rl.json`,应用读这个文件 | 每 5 秒读一次文件;README 承认 stream-json 模式(Desktop)不更新 |
+| CodeIsland | 默认关闭的开关;用 Claude Code 的 OAuth 登录查询 `/api/oauth/usage`(macOS 读 Keychain,否则读 `.credentials.json`) | Stop 驱动,见 [usage-api-design.md](usage-api-design.md) |
+| Agentail | 0.0.2:statusLine;0.0.3 起再加 CodeIsland 式的接口查询 | 同上 |
+
+### 6.2 Codex:我们的方案已经更完整
+
+| | open-vibe-island | CodeIsland | Agentail(0.0.2) |
+|---|---|---|---|
+| 数据来源 | `~/.codex/sessions` 下的 `rollout-*.jsonl`,按 mtime 取最新文件,找最后一个 `token_count` 的 `rate_limits`(`primary` / `secondary`、`plan_type`、`limit_id`) | **没有做**(它的调研文档把 Codex 额度列为 P2 计划;并记下免费账号没有 5h / 7d 窗口) | 同样的 jsonl 来源;另在打开面板时用 `codex app-server` 的 `account/rateLimits/read` 实时查询 |
+| 读取方式 | 整个文件读入后逐行解析 | — | 只读尾部 256 KiB |
+| 刷新 | 开关打开时每 120 秒一次 | — | 启动时;本机 Codex 事件后 5 秒;每 60 秒兜底;打开面板时实时查询(每分钟最多一次) |
+| 开关 | 有,`~/.codex` 存在时默认开 | — | 无,一直开(不读凭据) |
+
+结论:不需要替换,我们的方案在新鲜度(app-server 实时查询)和读取开销(只读尾部)上都更好。可以借鉴三点:
+
+1. **字段位置的容错**:open-vibe-island 同时接受 `payload.rate_limits` 和 `payload.info.rate_limits`。codex-cli 0.160.1 实测在 `payload` 这一层(`payload` 的键是 `type`、`info`、`rate_limits`,`info` 里只有 token 计数),所以我们现在没问题;改成两处都找的代价很小,可以在下次动 `usage_codex.py` 时顺手加上。
+2. **"已触顶"状态**:open-vibe-island 看到 `rate_limit_reached_type` 不为空,或回合进行中 `primary.used_percent >= 100` 时,把这个**会话**标为被限流。我们可以在会话卡上显示"已触顶"(而不只是额度卡变红)。这是新功能,以后单独设计。
+3. **多账号**:CodeIsland 允许登记额外的配置目录(第二个 `CLAUDE_CONFIG_DIR` / `CODEX_HOME`),每个目录单独装 hook、单独统计。这正是 [usage-design.md](usage-design.md) §8 暂不做的多账号问题的一种解法,留作参考。
+
+### 6.3 其他 agent(Qoder、Qwen Code、Gemini CLI 等):两边都没有做
+
+- 两个项目都支持这些 agent 的**状态**(open-vibe-island 还有 Factory、CodeBuddy、Cursor、Kimi、Grok、OpenCode、Pi 等),但**都没有额度显示**。open-vibe-island 把 Qoder / Qwen 写成"Claude Code 的 fork,hook 格式相同";它们是否也有 statusLine、有没有 `rate_limits`,两边都没有提到。
+- CodeIsland 另有一个"用量统计",但统计的是 **token 数量**而不是额度:增量扫描本地 Claude transcript(`message.usage`,按 `message.id` 去重同一次 API 响应的多行,只读上次读到的字节之后的部分),画出近 5 小时 / 今日的 token 和每小时柱状图,完全不联网。对没有额度来源的 agent 来说,这是一种可选的替代显示;但 Agentail 0.0.2 定过"不存 token 计数"(`usage.py` 文档字符串),要做得先改这个原则。
+
+以后接入其他 agent 的额度时,按下面的线索调研(**都未验证**):
+
+- **Qoder / Qwen Code**:作为 Claude 格式的 fork,先查它们是否支持 `statusLine`,以及 stdin JSON 里有没有类似 `rate_limits` 的字段;有的话可以直接复用 Claude 的包装器和解析。
+- **Gemini CLI**:查 `/stats` 等命令显示的额度从哪个接口或文件来,以及 hook payload 或会话文件里有没有配额字段。
+- 任何需要读凭据的方案,都按 [usage-api-design.md](usage-api-design.md) 的规则:可以关闭、用户知情、只读不刷新、token 不落地。
