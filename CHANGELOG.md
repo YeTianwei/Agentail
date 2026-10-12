@@ -10,6 +10,11 @@
   config directory exists. Not yet verified with real Qoder sessions.
 - **Qwen Code** (`~/.qwen/settings.json`, or `$QWEN_HOME`), shown as "Qwen Code", the same way.
   Not yet verified with real Qwen Code sessions.
+- **Gemini CLI** (`~/.gemini/settings.json`, or `$GEMINI_CLI_HOME/.gemini`), shown as "Gemini CLI":
+  working, your turn (after each answer), needs permission with the command, ended. Gemini has no
+  "idle" notification. A `settings.json` with comments is left alone (Agentail would have to drop
+  them); `doctor` warns when `hooksConfig.enabled` is false. Gemini's folder trust may skip the
+  hooks in folders you have not trusted. Not yet verified with real Gemini CLI sessions.
 
 ### Changed
 

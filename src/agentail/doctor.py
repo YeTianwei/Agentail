@@ -179,11 +179,7 @@ def _claude_extras(spec: registry.AgentSpec) -> list[Check]:
 
 
 def _codex_extras(spec: registry.AgentSpec) -> list[Check]:
-    home = spec.home()
-    checks = [_codex_trust(spec.config_path(), home / "config.toml", len(spec.events()))]
-    for warning in spec.warnings(home) if spec.warnings else []:
-        checks.append(Check("codex config", WARN, warning))
-    return checks
+    return [_codex_trust(spec.config_path(), spec.home() / "config.toml", len(spec.events()))]
 
 
 # Agent-specific checks, run once the agent's hooks are installed correctly.
@@ -217,9 +213,13 @@ def local_checks() -> list[Check]:
     for spec in registry.AGENTS:
         hooks = _check_agent_hooks(spec.name, spec.config_path(), spec.home())
         checks += hooks
+        if hooks[0].status != OK:
+            continue
         extras = _EXTRA_CHECKS.get(spec.name)
-        if extras and hooks[0].status == OK:
+        if extras:
             checks += extras(spec)
+        for warning in spec.warnings(spec.home()) if spec.warnings else []:
+            checks.append(Check(f"{spec.name} config", WARN, warning))
     return checks
 
 

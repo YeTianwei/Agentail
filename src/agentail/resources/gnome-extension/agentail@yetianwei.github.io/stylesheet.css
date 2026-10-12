@@ -68,6 +68,7 @@
 .agentail-chip-qoder { background-color: rgba(150, 150, 165, 0.22); }
 .agentail-chip-qoder_cn { background-color: rgba(150, 150, 165, 0.22); }
 .agentail-chip-qwen { background-color: rgba(110, 90, 240, 0.22); }
+.agentail-chip-gemini { background-color: rgba(70, 130, 240, 0.22); }
 .agentail-chip-other { padding-left: 10px; }
 .agentail-chip-text { font-size: 13px; font-weight: bold; }
 
@@ -245,6 +246,7 @@
 .agentail-light .agentail-chip-qoder { background-color: rgba(90, 90, 105, 0.16); }
 .agentail-light .agentail-chip-qoder_cn { background-color: rgba(90, 90, 105, 0.16); }
 .agentail-light .agentail-chip-qwen { background-color: rgba(100, 80, 230, 0.16); }
+.agentail-light .agentail-chip-gemini { background-color: rgba(50, 110, 230, 0.16); }
 .agentail-light .agentail-card-stale .agentail-project { color: #77767b; }
 .agentail-light .agentail-subtitle { color: #6e6e73; }
 .agentail-light .agentail-card-attention .agentail-subtitle { color: #7a5a3a; }

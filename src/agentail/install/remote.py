@@ -77,12 +77,13 @@ fi
 if [ -d "/run/user/$(id -u)" ]; then echo run_user=yes; else echo run_user=no; fi
 echo "home_fs=$(stat -f -c %T "$HOME" 2>/dev/null)"
 # Arguments: per agent, name, env var overriding its config dir (or ""), the dir relative
-# to $HOME, its binary.
-while [ $# -ge 4 ]; do
-  a=$1; var=$2; rel=$3; bin=$4; shift 4
+# to $HOME, its binary, and "parent" if the env var replaces $HOME rather than the dir.
+while [ $# -ge 5 ]; do
+  a=$1; var=$2; rel=$3; bin=$4; kind=$5; shift 5
   dir=
   if [ -n "$var" ]; then dir=$(printenv "$var" 2>/dev/null); fi
-  case $dir in "~"/*) dir=$HOME/${dir#"~/"};; esac
+  case $dir in "~") dir=$HOME;; "~"/*) dir=$HOME/${dir#"~/"};; esac
+  if [ -n "$dir" ] && [ "$kind" = parent ]; then dir=$dir/$rel; fi
   [ -n "$dir" ] || dir=$HOME/$rel
   echo "${a}_home=$dir"
   if [ -d "$dir" ]; then echo "${a}_dir=yes"; fi
@@ -210,8 +211,18 @@ def choose_remote_sock(probe: Probe) -> tuple[str, list[str]]:
 
 
 def probe_args() -> list[str]:
-    """PROBE_SCRIPT's arguments: name, dir env var, dir under $HOME, binary per agent."""
-    return [f for a in registry.AGENTS for f in (a.name, a.dir_env, a.dir_default, a.binary)]
+    """PROBE_SCRIPT's arguments: name, dir env var, dir under $HOME, binary, kind per agent."""
+    return [
+        f
+        for a in registry.AGENTS
+        for f in (
+            a.name,
+            a.dir_env,
+            a.dir_default,
+            a.binary,
+            "parent" if a.dir_env_is_parent else "dir",
+        )
+    ]
 
 
 def config_files(probe: Probe) -> dict[str, str]:

@@ -19,3 +19,6 @@
 - `qwen/synthetic.jsonl` is **hand-written** from the Qwen Code hooks docs and sources
   (QwenLM/qwen-code `2e962b6`, 2026-10-08; docs/agent-hooks-notes.md section 4.2), with Qwen's own
   tool names (`run_shell_command`, `read_file`). `TODO(M0)`: replace with a recording.
+- `gemini/synthetic.jsonl` is **hand-written** from the Gemini CLI hooks reference and sources
+  (google-gemini/gemini-cli `44d764e`, 2026-10-08; docs/agent-hooks-notes.md section 4.4).
+  `TODO(M0)`: replace with a recording.

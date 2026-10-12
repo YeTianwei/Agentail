@@ -261,7 +261,11 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 ✅ **A2-Qoder 完成**(2026-10-12,未经真机验证):注册表里两个 agent,`qoder`(`~/.qoder/settings.json`,显示 "Qoder")和 `qoder_cn`(`~/.qoder-cn/settings.json`,显示 "Qoder CN");`adapters/claude_compat.py` 复用 Claude 的解码(`claude.decode_claude_style`),`install/claude_compat_config.py` 复用合并逻辑但不包装 statusLine;图标取自 qoder.com 的 app 图标(`icons/agent-qoder.png`,`agent-qoder_cn.png` 是同一张);合成测试数据 `tests/fixtures/qoder/synthetic.jsonl`;安装 / 卸载 / doctor / add-host 测试在 `tests/test_qoder.py`。升级后 daemon 首次启动会给已存在配置目录的 Qoder 版本自动装 hook(`firstrun` 里没处理过的 agent)。
 
-✅ **A2-Qwen Code 完成**(2026-10-12,未经真机验证):注册项 `qwen`(`~/.qwen/settings.json`,`QWEN_HOME` 覆盖,开头的 `~` 本机与远程探测都会展开;相对路径的 `QWEN_HOME` 不支持),显示 "Qwen Code",二进制 `qwen`;同样用 `ClaudeCompatAdapter`;图标取自 QwenLM/qwen-code 仓库的桌面版 app 图标;合成数据 `tests/fixtures/qwen/synthetic.jsonl` 用 Qwen 自己的工具名(`run_shell_command`、`read_file`),测试在 `tests/test_qwen.py`。A2 全部完成,下一步 A3 Gemini CLI。
+✅ **A2-Qwen Code 完成**(2026-10-12,未经真机验证):注册项 `qwen`(`~/.qwen/settings.json`,`QWEN_HOME` 覆盖,开头的 `~` 本机与远程探测都会展开;相对路径的 `QWEN_HOME` 不支持),显示 "Qwen Code",二进制 `qwen`;同样用 `ClaudeCompatAdapter`;图标取自 QwenLM/qwen-code 仓库的桌面版 app 图标;合成数据 `tests/fixtures/qwen/synthetic.jsonl` 用 Qwen 自己的工具名(`run_shell_command`、`read_file`),测试在 `tests/test_qwen.py`。A2 全部完成。
+
+✅ **A3-Gemini CLI 完成**(2026-10-12,未经真机验证):`adapters/gemini.py`(`SessionStart`、`BeforeAgent`→提交 prompt、`BeforeTool`/`AfterTool`、`Notification`(`ToolPermission`,命令取自 `details.command` / `details.filePath`)→需要你、`AfterAgent`→回合结束、`SessionEnd`;每次模型调用都触发的 `BeforeModel` 等不装);`install/gemini_config.py`(`timeout` 5000 毫秒,`matcher: ""`;`hooksConfig.enabled = false` 时安装和 doctor 都警告;带注释的 settings.json 不改并报错);注册表新增 `dir_env_is_parent`,`GEMINI_CLI_HOME` 本机和远程都按"替换 $HOME"处理;doctor 的配置警告改为对所有 agent 通用;图标取自 geminicli.com;测试 `tests/test_gemini.py`。安装后会提示 folder trust 可能让未信任目录里的会话不显示。
+
+**下一步**:A4(你的真机验证)→ A5 发布。
 
 👤 Qoder 真机验证(A4 的一部分):
 
@@ -276,7 +280,9 @@ agentail doctor                       # qoder hooks 一行应为 ✓
 
 Qwen Code 同样:`install-local` 之后运行 `qwen`,做同样的操作(要跑命令的问题、批准一次、回答完、Esc 中断一次、退出),`doctor` 里 `qwen hooks` 应为 ✓,录制在 `recordings/qwen/`,版本号用 `qwen --version`。
 
-把 `recordings/qoder/`(或 `qoder_cn/`、`qwen/`)下的 jsonl 去掉隐私后发给我,我替换掉合成数据;同时记下 Qoder 版本号(`qodercli --version`)和二进制名。面板里应出现 Qoder 分组和图标,授权时为橙色"需要你"。每个 agent 的统一清单:
+Gemini CLI 同样:运行 `gemini`,做同样的操作;**另外**在一个从没信任过的新目录(如 `mkdir /tmp/g && cd /tmp/g && gemini`,出现 folder trust 提示时先选"不信任")里再问一次,看面板里会不会出现这个会话;`doctor` 里 `gemini hooks` 应为 ✓,录制在 `recordings/gemini/`,版本号 `gemini --version`。还请注意 Gemini 界面里每次 hook 执行时是否出现空白提示行(我们的 hook 什么都不输出)。
+
+把 `recordings/qoder/`(或 `qoder_cn/`、`qwen/`、`gemini/`)下的 jsonl 去掉隐私后发给我,我替换掉合成数据;同时记下 Qoder 版本号(`qodercli --version`)和二进制名。面板里应出现 Qoder 分组和图标,授权时为橙色"需要你"。每个 agent 的统一清单:
 1. `adapters/<x>.py`:未知字段一律忽略、字段类型不对也忽略;未验证的假设标 `TODO(M0)`。
 2. `install/<x>_config.py`:合并而非覆盖,按 `agentail-hook` 识别,先备份,卸载还原(不变量 5)。
 3. 注册表登记;`install-local`、`add-host`、`doctor` 自动覆盖(含测试,用临时 HOME,不碰真实配置)。

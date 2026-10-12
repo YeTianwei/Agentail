@@ -258,6 +258,7 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 - `Notification.notification_type` 只有 `ToolPermission`,另有 `message`、`details` [文档 + 源码 types.ts]。**没有空闲通知**。
 - 映射建议:`SessionStart`→SESSION_START,`BeforeAgent`→PROMPT_SUBMIT,`BeforeTool`/`AfterTool`→TOOL_START/TOOL_END,`Notification`(ToolPermission)→ATTENTION/PERMISSION,`AfterAgent`→STOP,`SessionEnd`→SESSION_END。不装 `BeforeModel`/`AfterModel`/`BeforeToolSelection`(每次模型调用都触发,同步执行会拖慢 Gemini)。
 - 中断:用户 Esc 时是否触发 `AfterAgent` 未知 `TODO(M0)`。
+- settings.json 允许注释(Gemini 用 `strip-json-comments` 解析 [源码:packages/cli/src/config/settings.ts])。带注释的文件我们按"不是合法 JSON"拒绝修改,不丢用户的注释。
 - **结论**:需要独立的 `GeminiAdapter` 和 `gemini_config`;`hookjson.merge_hooks` 能复用,但 timeout 传毫秒,matcher 用 `""`(或省略)。`AgentSpec` 需要表达"`GEMINI_CLI_HOME` 是 `.gemini` 的父目录"(A0 的 `dir_env` 目前假设环境变量就是配置目录本身)。
 
 ### 4.5 远程(SSH)

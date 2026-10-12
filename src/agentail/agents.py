@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail.adapters import get_adapter
-from agentail.install import claude_compat_config, claude_config, codex_config
+from agentail.install import claude_compat_config, claude_config, codex_config, gemini_config
 
 MergeFn = Callable[[dict[str, Any], list[str], str, str, str], dict[str, Any]]
 
@@ -32,12 +32,16 @@ class AgentSpec:
     binary: str  # looked up on remote hosts only to warn when it is missing
     merge: MergeFn  # (doc, events, python, hook_path, sock) -> new doc
     dir_env: str = ""  # environment variable that overrides the config dir
+    dir_env_is_parent: bool = False  # dir_env replaces $HOME, not the dir (GEMINI_CLI_HOME)
     trust_note: str = ""  # what the user must do before the agent runs new hooks
     warnings: Callable[[Path], list[str]] | None = None  # problems in the local config dir
 
     def home(self) -> Path:
         env = os.environ.get(self.dir_env) if self.dir_env else None
-        return Path(env).expanduser() if env else Path.home() / self.dir_default
+        if not env:
+            return Path.home() / self.dir_default
+        base = Path(env).expanduser()
+        return base / self.dir_default if self.dir_env_is_parent else base
 
     def config_path(self) -> Path:
         return self.home() / self.config_file
@@ -100,6 +104,18 @@ AGENTS: tuple[AgentSpec, ...] = (
         config_file="settings.json",
         binary="qwen",
         merge=claude_compat_config.merger("qwen"),
+    ),
+    AgentSpec(
+        name="gemini",
+        display_name="Gemini CLI",
+        dir_default=".gemini",
+        dir_env="GEMINI_CLI_HOME",
+        dir_env_is_parent=True,
+        config_file="settings.json",
+        binary="gemini",
+        merge=gemini_config.merge_hooks,
+        trust_note=gemini_config.TRUST_NOTE,
+        warnings=gemini_config.local_warnings,
     ),
 )
 
