@@ -76,7 +76,7 @@ AGENTS: tuple[AgentSpec, ...] = (
         warnings=codex_config.local_warnings,
     ),
     # Qoder CLI, international and China editions: separate config dirs, same format.
-    # The binary name is not documented; TODO(M0) check it (only used for a remote note).
+    # Binary qodercli (verified with 1.1.68, 2026-10-12; only used for a remote note).
     AgentSpec(
         name="qoder",
         display_name="Qoder",

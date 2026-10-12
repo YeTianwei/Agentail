@@ -245,6 +245,12 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 - 环境变量:设 `QODER_PROJECT_DIR`;是否净化父进程环境,文档未写 `TODO(M0)`。
 - 二进制名文档里没写(社区常见 `qodercli`)`TODO(M0)`;只影响 add-host 的"未找到"提示。
 - **结论**:与 Qwen 同样处理。另外要决定是否同时支持 `~/.qoder-cn`(见 4.6)。
+- **实测(2026-10-12,qodercli 1.1.68,本机)**,录制见 `tests/fixtures/qoder/recorded-1.1.68.jsonl`:
+  - 二进制名 `qodercli`;`matcher: ""` 对所有事件都生效;hook 正常执行,面板显示与预期一致。
+  - **没有 `SessionStart`**:启动 `qodercli` 不发事件,会话在第一个 `UserPromptSubmit` 时才出现。
+  - `permission_prompt` 在授权提示出现时触发(与 `PreToolUse` 同时),payload 带 `details`:`toolName`、`toolUseId`、`input`(工具参数)、`message`("Allow Bash to run: …?")。适配器在没有 `tool_input` 时从 `details.input` 取命令。
+  - **Esc 中断不发任何事件**(没有 `Stop`、没有 `idle_prompt`):会话停在"运行中",直到下一个 prompt 或退出(`SessionEnd`,`reason: "other"`)。与 Claude 的已知限制相同(1.6)。
+  - 未文档化的字段:`request_set_id`、`model`(如 `"Efficient"`)、`Stop` 的 `parent_request_set_id` / `parent_business_info`;`PostToolUse.tool_response` 带 `stdout`、`exitCode`、`interrupted` 等。
 
 ### 4.4 Gemini CLI [文档 + 源码]
 

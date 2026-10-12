@@ -12,6 +12,9 @@
   replaced; payload contents are otherwise unchanged.
 - Real fixtures come from `agentail daemon --record recordings/` (pings are not recorded). Before
   committing a recording, strip prompts, paths and code you do not want in a public repo.
+- `qoder/recorded-1.1.68.jsonl` is a real, sanitized recording (qodercli 1.1.68, 2026-10-12): a
+  prompt that runs Bash after a permission prompt, the answer, a second prompt interrupted with Esc,
+  exit. Ids, timestamps (rebased to 1000.0) and the home path are replaced.
 - `qoder/synthetic.jsonl` is **hand-written** from the Qoder CLI hooks docs
   (https://docs.qoder.com/cli/hooks, 2026-10-08; docs/agent-hooks-notes.md section 4.3), which match
   Claude Code's format. `TODO(M0)`: replace with a recording (PLAN.md 0.0.3 A4). The same file serves

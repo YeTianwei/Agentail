@@ -8,8 +8,10 @@ checked 2026-10-08), so decoding is Claude's. Qwen's tool names differ
 ``tool_preview`` knows (``command``, ``file_path``, ``path``, ``pattern``, ``url``). These
 agents have no status line rate limits: ``usage`` is always None.
 
-TODO(M0): payloads verified only against the docs; replace the synthetic fixtures in
-tests/fixtures/<agent>/ with recordings (PLAN.md 0.0.3 A4).
+Qoder verified with qodercli 1.1.68 (2026-10-12, tests/fixtures/qoder/recorded-1.1.68.jsonl):
+no SessionStart (the session appears with the first prompt) and nothing on Esc (the turn
+stays "running" until the next prompt or the end). TODO(M0): Qoder CN and Qwen Code are
+checked against the docs only.
 """
 
 from __future__ import annotations

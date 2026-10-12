@@ -81,10 +81,16 @@ def decode_claude_style(msg: HookMessage, host: str, agent: str) -> AgentEvent |
     if not session_id:
         return None
     attention = None
+    detail = tool_preview(payload.get("tool_input"))
     if kind is EventKind.ATTENTION:
         attention = _classify_notification(payload)
         if attention is None:
             kind = EventKind.OTHER
+        details = payload.get("details")
+        if not detail and isinstance(details, dict):
+            # Qoder's permission_prompt carries the pending call in details.input (recorded
+            # with qodercli 1.1.68, tests/fixtures/qoder/recorded-1.1.68.jsonl).
+            detail = tool_preview(details.get("input"))
     return AgentEvent(
         kind=kind,
         agent=agent,
@@ -93,7 +99,7 @@ def decode_claude_style(msg: HookMessage, host: str, agent: str) -> AgentEvent |
         ts=msg.ts,
         cwd=str_field(payload, "cwd") or msg.cwd,
         tool=str_field(payload, "tool_name"),
-        tool_detail=tool_preview(payload.get("tool_input")),
+        tool_detail=detail,
         prompt_preview=preview(payload.get("prompt")),
         attention=attention,
         message=preview(payload.get("message"), 200),

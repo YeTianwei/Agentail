@@ -17,14 +17,17 @@ from agentail.install.local import install_local, uninstall_local
 from agentail.protocol import HookMessage
 
 FIXTURES = Path(__file__).parent / "fixtures" / "qoder" / "synthetic.jsonl"
+# Recorded with qodercli 1.1.68 (2026-10-12): a prompt that runs Bash after a permission
+# prompt, the answer, a second prompt interrupted with Esc, then exit.
+RECORDED = Path(__file__).parent / "fixtures" / "qoder" / "recorded-1.1.68.jsonl"
 QODER_ORIG = (
     '{"theme": "dark",\n "hooks": {"Stop": [{"hooks": '
     '[{"type": "command", "command": "mine.sh"}]}]}}\n'
 )
 
 
-def _msgs(agent):
-    for line in FIXTURES.read_text().splitlines():
+def _msgs(agent, path=FIXTURES):
+    for line in path.read_text().splitlines():
         rec = json.loads(line)
         yield HookMessage(
             agent=agent,
@@ -65,6 +68,52 @@ def test_decode_and_state(agent):
     assert statuses[4] is Status.RUNNING
     assert statuses[5] is Status.WAITING_INPUT
     assert next(iter(st.sessions.values())).status is Status.ENDED
+
+
+def test_recorded_session():
+    adapter = get_adapter("qoder")
+    events = [adapter.decode(m, host="local") for m in _msgs("qoder", RECORDED)]
+    # No SessionStart in the recording; the session appears with the first prompt.
+    assert [e.raw_event for e in events] == [
+        "UserPromptSubmit",
+        "PreToolUse",
+        "Notification",
+        "PostToolUse",
+        "Stop",
+        "UserPromptSubmit",
+        "SessionEnd",
+    ]
+    assert events[2].attention is Attention.PERMISSION
+    assert events[2].tool_detail.startswith("ls *.py")  # from details.input
+
+    st = Store()
+    statuses = [c.session.status if (c := st.apply(e)) else None for e in events]
+    assert statuses[0] is Status.RUNNING
+    assert statuses[2] is Status.NEEDS_ATTENTION
+    assert statuses[3] is Status.RUNNING
+    assert statuses[4] is Status.WAITING_INPUT
+    # Esc fires nothing: the interrupted turn stays "running" until the session ends.
+    assert statuses[5] is Status.RUNNING
+    assert statuses[6] is Status.ENDED
+
+
+def test_permission_detail_from_notification_alone():
+    payload = {
+        "session_id": "s",
+        "hook_event_name": "Notification",
+        "notification_type": "permission_prompt",
+        "details": {"toolName": "Bash", "input": {"command": "make test"}},
+    }
+    msg = HookMessage(
+        agent="qoder",
+        event="Notification",
+        mode="fire",
+        ts=1,
+        ppid=1,
+        cwd="/w",
+        stdin=json.dumps(payload),
+    )
+    assert get_adapter("qoder").decode(msg, "local").tool_detail == "make test"
 
 
 def test_registry_entries():

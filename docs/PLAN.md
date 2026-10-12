@@ -269,7 +269,9 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 **下一步**:A3b → A4(你的真机验证)→ A5 发布。
 
-👤 Qoder 真机验证(A4 的一部分):
+✅ **A4-Qoder CLI 已验证**(2026-10-12,qodercli 1.1.68,本机):授权(橙色,显示命令)、轮到你、结束都正常;录制已作为 `tests/fixtures/qoder/recorded-1.1.68.jsonl` 加入测试。两个已知限制(Qoder 本身的行为,写进 `agent-hooks-notes.md` §4.3):启动时没有 `SessionStart`,会话在第一个问题后才出现;**Esc 中断不发任何事件**,会话停在 Running 直到下一个问题或退出。仍待验证:Qoder IDE 是否也触发这些 hook、Qoder CN、Qwen Code、Gemini CLI、远程 `add-host`。
+
+👤 Qoder 真机验证(A4 的一部分,步骤留作参考):
 
 ```bash
 git pull && pip install -e '.[dev]' && agentail install-gnome-extension   # 然后重新登录或 Alt+F2 r
