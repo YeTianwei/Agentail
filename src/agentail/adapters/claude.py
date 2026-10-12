@@ -69,42 +69,53 @@ STATUS_LINE_EVENT = "StatusLine"
 _WINDOWS = (("five_hour", 300), ("seven_day", 10080))
 
 
+def decode_claude_style(msg: HookMessage, host: str, agent: str) -> AgentEvent | None:
+    """Decode a payload in Claude Code's hook format; shared with Claude-compatible agents
+    (adapters/claude_compat.py)."""
+    payload = msg.payload() or {}
+    event_name = str_field(payload, "hook_event_name") or msg.event
+    kind = _KINDS.get(event_name)
+    if kind is None:
+        return None
+    session_id = str_field(payload, "session_id")
+    if not session_id:
+        return None
+    attention = None
+    if kind is EventKind.ATTENTION:
+        attention = _classify_notification(payload)
+        if attention is None:
+            kind = EventKind.OTHER
+    return AgentEvent(
+        kind=kind,
+        agent=agent,
+        host=host,
+        session_id=session_id,
+        ts=msg.ts,
+        cwd=str_field(payload, "cwd") or msg.cwd,
+        tool=str_field(payload, "tool_name"),
+        tool_detail=tool_preview(payload.get("tool_input")),
+        prompt_preview=preview(payload.get("prompt")),
+        attention=attention,
+        message=preview(payload.get("message"), 200),
+        env=dict(msg.env),
+        raw_event=event_name,
+    )
+
+
+def hook_events() -> list[str]:
+    """Claude-format events we register (all but PreCompact)."""
+    return [k for k in _KINDS if k != "PreCompact"]
+
+
 class ClaudeAdapter:
     name = "claude"
     capabilities = Capabilities(can_approve=False)  # v1: status only
 
     def hook_events(self) -> list[str]:
-        return [k for k in _KINDS if k != "PreCompact"]
+        return hook_events()
 
     def decode(self, msg: HookMessage, host: str) -> AgentEvent | None:
-        payload = msg.payload() or {}
-        event_name = str_field(payload, "hook_event_name") or msg.event
-        kind = _KINDS.get(event_name)
-        if kind is None:
-            return None
-        session_id = str_field(payload, "session_id")
-        if not session_id:
-            return None
-        attention = None
-        if kind is EventKind.ATTENTION:
-            attention = _classify_notification(payload)
-            if attention is None:
-                kind = EventKind.OTHER
-        return AgentEvent(
-            kind=kind,
-            agent=self.name,
-            host=host,
-            session_id=session_id,
-            ts=msg.ts,
-            cwd=str_field(payload, "cwd") or msg.cwd,
-            tool=str_field(payload, "tool_name"),
-            tool_detail=tool_preview(payload.get("tool_input")),
-            prompt_preview=preview(payload.get("prompt")),
-            attention=attention,
-            message=preview(payload.get("message"), 200),
-            env=dict(msg.env),
-            raw_event=event_name,
-        )
+        return decode_claude_style(msg, host, self.name)
 
     def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
         """``rate_limits`` of the statusLine JSON. Present only for Pro/Max subscribers and

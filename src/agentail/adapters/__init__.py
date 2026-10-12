@@ -4,9 +4,18 @@ from __future__ import annotations
 
 from agentail.adapters.base import Adapter
 from agentail.adapters.claude import ClaudeAdapter
+from agentail.adapters.claude_compat import ClaudeCompatAdapter
 from agentail.adapters.codex import CodexAdapter
 
-_ADAPTERS: dict[str, Adapter] = {a.name: a for a in (ClaudeAdapter(), CodexAdapter())}
+_ADAPTERS: dict[str, Adapter] = {
+    a.name: a
+    for a in (
+        ClaudeAdapter(),
+        CodexAdapter(),
+        ClaudeCompatAdapter("qoder"),
+        ClaudeCompatAdapter("qoder_cn"),
+    )
+}
 
 
 def get_adapter(agent: str) -> Adapter | None:

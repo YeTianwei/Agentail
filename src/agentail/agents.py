@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail.adapters import get_adapter
-from agentail.install import claude_config, codex_config
+from agentail.install import claude_compat_config, claude_config, codex_config
 
 MergeFn = Callable[[dict[str, Any], list[str], str, str, str], dict[str, Any]]
 
@@ -70,6 +70,24 @@ AGENTS: tuple[AgentSpec, ...] = (
             "agentail-hook entries in the hook review screen (or via /hooks)."
         ),
         warnings=codex_config.local_warnings,
+    ),
+    # Qoder CLI, international and China editions: separate config dirs, same format.
+    # The binary name is not documented; TODO(M0) check it (only used for a remote note).
+    AgentSpec(
+        name="qoder",
+        display_name="Qoder",
+        dir_default=".qoder",
+        config_file="settings.json",
+        binary="qodercli",
+        merge=claude_compat_config.merger("qoder"),
+    ),
+    AgentSpec(
+        name="qoder_cn",
+        display_name="Qoder CN",
+        dir_default=".qoder-cn",
+        config_file="settings.json",
+        binary="qodercli",
+        merge=claude_compat_config.merger("qoder_cn"),
     ),
 )
 

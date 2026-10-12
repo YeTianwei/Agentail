@@ -82,7 +82,8 @@ account as your desktop, one card covers both.
 |---|---|---|
 | Claude Code | ✅ | working, your turn, needs permission (with the command), ended; usage limits on Pro / Max |
 | Codex CLI (0.155+) | ✅ | the same, and usage limits; trust the hooks once with `/hooks` |
-| Cursor, Gemini CLI, Qwen Code, … | 🗓️ planned | |
+| Qoder CLI (international and China editions) | 🧪 next release, not yet tested with real sessions | working, your turn, needs permission, ended; no usage limits |
+| Gemini CLI, Qwen Code, Cursor, … | 🗓️ planned | |
 
 | Where | Status |
 |---|---|
@@ -103,7 +104,8 @@ sudo apt install ./agentail_0.0.2.deb
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.
 
 Behind the scenes the package started the daemon, which merged the hooks into
-`~/.claude/settings.json` and `~/.codex/hooks.json` for the agents you have (backing both up) and
+`~/.claude/settings.json`, `~/.codex/hooks.json` and `~/.qoder/settings.json` /
+`~/.qoder-cn/settings.json` for the agents you have (backing each up) and
 enabled the panel.
 
 > **Codex** only runs hooks you trust: start `codex` once and approve the `agentail-hook` entries

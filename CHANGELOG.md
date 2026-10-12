@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased (0.0.3)
+
+### Added
+
+- **Qoder CLI**, international (`~/.qoder`) and China edition (`~/.qoder-cn`), shown as "Qoder" and
+  "Qoder CN": the same states as Claude Code (no usage limits). `install-local`, `add-host`,
+  `doctor` and the automatic setup cover them; an upgrade installs the hooks for an edition whose
+  config directory exists. Not yet verified with real Qoder sessions.
+
+### Changed
+
+- The supported agents are listed in one registry (`src/agentail/agents.py`); the installers,
+  `doctor`, the CLI and both UIs read it. No behaviour change for Claude Code or Codex.
+
 ## 0.0.2 — 2026-10-08
 
 ### Added

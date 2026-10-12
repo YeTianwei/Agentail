@@ -57,7 +57,8 @@ def test_parse_probe():
     )
     assert p.agent_dirs == ("claude",) and p.agent_bins["claude"].endswith("/claude")
     # codex_home comes from the probe ($CODEX_HOME); an agent it did not report gets the default
-    assert p.agent_homes == {"claude": "/data/u/.claude", "codex": "/data/u/.codex"}
+    assert p.agent_homes["claude"] == "/data/u/.claude"
+    assert p.agent_homes["codex"] == "/data/u/.codex"
     with pytest.raises(Exception, match="probe"):
         parse_probe("garbage")
     with pytest.raises(Exception, match="absolute"):

@@ -255,9 +255,24 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 ✅ **A1 完成**(2026-10-08):`docs/agent-hooks-notes.md` §4。要点:
 - **Qwen Code 是 Claude 格式**(不是 Gemini 格式),和 Qoder 一起放 A2;两者都可复用 Claude 的解码与合并(不带 statusLine 包装),`timeout` 秒;配置 `~/.qwen/settings.json`(`QWEN_HOME`)、`~/.qoder/settings.json`;用户级 hook 都不需要信任。
 - **Gemini CLI**:自有事件名(`BeforeAgent`/`BeforeTool`/`AfterTool`/`AfterAgent`/`Notification`…),`timeout` 是**毫秒**,没有空闲通知;`GEMINI_CLI_HOME` 是 `.gemini` 的父目录(`AgentSpec` 要扩展);按源码,folder trust 默认开启时**未信任目录里可能连用户级 hook 都不跑**,A4 必须实测。
-- 待你决定:是否支持 Qoder 国内版 `~/.qoder-cn/`(建议先不支持)。
+- 你已决定(2026-10-12):Qoder 国际版和国内版都支持,先做 Qoder,再做 Qwen Code。
 
-**A2~A3 ☁️ 逐个接入(每个 agent 一个 PR)**:先 Claude 兼容的一组(Qwen Code、Qoder),再 Gemini CLI。每个 agent 的统一清单:
+**A2~A3 ☁️ 逐个接入(每个 agent 一个 PR)**:先 Claude 兼容的一组(Qoder、Qwen Code),再 Gemini CLI。
+
+✅ **A2-Qoder 完成**(2026-10-12,未经真机验证):注册表里两个 agent,`qoder`(`~/.qoder/settings.json`,显示 "Qoder")和 `qoder_cn`(`~/.qoder-cn/settings.json`,显示 "Qoder CN");`adapters/claude_compat.py` 复用 Claude 的解码(`claude.decode_claude_style`),`install/claude_compat_config.py` 复用合并逻辑但不包装 statusLine;图标取自 qoder.com 的 app 图标(`icons/agent-qoder.png`,`agent-qoder_cn.png` 是同一张);合成测试数据 `tests/fixtures/qoder/synthetic.jsonl`;安装 / 卸载 / doctor / add-host 测试在 `tests/test_qoder.py`。升级后 daemon 首次启动会给已存在配置目录的 Qoder 版本自动装 hook(`firstrun` 里没处理过的 agent)。下一步:Qwen Code(同样复用 `ClaudeCompatAdapter`,另需 `QWEN_HOME`)。
+
+👤 Qoder 真机验证(A4 的一部分):
+
+```bash
+git pull && pip install -e '.[dev]' && agentail install-gnome-extension   # 然后重新登录或 Alt+F2 r
+agentail install-local --dry-run      # 看 ~/.qoder/settings.json(和 ~/.qoder-cn/)的改动
+agentail install-local
+agentail daemon --record recordings/  # 另开终端;已有 systemd daemon 时先 systemctl --user stop agentail
+qodercli                              # 若命令名不同请告诉我;问一个要跑命令的问题,批准一次,等它回答完,再按 Esc 中断一次,然后退出
+agentail doctor                       # qoder hooks 一行应为 ✓
+```
+
+把 `recordings/qoder/`(或 `qoder_cn/`)下的 jsonl 去掉隐私后发给我,我替换掉合成数据;同时记下 Qoder 版本号(`qodercli --version`)和二进制名。面板里应出现 Qoder 分组和图标,授权时为橙色"需要你"。每个 agent 的统一清单:
 1. `adapters/<x>.py`:未知字段一律忽略、字段类型不对也忽略;未验证的假设标 `TODO(M0)`。
 2. `install/<x>_config.py`:合并而非覆盖,按 `agentail-hook` 识别,先备份,卸载还原(不变量 5)。
 3. 注册表登记;`install-local`、`add-host`、`doctor` 自动覆盖(含测试,用临时 HOME,不碰真实配置)。
