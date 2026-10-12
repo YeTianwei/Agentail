@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail.adapters import get_adapter
-from agentail.install import claude_compat_config, claude_config, codex_config, gemini_config
+from agentail.install import claude_compat_config, claude_config, codex_config
 
 MergeFn = Callable[[dict[str, Any], list[str], str, str, str], dict[str, Any]]
 
@@ -32,7 +32,7 @@ class AgentSpec:
     binary: str  # looked up on remote hosts only to warn when it is missing
     merge: MergeFn  # (doc, events, python, hook_path, sock) -> new doc
     dir_env: str = ""  # environment variable that overrides the config dir
-    dir_env_is_parent: bool = False  # dir_env replaces $HOME, not the dir (GEMINI_CLI_HOME)
+    dir_env_is_parent: bool = False  # dir_env replaces $HOME, not the dir (e.g. GEMINI_CLI_HOME)
     trust_note: str = ""  # what the user must do before the agent runs new hooks
     warnings: Callable[[Path], list[str]] | None = None  # problems in the local config dir
 
@@ -92,30 +92,6 @@ AGENTS: tuple[AgentSpec, ...] = (
         config_file="settings.json",
         binary="qodercli",
         merge=claude_compat_config.merger("qoder_cn"),
-    ),
-    # Qwen Code: Claude-format hooks in ~/.qwen/settings.json; QWEN_HOME moves the dir
-    # (docs/users/configuration/settings.md). A relative QWEN_HOME (resolved by Qwen from
-    # its own working directory) is not supported.
-    AgentSpec(
-        name="qwen",
-        display_name="Qwen Code",
-        dir_default=".qwen",
-        dir_env="QWEN_HOME",
-        config_file="settings.json",
-        binary="qwen",
-        merge=claude_compat_config.merger("qwen"),
-    ),
-    AgentSpec(
-        name="gemini",
-        display_name="Gemini CLI",
-        dir_default=".gemini",
-        dir_env="GEMINI_CLI_HOME",
-        dir_env_is_parent=True,
-        config_file="settings.json",
-        binary="gemini",
-        merge=gemini_config.merge_hooks,
-        trust_note=gemini_config.TRUST_NOTE,
-        warnings=gemini_config.local_warnings,
     ),
 )
 

@@ -42,8 +42,6 @@ export const AGENT_NAME = {
     codex: 'Codex',
     qoder: 'Qoder',
     qoder_cn: 'Qoder CN',
-    qwen: 'Qwen Code',
-    gemini: 'Gemini CLI',
 };
 
 export const LIMITS = {project: 40, subtitle: 140, detail: 160, hostDetail: 160};

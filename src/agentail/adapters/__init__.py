@@ -6,7 +6,6 @@ from agentail.adapters.base import Adapter
 from agentail.adapters.claude import ClaudeAdapter
 from agentail.adapters.claude_compat import ClaudeCompatAdapter
 from agentail.adapters.codex import CodexAdapter
-from agentail.adapters.gemini import GeminiAdapter
 
 _ADAPTERS: dict[str, Adapter] = {
     a.name: a
@@ -15,8 +14,6 @@ _ADAPTERS: dict[str, Adapter] = {
         CodexAdapter(),
         ClaudeCompatAdapter("qoder"),
         ClaudeCompatAdapter("qoder_cn"),
-        ClaudeCompatAdapter("qwen"),
-        GeminiAdapter(),
     )
 }
 

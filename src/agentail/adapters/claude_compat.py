@@ -1,17 +1,14 @@
 """Agents whose hooks use Claude Code's format (docs/agent-hooks-notes.md section 4).
 
-Qoder CLI (international ``~/.qoder`` and China ``~/.qoder-cn``) and Qwen Code document the
-same event names, payload fields and ``notification_type`` values as Claude Code
-(https://docs.qoder.com/cli/hooks; QwenLM/qwen-code docs/users/features/hooks.md; both
-checked 2026-10-08), so decoding is Claude's. Qwen's tool names differ
-(``run_shell_command``, ``write_file``, ...) but its tool inputs use the keys
-``tool_preview`` knows (``command``, ``file_path``, ``path``, ``pattern``, ``url``). These
+Qoder (CLI and IDE; international ``~/.qoder`` and China ``~/.qoder-cn``) documents the same
+event names, payload fields and ``notification_type`` values as Claude Code
+(https://docs.qoder.com/cli/hooks, checked 2026-10-08), so decoding is Claude's. These
 agents have no status line rate limits: ``usage`` is always None.
 
 Qoder verified with qodercli 1.1.68 (2026-10-12, tests/fixtures/qoder/recorded-1.1.68.jsonl):
 no SessionStart (the session appears with the first prompt) and nothing on Esc (the turn
-stays "running" until the next prompt or the end). TODO(M0): Qoder CN and Qwen Code are
-checked against the docs only.
+stays "running" until the next prompt or the end). Qoder IDE 1.1.66 runs the same hooks
+and also sends SessionStart. TODO(M0): Qoder CN is checked against the docs only.
 """
 
 from __future__ import annotations
