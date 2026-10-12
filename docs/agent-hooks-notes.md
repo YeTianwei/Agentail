@@ -250,6 +250,7 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
   - **没有 `SessionStart`**:启动 `qodercli` 不发事件,会话在第一个 `UserPromptSubmit` 时才出现。
   - `permission_prompt` 在授权提示出现时触发(与 `PreToolUse` 同时),payload 带 `details`:`toolName`、`toolUseId`、`input`(工具参数)、`message`("Allow Bash to run: …?")。适配器在没有 `tool_input` 时从 `details.input` 取命令。
   - **Esc 中断不发任何事件**(没有 `Stop`、没有 `idle_prompt`):会话停在"运行中",直到下一个 prompt 或退出(`SessionEnd`,`reason: "other"`)。与 Claude 的已知限制相同(1.6)。
+  - **Qoder IDE(1.1.66)也读 `~/.qoder/settings.json` 的 hooks**,事件以 `--agent qoder` 进入同一个分组。与 CLI 的差别:IDE **会发 `SessionStart`**(`source: "startup"`);没打开文件夹时 `cwd` 是 IDE 为每个对话建的临时目录 `~/Documents/Qoder/<日期>/<会话 id 前 8 位>`,所以卡片标题是这串 id;`parent_business_info.product` 是 `"app"`(CLI 是 `"cli"`)。IDE 的 `permission_mode: "auto"` 时没有授权提示。
   - 未文档化的字段:`request_set_id`、`model`(如 `"Efficient"`)、`Stop` 的 `parent_request_set_id` / `parent_business_info`;`PostToolUse.tool_response` 带 `stdout`、`exitCode`、`interrupted` 等。
 
 ### 4.4 Gemini CLI [文档 + 源码]
