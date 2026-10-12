@@ -302,7 +302,9 @@ Gemini CLI 同样:运行 `gemini`,做同样的操作;**另外**在一个从没�
 
 ☁️ 已完成(2026-10-12):版本号 0.0.3、CHANGELOG、README(支持列表、路线图)、`.github/release-notes/v0.0.3.md`、`dist/agentail_0.0.3.deb`(包内只有 Qoder,没有 Qwen / Gemini)。`SETUP_VERSION` 不变(Claude / Codex 的 hook 命令自 0.0.2 起没变);从 0.0.2 升级时,`firstrun` 会把 Qoder 当作新 agent,在 `~/.qoder` 存在时自动装 hook(`tests/test_firstrun.py`)。
 
-👤 你要做的:用 `.deb` 替换开发版并确认,再合并、推送、打 tag:
+✅ 你已在本机装好 0.0.3 `.deb` 并检查通过(2026-10-12)。剩下:合并、推送、打 tag。
+
+👤 步骤(留作参考):
 
 ```bash
 # 1. 停掉开发版:关掉跑着 `agentail daemon --record` 的终端(Ctrl+C),去掉开发版扩展的链接
