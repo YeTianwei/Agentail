@@ -57,6 +57,38 @@ def test_parse_rate_limits_validates():
     assert r.plan is None
 
 
+def test_parse_rate_limits_adds_other_limits():
+    main = {
+        "limitId": "codex",
+        "limitName": None,
+        "primary": {"usedPercent": 7, "windowDurationMins": 300, "resetsAt": 1791952428},
+        "secondary": {"usedPercent": 4, "windowDurationMins": 10080, "resetsAt": 1792478773},
+        "planType": "plus",
+    }
+    spark = {
+        "limitId": "codex_bengalfox",
+        "limitName": "GPT-5.3-Codex-Spark",
+        "primary": None,
+        "secondary": {"usedPercent": 12, "windowDurationMins": 10080, "resetsAt": 1792478773},
+    }
+    result = {
+        "rateLimits": main,
+        "rateLimitsByLimitId": {"codex": main, "codex_bengalfox": spark, "junk": "x"},
+    }
+    r = parse_rate_limits(result, "local", 1_791_950_000.0)
+    assert r.plan == "plus"
+    assert [(w.window_minutes, w.used_percent, w.label) for w in r.windows] == [
+        (300, 7.0, None),
+        (10080, 4.0, None),
+        (10080, 12.0, "GPT-5.3-Codex-Spark"),
+    ]
+    # codex-cli 0.160.1 on a Plus account (2026-10-14): only the main limit
+    alone = parse_rate_limits(
+        {"rateLimits": main, "rateLimitsByLimitId": {"codex": main}}, "local", 0
+    )
+    assert [w.label for w in alone.windows] == [None, None]
+
+
 def test_default_argv_uses_the_fixed_arguments(tmp_path, monkeypatch):
     codex = tmp_path / "bin" / "codex"
     codex.parent.mkdir()

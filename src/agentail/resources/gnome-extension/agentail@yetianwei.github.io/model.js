@@ -366,8 +366,25 @@ export function durationText(secs) {
     return `${Math.max(minutes, 1)}m`;
 }
 
+// "max_5x" -> "Max 5x", "plus" -> "Plus".
+export function planText(plan) {
+    const words = clean(plan, 16).split(/[_-]+/).filter(x => x);
+    if (!words.length)
+        return '';
+    words[0] = words[0][0].toUpperCase() + words[0].slice(1);
+    return words.join(' ');
+}
+
+// The label column of a usage card: wide enough for its longest label ("Week · Fable"),
+// estimated from the character count since St cannot measure text before it is shown.
+export function usageLabelWidth(labels, charWidth = 6.6, min = 34, max = 130) {
+    const longest = Math.max(0, ...labels.map(l => Array.from(l).length));
+    return Math.min(max, Math.max(min, Math.ceil(longest * charWidth + 4)));
+}
+
 function usageRow(w, now) {
-    const label = windowLabel(w.window_minutes);
+    const scope = clean(w.label, 24);
+    const label = scope ? `${windowLabel(w.window_minutes)} · ${scope}` : windowLabel(w.window_minutes);
     const resetsAt = typeof w.resets_at === 'number' && w.resets_at > 0 ? w.resets_at : 0;
     if (resetsAt && resetsAt <= now) {
         // The window has reset since the last reading: the old percentage means nothing.
@@ -405,17 +422,17 @@ export function usageCards(state, now) {
         if (!rows.length)
             continue;
         const host = clean(u.host);
-        const plan = clean(u.plan, 16);
         cards.push({
             agent,
             name: AGENT_NAME[agent] ?? agent,
-            plan: plan ? plan[0].toUpperCase() + plan.slice(1) : '',
+            plan: planText(u.plan),
             via: host && host !== 'local' ? state.hostTitle(host) : '',
             updatedText: state.usageApi.get(agent)?.state === 'needs_login'
                 ? `sign-in expired · run ${agent} once`
                 : ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
             stale: !(ts > 0) || now - ts > USAGE_STALE_S,
             rows,
+            labelWidth: usageLabelWidth(rows.map(r => r.label)),
         });
     }
     return cards;

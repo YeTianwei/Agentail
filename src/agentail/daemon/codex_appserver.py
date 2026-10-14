@@ -20,7 +20,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from agentail.usage import UsageReading, clean_plan, make_window, sorted_windows
+from agentail.usage import UsageReading, clean_label, clean_plan, make_window, sorted_windows
 
 log = logging.getLogger(__name__)
 
@@ -42,20 +42,43 @@ def default_argv() -> list[str] | None:
     return [codex, *CODEX_ARGS] if codex else None
 
 
-def parse_rate_limits(result: Any, host: str, now: float) -> UsageReading | None:
-    """The ``account/rateLimits/read`` result as a reading, or None if unusable."""
-    snap = result.get("rateLimits") if isinstance(result, dict) else None
-    if not isinstance(snap, dict):
-        return None
+MAIN_LIMIT_ID = "codex"
+
+
+def _snapshot_windows(snap: dict[str, Any], now: float, label: Any = None) -> list[Any]:
     windows = []
     for name in ("primary", "secondary"):
         w = snap.get(name)
         if isinstance(w, dict):
             windows.append(
                 make_window(
-                    w.get("usedPercent"), w.get("windowDurationMins"), w.get("resetsAt"), now
+                    w.get("usedPercent"), w.get("windowDurationMins"), w.get("resetsAt"), now, label
                 )
             )
+    return windows
+
+
+def parse_rate_limits(result: Any, host: str, now: float) -> UsageReading | None:
+    """The ``account/rateLimits/read`` result as a reading, or None if unusable.
+
+    ``rateLimits`` is the main limit; ``rateLimitsByLimitId`` repeats it under its
+    ``limitId`` and adds any other limit the account has, e.g. one for a single model.
+    Those become windows labelled with their ``limitName`` (else their id).
+    TODO(M0): only the main limit has been seen (codex-cli 0.160.1, 2026-10-14, Plus);
+    the names of other limits are taken from the field names, unverified.
+    """
+    snap = result.get("rateLimits") if isinstance(result, dict) else None
+    if not isinstance(snap, dict):
+        return None
+    windows = _snapshot_windows(snap, now)
+    main_id = snap.get("limitId") or MAIN_LIMIT_ID
+    by_id = result.get("rateLimitsByLimitId")
+    for limit_id, other in by_id.items() if isinstance(by_id, dict) else ():
+        if limit_id == main_id or not isinstance(other, dict):
+            continue
+        label = clean_label(other.get("limitName")) or clean_label(limit_id)
+        if label is not None:
+            windows += _snapshot_windows(other, now, label)
     ordered = sorted_windows(windows)
     if not ordered:
         return None

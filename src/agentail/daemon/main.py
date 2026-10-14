@@ -16,7 +16,7 @@ import signal
 import socket
 import time
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -73,6 +73,7 @@ class Daemon:
         claude_credentials: Path | None = None,
         claude_usage_url: str = claude_api.ENDPOINT,
         claude_schedule: claude_api.Schedule | None = None,
+        claude_profile_url: str | None = None,
     ) -> None:
         try:
             retention = load_retention()
@@ -94,6 +95,11 @@ class Daemon:
         self._codex_usage_due = 0.0  # monotonic time of the next read of the Codex files
         self._claude_cred = claude_credentials
         self._claude_url = claude_usage_url
+        self._claude_profile_url = claude_profile_url or claude_api.profile_url(claude_usage_url)
+        # The plan from the profile endpoint, asked for with the first usage query after the
+        # start and after every change of the login file (usage_claude_api.fetch_plan).
+        self._claude_plan: str | None = None
+        self._claude_plan_due = True
         self._claude_schedule = claude_schedule or claude_api.Schedule()
         self._claude_task: asyncio.Task[None] | None = None
         self._claude_cred_mtime: int | None = None
@@ -178,6 +184,9 @@ class Daemon:
         }
 
     def _on_usage(self, reading: UsageReading) -> None:
+        if reading.agent == "claude" and reading.host == LOCAL_SOURCE and self._claude_plan:
+            # The login file and the statusLine do not follow plan changes; the profile does.
+            reading = replace(reading, plan=self._claude_plan)
         if not self.usage.update(reading):
             return
         self._usage_dirty = True
@@ -251,6 +260,7 @@ class Daemon:
                 log.info("Claude usage endpoint %s", "on" if on else "off")
                 if on:
                     self._claude_schedule.reset()
+                    self._claude_plan_due = True
                     self._set_claude_api_status(claude_api.PENDING)
                 else:
                     self._set_claude_api_status(claude_api.OFF)
@@ -263,6 +273,7 @@ class Daemon:
         if cred_mtime != self._claude_cred_mtime:
             if self._claude_cred_mtime is not None or cred_mtime is not None:
                 self._claude_schedule.login_changed()
+                self._claude_plan_due = True
             self._claude_cred_mtime = cred_mtime
         now = time.monotonic()
         due = self._claude_schedule.next_due(now)
@@ -275,7 +286,29 @@ class Daemon:
         self._claude_schedule.record_start(now)
         self._claude_task = asyncio.get_running_loop().create_task(self._claude_query())
 
+    async def _claude_plan_query(self) -> None:
+        """Ask the profile endpoint for the plan. Only a network failure or a rate limit is
+        retried (with the next usage query); any other answer waits for a new login."""
+        try:
+            plan = await asyncio.to_thread(
+                claude_api.fetch_plan, self._cred_path(), self._claude_profile_url
+            )
+        except claude_api.FetchError as exc:
+            log.info("Claude profile endpoint: %s", exc.detail)
+            self._claude_plan_due = exc.transient
+            return
+        except Exception:
+            log.exception("Claude profile query failed")
+            self._claude_plan_due = False
+            return
+        self._claude_plan_due = False
+        if plan != self._claude_plan:
+            log.info("Claude plan: %s", plan or "unknown, using the login file's")
+            self._claude_plan = plan
+
     async def _claude_query(self) -> None:
+        if self._claude_plan_due:
+            await self._claude_plan_query()
         try:
             reading = await asyncio.to_thread(
                 claude_api.fetch_usage, self._cred_path(), LOCAL_SOURCE, self._claude_url

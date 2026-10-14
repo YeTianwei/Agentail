@@ -49,6 +49,27 @@ BODY = {
     "seven_day_breakdown": {"rows": [{"key": "claude_code", "percent": 92}]},
 }
 
+# GET /api/oauth/profile of a Max 5x account (2026-10-14), personal fields replaced.
+PROFILE = {
+    "account": {
+        "uuid": "u-1",
+        "full_name": "Someone",
+        "display_name": "Someone",
+        "email": "someone@example.com",
+        "has_claude_max": True,
+        "has_claude_pro": False,
+    },
+    "organization": {
+        "uuid": "o-1",
+        "name": "someone@example.com's Organization",
+        "organization_type": "claude_max",
+        "billing_type": "stripe_subscription",
+        "rate_limit_tier": "default_claude_max_5x",
+        "subscription_status": "active",
+    },
+    "application": {"uuid": "a-1", "name": "Claude Code", "slug": "claude-code"},
+}
+
 
 def write_cred(path, token=TOKEN, expires_in=3600.0, plan="pro"):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -74,13 +95,15 @@ class FakeApi:
 
     def __init__(self):
         self.reply = (200, BODY, {})
+        self.profile_reply = (200, PROFILE, {})
         self.requests = []  # (path, headers)
         api_ = self
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 api_.requests.append((self.path, self.headers))
-                status, body, headers = api_.reply
+                profile = self.path.endswith("/profile")
+                status, body, headers = api_.profile_reply if profile else api_.reply
                 data = body if isinstance(body, bytes) else json.dumps(body).encode()
                 self.send_response(status)
                 for k, v in headers.items():
@@ -95,6 +118,9 @@ class FakeApi:
         self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         self.url = f"http://127.0.0.1:{self.server.server_port}/api/oauth/usage"
         threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def count(self, endpoint="usage"):
+        return sum(path.endswith("/" + endpoint) for path, _ in self.requests)
 
     def close(self):
         self.server.shutdown()
@@ -133,7 +159,85 @@ def test_load_credential(tmp_path):
     assert c is not None and c.expires_at is None and c.plan is None
 
 
-def test_parse_prefers_limits_and_skips_model_scoped_windows():
+# The limits[] of a Max 5x account (2026-10-14).
+SCOPED = {
+    "kind": "weekly_scoped",
+    "group": "weekly",
+    "percent": 3,
+    "severity": "normal",
+    "resets_at": "2026-10-17T04:00:00+00:00",
+    "scope": {"model": {"id": None, "display_name": "Fable"}, "surface": None},
+    "is_active": False,
+}
+
+
+def test_parse_labels_a_model_scoped_weekly_window():
+    r = api.parse_usage({**BODY, "limits": [*BODY["limits"], SCOPED]}, "local", NOW)
+    assert [(w.window_minutes, w.used_percent, w.label) for w in r.windows] == [
+        (300, 43.0, None),
+        (10080, 17.0, None),
+        (10080, 3.0, "Fable"),
+    ]
+    odd = {**SCOPED, "scope": {"model": {"display_name": "<script>"}}}
+    r = api.parse_usage({"limits": [BODY["limits"][0], odd]}, "local", NOW)
+    assert [w.label for w in r.windows] == [None]  # a scoped window without a usable name
+
+
+def test_parse_labels_the_older_per_model_fields():
+    body = {
+        "five_hour": BODY["five_hour"],
+        "seven_day_opus": {"utilization": 9.0, "resets_at": None},
+        "seven_day_sonnet": None,
+    }
+    r = api.parse_usage(body, "local", NOW)
+    assert [(w.used_percent, w.label) for w in r.windows] == [(43.0, None), (9.0, "Opus")]
+
+
+@pytest.mark.parametrize(
+    "body, plan",
+    [
+        (PROFILE, "max_5x"),
+        ({"organization": {"rate_limit_tier": "default_claude_max_20x"}}, "max_20x"),
+        (
+            {
+                "organization": {
+                    "rate_limit_tier": "default_claude_ai",
+                    "organization_type": "claude_pro",
+                }
+            },
+            "pro",
+        ),
+        ({"organization": {"rate_limit_tier": "x y", "organization_type": "claude_team"}}, "team"),
+        ({"organization": None, "account": {"has_claude_pro": True}}, "pro"),
+        (
+            {
+                "organization": {"organization_type": "claude_A B"},
+                "account": {"has_claude_max": True},
+            },
+            "max",
+        ),
+        ({"account": {"has_claude_max": "yes"}}, None),
+        ([], None),
+    ],
+)
+def test_parse_plan(body, plan):
+    assert api.parse_plan(body) == plan
+
+
+def test_fetch_plan_uses_the_same_guarded_request(fake_api, cred):
+    url = api.profile_url(fake_api.url)
+    assert url.endswith("/api/oauth/profile")
+    assert api.fetch_plan(cred, url) == "max_5x"
+    [(path, headers)] = fake_api.requests
+    assert path == "/api/oauth/profile" and headers["Authorization"] == f"Bearer {TOKEN}"
+    fake_api.profile_reply = (401, b"", {})
+    with pytest.raises(api.FetchError) as e:
+        api.fetch_plan(cred, url)
+    assert e.value.state == api.NEEDS_LOGIN and not e.value.transient
+    assert api.profile_url(api.ENDPOINT) == api.PROFILE_ENDPOINT
+
+
+def test_parse_prefers_limits_and_skips_unnamed_scoped_windows():
     r = api.parse_usage(BODY, "local", NOW, "pro")
     assert r is not None and r.agent == "claude" and r.plan == "pro" and r.ts == NOW
     assert [(w.window_minutes, w.used_percent) for w in r.windows] == [(300, 43.0), (10080, 17.0)]
@@ -226,7 +330,7 @@ def test_no_request_without_a_valid_login(fake_api, tmp_path):
 def test_network_error(cred):
     with pytest.raises(api.FetchError, match="network error") as e:
         api.fetch_usage(cred, "local", "http://127.0.0.1:9/api/oauth/usage")
-    assert e.value.state == api.ERROR
+    assert e.value.state == api.ERROR and e.value.transient
 
 
 # ---- schedule ---------------------------------------------------------------------------
@@ -274,6 +378,15 @@ def test_schedule_waits_for_a_new_login():
     assert s.panel_opened(30) is False and s.panel_opened(60) is True
     s.login_changed()
     assert s.next_due(100) == 60  # max(last query + throttle, last Stop + debounce)
+
+
+def test_schedule_queries_again_after_any_login_change():
+    s = api.Schedule()
+    s.record_start(0)
+    s.record_success()
+    assert s.next_due(500) is None
+    s.login_changed()  # e.g. a new /login after a plan change
+    assert s.next_due(500) == 60
 
 
 def test_schedule_panel_refreshes_old_readings_only():
@@ -334,18 +447,19 @@ async def test_daemon_queries_at_start_and_after_a_stop(
         r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
         await _read(r)  # snapshot
         msg = await _until(r, lambda m: m["type"] == "usage_update")
-        assert msg["usage"]["host"] == "local" and msg["usage"]["plan"] == "pro"
+        # the plan comes from the profile, not from the stale login file
+        assert msg["usage"]["host"] == "local" and msg["usage"]["plan"] == "max_5x"
         assert [x["used_percent"] for x in msg["usage"]["windows"]] == [43.0, 17.0]
         assert d.claude_api_status["state"] == api.OK
-        assert len(fake_api.requests) == 1
+        assert fake_api.count() == 1 and fake_api.count("profile") == 1
 
         await asyncio.sleep(0.3)
-        assert len(fake_api.requests) == 1  # no polling
+        assert len(fake_api.requests) == 2  # no polling
         fake_api.reply = (200, {**BODY, "limits": [{"kind": "session", "percent": 50}]}, {})
         await d.handle("gpu7", _stop_msg())  # a server's Stop counts too
         msg = await _until(r, lambda m: m["type"] == "usage_update")
         assert msg["usage"]["windows"][0]["used_percent"] == 50.0
-        assert len(fake_api.requests) == 2
+        assert fake_api.count() == 2 and fake_api.count("profile") == 1  # once per login
 
         fake_api.reply = (401, b"", {})
         await d.handle("local", _stop_msg())
@@ -353,13 +467,18 @@ async def test_daemon_queries_at_start_and_after_a_stop(
         assert msg["agent"] == "claude" and msg["status"]["state"] == api.NEEDS_LOGIN
         await d.handle("local", _stop_msg())
         await asyncio.sleep(0.4)
-        assert len(fake_api.requests) == 3  # waits for a new login
+        assert fake_api.count() == 3  # waits for a new login
 
         fake_api.reply = (200, BODY, {})
-        write_cred(cred, plan="max")  # Claude Code refreshed its login
+        fake_api.profile_reply = (
+            200,
+            {"organization": {"rate_limit_tier": "default_claude_max_20x"}},
+            {},
+        )
+        write_cred(cred, plan="max")  # Claude Code logged in again
         msg = await _until(r, lambda m: m["type"] == "usage_update")
-        assert msg["usage"]["plan"] == "max"
-        assert len(fake_api.requests) == 4
+        assert msg["usage"]["plan"] == "max_20x"
+        assert fake_api.count() == 4 and fake_api.count("profile") == 2
         w.close()
     finally:
         d.stop()
@@ -375,6 +494,7 @@ async def test_daemon_panel_open_refreshes_and_config_turns_it_off(
     real_load = api.load_credential
     monkeypatch.setattr(api, "load_credential", lambda p: opened.append(p) or real_load(p))
     sched = api.Schedule(panel_stale=0.1)
+    fake_api.profile_reply = (404, b"", {})
     d = Daemon(
         codex_usage_home=tmp_path / "none",
         codex_argv=["false"],
@@ -389,27 +509,29 @@ async def test_daemon_panel_open_refreshes_and_config_turns_it_off(
         r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
         snap = await _read(r)
         assert snap["usage_api"]["claude"]["state"] in (api.PENDING, api.OK)
-        await _until(r, lambda m: m["type"] == "usage_update")
+        msg = await _until(r, lambda m: m["type"] == "usage_update")
+        assert msg["usage"]["plan"] == "pro"  # no profile: the login file's plan
         await asyncio.sleep(0.15)
         w.write(b'{"type": "refresh_usage"}\n')
         await w.drain()
-        await _until(r, lambda m: m["type"] == "usage_api_status" and len(fake_api.requests) == 2)
+        await _until(r, lambda m: m["type"] == "usage_api_status" and fake_api.count() == 2)
+        assert fake_api.count("profile") == 1  # failed with 404: not asked again
 
         config.set_claude_usage_api(False)
         msg = await _until(r, lambda m: m["type"] == "usage_api_status")
         assert msg["status"]["state"] == api.OFF
-        n, before = len(opened), len(fake_api.requests)
+        n, before = len(opened), fake_api.count()
         await d.handle("local", _stop_msg())
         w.write(b'{"type": "refresh_usage"}\n')
         await w.drain()
         await asyncio.sleep(0.3)
-        assert len(opened) == n and len(fake_api.requests) == before  # off: login not read
+        assert len(opened) == n and fake_api.count() == before  # off: login not read
 
         config.set_claude_usage_api(True)
         msg = await _until(
             r, lambda m: m["type"] == "usage_api_status" and m["status"]["state"] == api.OK
         )
-        assert len(fake_api.requests) == before + 1
+        assert fake_api.count() == before + 1
         w.close()
     finally:
         d.stop()

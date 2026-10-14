@@ -209,6 +209,22 @@ test('usage cards: rows, levels, reset text', () => {
     ok(Math.abs(c.rows[0].fraction - 0.412) < 1e-9, "fraction");
 });
 
+test('usage: plan names and per-model windows', () => {
+    eq(['max_5x', 'max_20x', 'plus', 'pro', '', null, 'x__y', '__'].map(M.planText),
+        ['Max 5x', 'Max 20x', 'Plus', 'Pro', '', '', 'X y', '']);
+    const st = withUsage([usage('local', 'claude', [win(2, 300), win(0, 10080),
+        {...win(3, 10080), label: 'Fable'}], {plan: 'max_5x'})]);
+    const [c] = M.usageCards(st, NOW);
+    eq(c.plan, 'Max 5x');
+    eq(c.rows.map(r => r.label), ['5h', 'Week', 'Week · Fable']);
+    eq(c.labelWidth, M.usageLabelWidth(['5h', 'Week', 'Week · Fable']));
+    ok(c.labelWidth > 34, 'the label column grows for a labelled window');
+    eq(M.usageLabelWidth(['5h', 'Week']), 34);
+    eq(M.usageLabelWidth(['x'.repeat(80)]), 130);
+    const junk = withUsage([usage('local', 'codex', [{...win(1, 300), label: 'a\nb'}, {...win(1, 300), label: 7}])]);
+    eq(M.usageCards(junk, NOW)[0].rows.map(r => r.label), ['5h · a b', '5h · 7']);
+});
+
 test('usage levels switch at 70 and 90 percent', () => {
     const st = withUsage([usage('local', 'codex', [win(69.9, 300), win(70, 300), win(89.9, 300), win(90, 300), win(120, 300)])]);
     eq(M.usageCards(st, NOW)[0].rows.map(r => [r.level, r.percent]),

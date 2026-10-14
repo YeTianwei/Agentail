@@ -5,6 +5,10 @@ Adding an agent means: an adapter in ``agentail.adapters``, a config module in
 ``AgentSpec`` below, an icon (``icons/agent-<name>.png``, listed in ``icons/NOTICE.md``)
 and the display name in the GNOME extension's ``model.js`` (a test keeps it in sync).
 
+Usage limits are optional: an adapter's ``usage()`` (or a daemon-side reader, as for Codex)
+returns a ``UsageReading`` with the plan and its windows; a limit that applies to one model
+only is a window with a ``label`` (see ``agentail.usage``). Nothing else in the UIs changes.
+
 Everything that is the same for every agent (backups, manifest, uninstall, remote
 read/write, the hook command itself) stays in ``install/local.py`` and ``install/remote.py``.
 """

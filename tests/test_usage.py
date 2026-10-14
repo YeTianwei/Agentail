@@ -14,6 +14,7 @@ from agentail.usage import (
     UsageReading,
     UsageStore,
     UsageWindow,
+    clean_label,
     clean_plan,
     make_window,
     sorted_windows,
@@ -52,9 +53,20 @@ def test_clean_plan():
         assert clean_plan(bad) is None
 
 
+def test_clean_label():
+    assert clean_label("Fable") == "Fable"
+    assert clean_label("  GPT-5.3-Codex  Spark ") == "GPT-5.3-Codex Spark"
+    for bad in (None, 3, "", " ", "-x", "a\x1b[31m", "<b>", "x" * 25, "é"):
+        assert clean_label(bad) is None
+    assert make_window(5, 10080, None, NOW, "Fable").label == "Fable"
+    assert make_window(5, 10080, None, NOW, "<b>").label is None
+
+
 def test_sorted_windows_shortest_first_unknown_last():
     a, b, c = UsageWindow(1, 10080), UsageWindow(2, None), UsageWindow(3, 300)
     assert sorted_windows([a, None, b, c]) == (c, a, b)
+    scoped = UsageWindow(4, 10080, label="Fable")
+    assert sorted_windows([scoped, b, a, c]) == (c, a, scoped, b)  # overall limit first
 
 
 def test_store_only_reports_changes_and_throttles_refresh():
@@ -141,6 +153,34 @@ def test_codex_reads_the_last_token_count(tmp_path):
         (10080, 4.0, 1791953908),
     ]
     assert r.ts == 1791438119.165  # the event's own timestamp
+
+
+def test_codex_adds_other_limits_as_labelled_windows(tmp_path):
+    spark = {"limit_id": "codex_bengalfox", "limit_name": "GPT-5.3-Codex-Spark"}
+    _write(
+        tmp_path,
+        "2026/10/08/a.jsonl",
+        [
+            _token_count(99, **spark),  # older snapshot of the same limit: ignored
+            _token_count(30, **spark),
+            _token_count(5),
+            _token_count(7, limit_id="codex_other", limit_name=None),
+            _token_count(1, limit_id="x", limit_name="<b>bad</b>"),  # id is the fallback
+        ],
+    )
+    r = read_codex_usage(tmp_path, "local")
+    assert [(w.window_minutes, w.used_percent, w.label) for w in r.windows] == [
+        (300, 5.0, None),
+        (300, 30.0, "GPT-5.3-Codex-Spark"),
+        (300, 7.0, "codex_other"),
+        (300, 1.0, "x"),
+        (10080, 4.0, None),
+        (10080, 4.0, "GPT-5.3-Codex-Spark"),
+        (10080, 4.0, "codex_other"),
+        (10080, 4.0, "x"),
+    ]
+    _write(tmp_path, "2026/10/08/a.jsonl", [_token_count(30, **spark)])
+    assert read_codex_usage(tmp_path, "local") is None  # no main limit: nothing
 
 
 def test_codex_picks_files_by_mtime_not_by_name(tmp_path):
@@ -251,7 +291,13 @@ async def test_wrapped_status_line_reaches_the_daemon_through_the_real_hook(runt
 def test_store_dump_and_load_validate_everything():
     st = UsageStore()
     st.update(
-        UsageReading("local", "claude", (UsageWindow(46, 300, int(NOW) + 100),), NOW - 600, "max")
+        UsageReading(
+            "local",
+            "claude",
+            (UsageWindow(46, 300, int(NOW) + 100), UsageWindow(3, 10080, None, "Fable")),
+            NOW - 600,
+            "max_5x",
+        )
     )
     saved = json.loads(json.dumps(st.dump()))
     other = UsageStore()
@@ -268,7 +314,7 @@ def test_store_dump_and_load_validate_everything():
             "host": "h",
             "agent": "a",
             "updated_ts": NOW * 2,
-            "windows": [{"used_percent": 7}],
+            "windows": [{"used_percent": 7, "label": "x\u0000y"}],
             "plan": "P q",
         },
     ]
@@ -276,6 +322,7 @@ def test_store_dump_and_load_validate_everything():
     assert third.load(junk, NOW) == 1 and third.load("nope", NOW) == 0
     r = third.readings[("h", "a")]
     assert r.ts == NOW and r.plan is None  # a timestamp from the future is clamped
+    assert r.windows[0].label is None
 
 
 async def test_usage_survives_a_daemon_restart(runtime_env, tmp_path):

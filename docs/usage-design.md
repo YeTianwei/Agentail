@@ -56,7 +56,8 @@ Codex 的 hook 载荷里没有额度,只能读文件。因此只覆盖**本机**
 
 ```
 UsageReading = {host, agent, plan, windows: [Window...], ts}
-Window       = {used_percent: float 0..100, window_minutes: int | null, resets_at: int | null}
+Window       = {used_percent: float 0..100, window_minutes: int | null, resets_at: int | null,
+                label: str | null}   # 0.0.4 起
 ```
 
 规范化规则:
@@ -71,8 +72,16 @@ Window       = {used_percent: float 0..100, window_minutes: int | null, resets_a
 | Codex `primary` / `secondary` | 按顺序放进 `windows`,为 null 的跳过 |
 | `plan_type` | 只保留匹配 `^[a-z0-9_-]{1,16}$` 的字符串,否则 null |
 | `spend_limit`(gateway) | 0.0.2 不处理,忽略 |
+| 只针对某个模型的额度(0.0.4 起) | 单独的窗口,`label` 为模型或额度名,只保留匹配 `^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,23}$` 的字符串;取不到名字的跳过 |
 
-`windows` 按 `window_minutes` 升序排列,UI 不依赖字段名。`ts` 是 daemon 收到的时间(Codex 用文件里该事件的时间戳,取不到就用 mtime),不是载荷里的字段。
+`windows` 按 `window_minutes` 升序排列,同样长度的窗口不带 `label` 的(总额度)在前、其余按 `label` 排,UI 不依赖字段名。
+
+这套结构对所有 agent 通用(2026-10-14):
+
+- **Claude**:`plan` 来自 profile 接口,启动时和凭据文件变化时各查一次;`weekly_scoped` 带模型名标签。见 `usage-api-design.md` §2.1、§6。
+- **Codex**:`plan` 随每次读数一起来(`plan_type` / `planType`),换套餐后下一次读数就会更新,不需要额外查询。其他额度:app-server 的 `rateLimitsByLimitId` 里 `limitId` 不是主额度的项,和会话文件里 `limit_id` 不是 `codex` 的 `token_count` 事件,都变成带 `limitName` 标签的窗口(没有名字就用 id)。实测(codex-cli 0.160.1,Plus 账号)只见过主额度 `codex`,其他额度的字段含义按字段名推断,代码里标了 `TODO(M0)`。会话文件只合并同一个文件里的其他额度。
+- **Qoder 及以后的 agent**:目前没有用量来源(本机 `~/.qoder` 里没有额度数据,qodercli 也没有公开接口)。以后找到来源时,适配器的 `usage()` 或 daemon 里的读取器返回同样的 `UsageReading`(`plan` + 带或不带 `label` 的窗口),面板、`status`、AppIndicator 都不用改。
+`ts` 是 daemon 收到的时间(Codex 用文件里该事件的时间戳,取不到就用 mtime),不是载荷里的字段。
 
 ---
 

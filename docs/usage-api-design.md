@@ -38,6 +38,30 @@
 - 在 VS Code 里执行 `/usage` 时,结果会作为 `usageReport.rate_limits.limits` 写进会话 transcript,结构与上面的 `limits` 完全一致,所以 `/usage` 用的就是这个接口 [推断]。
 - 响应里还有很多与额度无关、名字含义不明的字段(`seven_day_breakdown`、`spend`、各种代号),一律不读。
 
+### 2.1 Max 账号与套餐名 [实测]
+
+2026-10-14,同一台机器,账号从 Pro 升级到 Max 5x 之后:
+
+- 凭据文件里仍是 `"subscriptionType": "pro"`、`"rateLimitTier": "default_claude_ai"`。当天 Claude Code 刷新过 token(文件 mtime 变了),这两个字段没变,所以它们大概只在 `/login` 时写入 [推断]。面板因此一直显示 `Claude Code · Pro`。
+- `limits[]` 多了一项单个模型的周额度:
+
+```json
+{"kind": "weekly_scoped", "group": "weekly", "percent": 0, "severity": "normal",
+ "resets_at": "2026-10-17T04:00:00+00:00",
+ "scope": {"model": {"id": null, "display_name": "Fable"}, "surface": null}, "is_active": false}
+```
+
+  旧格式里对应的 `seven_day_opus` / `seven_day_sonnet` 为 `null`。`weekly_scoped_shares` 说明它占总周额度的 50%,不读。
+- `GET https://api.anthropic.com/api/oauth/profile`(同样的请求头;凭据的 `scopes` 含 `user:profile`)返回 HTTP 200,与套餐有关的部分:
+
+```json
+{"account": {"has_claude_max": true, "has_claude_pro": false, ...},
+ "organization": {"organization_type": "claude_max", "rate_limit_tier": "default_claude_max_5x",
+                  "subscription_status": "active", ...}}
+```
+
+  其余字段是姓名、邮箱、uuid 等,一律不读、不存、不记日志。
+
 ## 3. 设计原则
 
 1. **默认开启,可以关闭**(§4)。关闭时不读凭据文件、不发任何请求。
@@ -111,8 +135,8 @@ USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "...", "ok_t
 
 1. 优先读 `limits[]`:`kind == "session"` → `window_minutes = 300`;`kind == "weekly_all"` → `10080`;`percent` → `used_percent`;`resets_at`(ISO 8601)→ Unix 秒。
 2. `limits` 缺失或里面没有可用的窗口时,退回读 `five_hour.utilization` / `seven_day.utilization`。
-3. `kind == "weekly_scoped"`(某个模型单独的周额度,当前账号没有)以及其他未知 kind 先忽略:现有的 UI 只按窗口长度区分,会和 `weekly_all` 一样显示成 "Week",容易误解。以后需要时给 `UsageWindow` 加标签。
-4. `plan` 取凭据文件里的 `subscriptionType`(如 `pro`、`max`),经 `clean_plan` 白名单校验;卡头因此显示 `Claude Code · Pro`。
+3. `kind == "weekly_scoped"`(某个模型单独的周额度,Max 账号有,§2.1)→ `window_minutes = 10080`,窗口的 `label` 取 `scope.model.display_name`(经 `clean_label` 白名单校验),面板显示 "Week · Fable"。取不到可用名字的 scoped 窗口跳过,免得和总的周额度混在一起;其他未知 kind 也跳过。旧格式的 `seven_day_opus` / `seven_day_sonnet` 同样带标签 "Opus" / "Sonnet"。
+4. `plan` 优先取 profile 接口(§2.1):`organization.rate_limit_tier` 为 `default_claude_max_<N>x` 时取 `max_<N>x`,否则 `organization_type` 去掉 `claude_` 前缀(`pro`、`max`、`team`…),再否则看 `account.has_claude_max` / `has_claude_pro`。profile 只在 daemon 启动后和凭据文件每次变化后各查一次(owner 决定 2026-10-14,不定时轮询),跟着下一次用量查询一起发;网络错误或 429 时随下一次用量查询重试,其他失败等下一次凭据变化。查不到时退回凭据文件里的 `subscriptionType`。查到的套餐也用于本机 statusLine 的读数。面板显示为 `Claude Code · Max 5x`。凭据文件变化本身也会触发一次用量查询(以前只在登录失效后才会)。
 5. 一个窗口都解析不出来就算失败(进入退避),不发空读数。
 6. `ts` 用收到响应的时间。
 

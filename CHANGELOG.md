@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
+  keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
+  now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login
+  file changes (no polling), and the card shows e.g. "Claude Code · Max 5x". Only the plan fields
+  are read from the profile; name and e-mail are never kept or logged.
+
+### Added
+
+- **Per-model limits.** Max plans have a weekly limit for one model next to the overall one; it now
+  has its own row, "Week · Fable". Codex limits other than the main one (`rateLimitsByLimitId`,
+  `limit_id` in the session files) are shown the same way. `agentail status` lists them too.
+
 ## 0.0.3 — 2026-10-12
 
 ### Added

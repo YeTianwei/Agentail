@@ -2,8 +2,13 @@
 
 The numbers come from untrusted sources (a hook payload, a file written by another
 program), so everything is coerced to a plain number and clamped before it is kept.
-Only percentages, window lengths, reset times and the plan name are stored: no token
-counts, no conversation content. See docs/usage-design.md.
+Only percentages, window lengths, reset times, the plan name and a short window label are
+stored: no token counts, no conversation content. See docs/usage-design.md.
+
+Any agent can report usage this way (Claude, Codex today; Qoder and others once they have a
+source): ``plan`` is the subscription as a short lowercase id (``plus``, ``max_5x``) and a
+window's ``label`` tells apart two windows of the same length, e.g. a weekly limit for one
+model next to the weekly limit for all of them.
 """
 
 from __future__ import annotations
@@ -21,6 +26,8 @@ MAX_RESET_AHEAD_S = 400 * 24 * 3600
 REFRESH_S = 60.0
 
 _PLAN_RE = re.compile(r"^[a-z0-9_-]{1,16}$")
+# A model or limit name such as "Fable" or "GPT-5.3-Codex-Spark".
+_LABEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,23}$")
 
 
 @dataclass(frozen=True)
@@ -28,6 +35,7 @@ class UsageWindow:
     used_percent: float
     window_minutes: int | None = None
     resets_at: int | None = None
+    label: str | None = None  # what the window is limited to, when not everything
 
 
 @dataclass(frozen=True)
@@ -51,10 +59,12 @@ def _number(val: Any) -> float | None:
     return f if math.isfinite(f) else None
 
 
-def make_window(used: Any, window_minutes: Any, resets_at: Any, now: float) -> UsageWindow | None:
+def make_window(
+    used: Any, window_minutes: Any, resets_at: Any, now: float, label: Any = None
+) -> UsageWindow | None:
     """A validated window, or None when the percentage is missing or not a number.
     ``now`` bounds ``resets_at``: a reset time in the past is kept (the panel shows it as
-    "reset"), one more than ~400 days ahead is dropped."""
+    "reset"), one more than ~400 days ahead is dropped. An unusable ``label`` is dropped."""
     pct = _number(used)
     if pct is None:
         return None
@@ -66,17 +76,25 @@ def make_window(used: Any, window_minutes: Any, resets_at: Any, now: float) -> U
     )
     reset = _number(resets_at)
     ra = int(reset) if reset is not None and 0 < reset <= now + MAX_RESET_AHEAD_S else None
-    return UsageWindow(min(100.0, max(0.0, pct)), wm, ra)
+    return UsageWindow(min(100.0, max(0.0, pct)), wm, ra, clean_label(label))
 
 
 def clean_plan(val: Any) -> str | None:
     return val if isinstance(val, str) and _PLAN_RE.match(val) else None
 
 
+def clean_label(val: Any) -> str | None:
+    if not isinstance(val, str):
+        return None
+    val = " ".join(val.split())
+    return val if _LABEL_RE.match(val) else None
+
+
 def sorted_windows(windows: list[UsageWindow | None]) -> tuple[UsageWindow, ...]:
-    """Drop missing windows; shortest window first, unknown length last."""
+    """Drop missing windows; shortest window first, unknown length last; among windows of
+    the same length the unlabelled one (the overall limit) first, then by label."""
     ok = [w for w in windows if w is not None]
-    ok.sort(key=lambda w: (w.window_minutes is None, w.window_minutes or 0))
+    ok.sort(key=lambda w: (w.window_minutes is None, w.window_minutes or 0, w.label or ""))
     return tuple(ok)
 
 
@@ -132,6 +150,7 @@ def reading_to_dict(r: UsageReading) -> dict[str, Any]:
                 "used_percent": w.used_percent,
                 "window_minutes": w.window_minutes,
                 "resets_at": w.resets_at,
+                "label": w.label,
             }
             for w in r.windows
         ],
@@ -147,7 +166,9 @@ def reading_from_dict(d: Any, now: float) -> UsageReading | None:
     if not (isinstance(host, str) and host and isinstance(agent, str) and agent) or ts is None:
         return None
     windows = [
-        make_window(w.get("used_percent"), w.get("window_minutes"), w.get("resets_at"), now)
+        make_window(
+            w.get("used_percent"), w.get("window_minutes"), w.get("resets_at"), now, w.get("label")
+        )
         for w in (d.get("windows") if isinstance(d.get("windows"), list) else [])
         if isinstance(w, dict)
     ]

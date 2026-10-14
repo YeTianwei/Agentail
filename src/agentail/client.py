@@ -136,7 +136,10 @@ def format_usage_windows(usage: dict[str, Any], now: float) -> str:
     for w in usage.get("windows") or []:
         if not isinstance(w, dict) or not isinstance(w.get("used_percent"), (int, float)):
             continue
-        text = f"{window_label(w.get('window_minutes'))} {w['used_percent']:.0f}%"
+        name = window_label(w.get("window_minutes"))
+        scope = clean(w.get("label"), 24)
+        text = f"{name} · {scope}" if scope else name
+        text += f" {w['used_percent']:.0f}%"
         reset = w.get("resets_at")
         if isinstance(reset, (int, float)) and not isinstance(reset, bool):
             text += " (reset)" if reset <= now else f" (resets in {duration_text(reset - now)})"
@@ -171,7 +174,7 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
                     clean(u.get("host")),
                     clean(u.get("plan")) or "-",
                     age_text(u.get("updated_ts"), now),
-                    clean(format_usage_windows(u, now), 100),
+                    clean(format_usage_windows(u, now), 160),
                 ]
             )
         lines += ["", "USAGE"] + ["  " + r for r in _table(rows)]

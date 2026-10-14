@@ -144,6 +144,7 @@ def test_format_status_shows_usage_and_survives_junk():
                 "windows": [
                     {"used_percent": 41.2, "window_minutes": 300, "resets_at": NOW + 7800},
                     {"used_percent": 15, "window_minutes": 10080, "resets_at": NOW - 5},
+                    {"used_percent": 3, "window_minutes": 10080, "label": "Fable\x1b[31m"},
                     {"used_percent": "x"},
                     "junk",
                 ],
@@ -153,7 +154,7 @@ def test_format_status_shows_usage_and_survives_junk():
     }
     text = client.format_status(snap, now=NOW)
     assert "USAGE" in text
-    assert "5h 41% (resets in 2h 10m), Week 15% (reset)" in text
+    assert "5h 41% (resets in 2h 10m), Week 15% (reset), Week · Fable?[31m 3%" in text
     assert "2m" in text and "max" in text
     assert "USAGE" not in client.format_status({"sessions": [], "hosts": []}, now=NOW)
 

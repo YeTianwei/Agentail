@@ -59,8 +59,15 @@ HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_fa
 
 ```
 USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts",
-           "windows": [{"used_percent": 0..100, "window_minutes": int | null, "resets_at": int | null}]}
+           "windows": [{"used_percent": 0..100, "window_minutes": int | null, "resets_at": int | null,
+                        "label": "Fable" | null}]}
 ```
+
+`plan` is a short lowercase id (`plus`, `pro`, `max_5x`); clients format it for display
+("Max 5x"). A window's `label` (since 0.0.4) names what it is limited to when that is not
+everything, e.g. one model's own weekly limit next to the overall weekly limit; it is at most
+24 characters of letters, digits, space and `._+-`. Windows of the same length come unlabelled
+first. Clients that predate it ignore the field.
 
 `USAGE` is the subscription rate-limit state of one agent as seen from one host, windows
 shortest first. `resets_at` is Unix seconds; a time in the past means the window has reset and

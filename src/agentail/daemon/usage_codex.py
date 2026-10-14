@@ -10,11 +10,19 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agentail.usage import UsageReading, clean_plan, make_window, sorted_windows
+from agentail.usage import (
+    UsageReading,
+    UsageWindow,
+    clean_label,
+    clean_plan,
+    make_window,
+    sorted_windows,
+)
 
 TAIL_BYTES = 256 * 1024
 MAX_FILES = 5  # newest rollout files to look through
@@ -57,22 +65,73 @@ def _timestamp(obj: dict[str, Any], fallback: float) -> float:
     return fallback
 
 
-def parse_rate_limits(limits: Any, host: str, ts: float) -> UsageReading | None:
-    if not isinstance(limits, dict):
-        return None
+MAIN_LIMIT_ID = "codex"
+
+
+def _windows(limits: dict[str, Any], ts: float, label: Any = None) -> list[UsageWindow | None]:
     windows = []
     for name in ("primary", "secondary"):
         w = limits.get(name)
         if isinstance(w, dict):
             windows.append(
-                make_window(w.get("used_percent"), w.get("window_minutes"), w.get("resets_at"), ts)
+                make_window(
+                    w.get("used_percent"), w.get("window_minutes"), w.get("resets_at"), ts, label
+                )
             )
-    ordered = sorted_windows(windows)
+    return windows
+
+
+def parse_rate_limits(limits: Any, host: str, ts: float) -> UsageReading | None:
+    if not isinstance(limits, dict):
+        return None
+    ordered = sorted_windows(_windows(limits, ts))
     if not ordered:
         return None
     return UsageReading(
         host=host, agent="codex", windows=ordered, ts=ts, plan=clean_plan(limits.get("plan_type"))
     )
+
+
+def _rate_limits(line: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    """(event, rate_limits) of a ``token_count`` line, else None."""
+    if '"rate_limits"' not in line:
+        return None
+    try:
+        obj = json.loads(line)
+    except ValueError:
+        return None
+    payload = obj.get("payload") if isinstance(obj, dict) else None
+    if not isinstance(payload, dict) or payload.get("type") != "token_count":
+        return None
+    limits = payload.get("rate_limits")
+    return (obj, limits) if isinstance(limits, dict) else None
+
+
+def _read_file(lines: list[str], host: str, mtime: float) -> UsageReading | None:
+    """The newest main-limit reading in one file, with the newest snapshot of every other
+    limit (``limit_id`` other than "codex", e.g. one model's own limit) in the same file
+    added as labelled windows. TODO(M0): only the main limit has been seen (codex-cli
+    0.160.1, 2026-10-14, Plus); ``limit_name`` as the label is unverified."""
+    main: UsageReading | None = None
+    extras: dict[str, list[UsageWindow | None]] = {}
+    for line in reversed(lines):
+        found = _rate_limits(line)
+        if found is None:
+            continue
+        obj, limits = found
+        ts = _timestamp(obj, mtime)
+        limit_id = limits.get("limit_id") or MAIN_LIMIT_ID
+        if limit_id == MAIN_LIMIT_ID:
+            if main is None:
+                main = parse_rate_limits(limits, host, ts)
+        elif isinstance(limit_id, str) and limit_id not in extras:
+            label = clean_label(limits.get("limit_name")) or clean_label(limit_id)
+            if label is not None:
+                extras[limit_id] = _windows(limits, ts, label)
+    if main is None or not extras:
+        return main
+    others = [w for ws in extras.values() for w in ws]
+    return replace(main, windows=sorted_windows([*main.windows, *others]))
 
 
 def read_codex_usage(codex_home: Path, host: str) -> UsageReading | None:
@@ -83,17 +142,7 @@ def read_codex_usage(codex_home: Path, host: str) -> UsageReading | None:
             lines = _tail_lines(path)
         except OSError:
             continue
-        for line in reversed(lines):
-            if '"rate_limits"' not in line:
-                continue
-            try:
-                obj = json.loads(line)
-            except ValueError:
-                continue
-            payload = obj.get("payload") if isinstance(obj, dict) else None
-            if not isinstance(payload, dict) or payload.get("type") != "token_count":
-                continue
-            reading = parse_rate_limits(payload.get("rate_limits"), host, _timestamp(obj, mtime))
-            if reading is not None:
-                return reading
+        reading = _read_file(lines, host, mtime)
+        if reading is not None:
+            return reading
     return None

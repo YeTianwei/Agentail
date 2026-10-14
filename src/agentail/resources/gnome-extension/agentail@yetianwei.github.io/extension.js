@@ -580,7 +580,10 @@ class AgentailIndicator extends PanelMenu.Button {
         box.add_child(top);
         for (const r of c.rows) {
             const row = hbox('agentail-usage-row', {x_expand: true});
-            row.add_child(label(r.label, 'agentail-usage-label'));
+            // A minimum, not a width: the estimate must never cut a label short.
+            const name = label(r.label, 'agentail-usage-label');
+            name.set_style(`min-width: ${c.labelWidth}px;`);
+            row.add_child(name);
             const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
             track.set_width(USAGE_BAR_WIDTH);
             if (r.fraction > 0) {
