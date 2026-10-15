@@ -52,12 +52,12 @@ def _probe(**kw):
 
 def test_parse_probe():
     p = parse_probe(
-        "uid=10006\nhome=/data/u\nhostname=gpu7\npython=/usr/bin/python3\n"
+        "uid=12345\nhome=/data/u\nhostname=gpu7\npython=/usr/bin/python3\n"
         "python_version=3.10.12\nrun_user=yes\nhome_fs=nfs\ncodex_home=/data/u/.codex\n"
         "claude_dir=yes\nclaude_bin=/data/u/.local/bin/claude\ncodex_bin=\nhome_id=abc\n"
     )
     assert (p.uid, p.home, p.run_user, p.home_on_nfs, p.home_id) == (
-        10006,
+        12345,
         "/data/u",
         True,
         True,
@@ -90,8 +90,8 @@ def test_choose_remote_sock():
 
 
 def test_config_forms():
-    assert config_forms("/run/user/10006/agentail.sock") == {
-        "/run/user/10006/agentail.sock",
+    assert config_forms("/run/user/12345/agentail.sock") == {
+        "/run/user/12345/agentail.sock",
         "/run/user/{uid}/agentail.sock",
     }
     assert config_forms("/home/u/.agentail/run/agentail.sock") == {
@@ -194,7 +194,7 @@ def test_add_then_remove_restores_server(fake_ssh, server, run_user):
     assert settings["hooks"]["Stop"][0]["hooks"][0]["command"] == "mine.sh"
     cmd = settings["hooks"]["Stop"][1]["hooks"][0]["command"]
     # The uid is expanded by the hook on each host; quoted so no shell expands the braces.
-    assert "~/.agentail/agentail-hook.py" in cmd and f"--sock '{_rsock(run_user)}'" in cmd
+    assert '"$HOME"/.agentail/agentail-hook.py' in cmd and f"--sock '{_rsock(run_user)}'" in cmd
     assert hookjson.socks_of(cmd) == (_rsock(run_user),)
     codex = json.loads((server / ".codex" / "hooks.json").read_text())
     assert "--agent codex" in codex["hooks"]["Stop"][0]["hooks"][0]["command"]

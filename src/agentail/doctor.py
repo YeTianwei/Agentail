@@ -114,7 +114,7 @@ def _command_problem(commands: Iterable[str], where: str = "hook commands") -> s
         exe = python if os.path.isabs(python) else shutil.which(python)
         if not exe or not os.path.isfile(exe) or not os.access(exe, os.X_OK):
             return f"the interpreter {python} in the {where} is missing or not executable"
-        if not Path(script).expanduser().is_file():
+        if not Path(os.path.expandvars(script)).expanduser().is_file():
             return f"the hook script {script} in the {where} does not exist"
     return ""
 

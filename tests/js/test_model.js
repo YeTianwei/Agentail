@@ -199,7 +199,7 @@ test('disconnect clears state', () => {
 test('helpers', () => {
     eq([M.ageText(NOW - 59, NOW), M.ageText(NOW - 61, NOW), M.ageText(NOW - 7200, NOW), M.ageText(0, NOW)],
         ['59s', '1m', '2h', '']);
-    eq([M.basename('/data/twye/Baselines/SpatialVLA/'), M.basename(''), M.basename('/')], ['SpatialVLA', '', '/']);
+    eq([M.basename('/data/user/Baselines/SpatialVLA/'), M.basename(''), M.basename('/')], ['SpatialVLA', '', '/']);
     eq(M.clean('a\tb\u0007c', 0), 'a b?c');
     eq(M.clean('abcdef', 4), 'abc…');
 });

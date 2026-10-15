@@ -47,13 +47,23 @@ def hook_command(
     """
     if isinstance(socks, str):
         socks = [socks]
-    # hook_path may start with ~ which the shell expands; keep it unquoted then.
-    hp = hook_path if hook_path.startswith("~/") else shlex.quote(hook_path)
+    hp = quote_path(hook_path)
     argv = [shlex.quote(python), hp, "--agent", shlex.quote(agent), "--event", shlex.quote(event)]
     argv += ["--mode", "fire"]
     for sock in sorted(set(socks)):
         argv += ["--sock", shlex.quote(sock)]
     return " ".join([*argv, "2>/dev/null", "||", "true"])
+
+
+def quote_path(path: str) -> str:
+    """``path`` quoted for the shell. A home-relative path (``~/...``, add-host's) becomes
+    ``"$HOME"/...``, which sh, bash and csh all expand and which survives a space in $HOME;
+    an unquoted ``~`` would not."""
+    if path.startswith("$HOME/"):
+        path = "~" + path[len("$HOME") :]
+    if path.startswith("~/"):
+        return '"$HOME"' + shlex.quote(path[1:])
+    return shlex.quote(path)
 
 
 @dataclass(frozen=True)
@@ -80,7 +90,10 @@ def parse_command(command: str) -> HookCommand | None:
     if i < 2 or HOOK_MARKER not in argv[i - 1]:
         return None
     socks = tuple(argv[j + 1] for j in range(i, len(argv) - 1) if argv[j] == "--sock")
-    return HookCommand(argv[i - 2], argv[i - 1], agent, event, socks)
+    hook_path = argv[i - 1]
+    if hook_path.startswith("$HOME/"):  # written by quote_path: back to the ~ form
+        hook_path = "~" + hook_path[len("$HOME") :]
+    return HookCommand(argv[i - 2], hook_path, agent, event, socks)
 
 
 def socks_of(command: str) -> tuple[str, ...]:

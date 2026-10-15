@@ -128,7 +128,7 @@ agentail paths                                           # 看 local.sock 路径
 > 提示词(M3):
 > 阅读 CLAUDE.md、docs/PLAN.md、docs/research-and-design.md 第 7 节、docs/m0-verification.md。完成 PLAN.md 中 M3 的 1–4 项。你无法连接真实服务器:所有 ssh 调用必须可注入并用假 ssh 脚本测试。远程命令只能用 argv 列表构造,任何来自载荷或配置的字符串都要 shlex.quote。在分支 m3-multi-host 上提交并开 PR,PR 描述里列出我需要在真实服务器上做的验证步骤。
 
-👤 合并后在真实服务器上验证(gpu0–gpu12 共享 NFS HOME `/data/twye`,uid 10006):
+👤 合并后在真实服务器上验证(gpu0–gpu12 共享 NFS HOME `/data/user`,uid 12345):
 
 ```bash
 agentail daemon --print-events                  # 终端 A,一直开着
@@ -150,9 +150,9 @@ agentail status                                  # gpu7 / gpu8 都是 connected
 
 重点看:`add-host` 探测出的 python 路径(应为 `/usr/bin/python3`);远程 hook 命令在 Claude 的 `sh -c` 和 Codex 的 `$SHELL -lc` 下都能找到 `~/.agentail/agentail-hook.py`;已知限制:登录 shell 是 csh/tcsh 的服务器上多行远程脚本可能失败(M0 的 13 台都是 bash)。
 
-✅ 已验证(2026-10-07,gpu7 + gpu8,共享 NFS HOME `/data/twye`,Claude Code 远程版本见服务器):
+✅ 已验证(2026-10-07,gpu7 + gpu8,共享 NFS HOME `/data/user`,Claude Code 远程版本见服务器):
 
-- `add-host gpu7`:探测到 `/usr/bin/python3` 3.10.12、`/run/user/10006` 可用;安装后约 4 秒 `connected (end-to-end ping received)`。
+- `add-host gpu7`:探测到 `/usr/bin/python3` 3.10.12、`/run/user/12345` 可用;安装后约 4 秒 `connected (end-to-end ping received)`。
 - `add-host gpu8`:识别出共享 HOME(`already up to date` + `shares its $HOME with gpu7`),同样 connected。
 - 在 gpu7、gpu8 各跑一次 `claude -p`:事件分别归到 `gpu7/claude/…`、`gpu8/claude/…`,状态 waiting_input → running → [Bash] → waiting_input → ended。gpu7 上已经在跑的 Claude 会话(热加载设置后)也被识别。
 - 本机 `kill -9` gpu7 的隧道 ssh:1 秒内 backoff,2 秒内重新 connected;远程残留 socket 被自动清理;断线期间 gpu7 会话为 stale。

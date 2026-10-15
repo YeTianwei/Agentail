@@ -1,5 +1,7 @@
 # M0 verification record
 
+(User name, uid and host names in the pasted output below are anonymised.)
+
 Fill this in on your own machines (see docs/PLAN.md, M0-a). Cloud sessions cannot run these.
 
 ## Local desktop
@@ -37,9 +39,9 @@ Run `./scripts/m0-check-host.sh <alias>` for each host and paste the full output
 
 ```
 == probe: gpu0
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-0
+uid=12345
+home=/data/user
+hostname=gpu-0
 python3=/usr/bin/python3
 python3_version=3.8.10
 run_user=yes
@@ -48,21 +50,21 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:08 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:08 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:08 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:08 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu1
 
 ```
 == probe: gpu1
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-1
+uid=12345
+home=/data/user
+hostname=gpu-1
 python3=/usr/bin/python3
 python3_version=3.8.10
 run_user=yes
@@ -71,20 +73,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:10 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:10 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:10 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:10 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu2
 ```
 == probe: gpu2
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-2
+uid=12345
+home=/data/user
+hostname=gpu-2
 python3=/usr/bin/python3
 python3_version=3.10.4
 run_user=yes
@@ -93,20 +95,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:11 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:11 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:11 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:11 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu3
 ```
 == probe: gpu3
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-3
+uid=12345
+home=/data/user
+hostname=gpu-3
 python3=/usr/bin/python3
 python3_version=3.10.4
 run_user=yes
@@ -115,20 +117,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:11 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:11 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:11 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:11 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu4
 ```
 == probe: gpu4
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-4
+uid=12345
+home=/data/user
+hostname=gpu-4
 python3=/usr/bin/python3
 python3_version=3.10.4
 run_user=yes
@@ -137,20 +139,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:17 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:17 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:17 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:17 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu5
 ```
 == probe: gpu5
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-5
+uid=12345
+home=/data/user
+hostname=gpu-5
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -159,20 +161,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 16:17 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:17 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 16:17 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:17 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu6
 ```
 == probe: gpu6
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-6
+uid=12345
+home=/data/user
+hostname=gpu-6
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -181,20 +183,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:17 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:17 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:17 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:17 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu7
 ```
 == probe: gpu7
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-7
+uid=12345
+home=/data/user
+hostname=gpu-7
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -203,20 +205,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 15:18 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:18 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 15:18 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 15:18 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu8
 ```
 == probe: gpu8
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-8
+uid=12345
+home=/data/user
+hostname=gpu-8
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -225,20 +227,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 07:18 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 07:18 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 07:18 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 07:18 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu9
 ```
 == probe: gpu9
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-9
+uid=12345
+home=/data/user
+hostname=gpu-9
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -247,20 +249,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 08:15 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 08:15 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 08:15 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 08:15 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu10
 ```
 == probe: gpu10
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-10
+uid=12345
+home=/data/user
+hostname=gpu-10
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -269,20 +271,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 16:16 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:16 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 16:16 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:16 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu11
 ```
 == probe: gpu11
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-11
+uid=12345
+home=/data/user
+hostname=gpu-11
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -291,20 +293,20 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 16:19 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:19 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 16:19 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:19 /run/user/12345/agentail-m0.sock
 ```
 
 ### gpu12
 ```
 == probe: gpu12
-uid=10006
-home=/data/twye
-hostname=cvrp-gpu-12
+uid=12345
+home=/data/user
+hostname=gpu-12
 python3=/usr/bin/python3
 python3_version=3.10.12
 run_user=yes
@@ -313,19 +315,19 @@ claude=MISSING
 codex=MISSING 
 tmux=/usr/bin/tmux
 
-== forward test: -R /run/user/10006/agentail-m0.sock
-srw------- 1 twye twye 0 Sep 30 16:17 /run/user/10006/agentail-m0.sock
+== forward test: -R /run/user/12345/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:17 /run/user/12345/agentail-m0.sock
 OK: remote -> local unix socket forwarding works
 
 == stale socket check (after an unclean disconnect the file may remain):
-srw------- 1 twye twye 0 Sep 30 16:17 /run/user/10006/agentail-m0.sock
+srw------- 1 user user 0 Sep 30 16:17 /run/user/12345/agentail-m0.sock
 ```
 
 ## Conclusions
 
 - Hosts where forwarding works: all 13 (gpu0–gpu12). `OK: remote -> local unix socket forwarding works` on every host.
 - Hosts without `/run/user/<uid>` (fallback path, NFS warning?): none. `run_user=yes` everywhere, so the remote
-  socket goes in `/run/user/10006/` (tmpfs, per-host). HOME (`/data/twye`) is NFS and shared across all hosts,
+  socket goes in `/run/user/12345/` (tmpfs, per-host). HOME (`/data/user`) is NFS and shared across all hosts,
   so nothing per-host (sockets, runtime state) may live under `~`; only the hook script and config go there.
 - Hosts with python3 < 3.6 or missing: none. gpu0–1: 3.8.10; gpu2–4: 3.10.4; gpu5–12: 3.10.12.
 - SoC cluster: which login node will run agents: N/A (no SoC cluster in use).
@@ -335,7 +337,7 @@ srw------- 1 twye twye 0 Sep 30 16:17 /run/user/10006/agentail-m0.sock
 - Stale socket: on every host the socket file still exists after the ssh disconnect. M3 must clean it up
   (`rm -f` before `-R`, and/or `-o StreamLocalBindUnlink=yes`), or the next `-R` will fail to bind.
 - `claude` / `codex` show MISSING in the non-interactive ssh shell, but both are installed: an interactive
-  login finds `/data/twye/.local/bin/claude` (gpu7, gpu8) and `/data/twye/.local/bin/codex` (gpu7), both on
+  login finds `/data/user/.local/bin/claude` (gpu7, gpu8) and `/data/user/.local/bin/codex` (gpu7), both on
   the shared NFS HOME, so one install serves all hosts. `~/.local/bin` is only added to PATH by the
   interactive shell setup. M3 consequence: `add-host` must not detect agents with a bare `command -v` over
   `ssh host cmd`; check `~/.local/bin/{claude,codex}` explicitly (or run the check via `bash -lc`), and never

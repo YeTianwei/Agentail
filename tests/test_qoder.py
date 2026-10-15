@@ -164,7 +164,7 @@ def test_add_host_qoder_cn(fake_ssh, short_tmp, monkeypatch):
     assert add_host("gpu1", ssh=str(fake_ssh.path), out=lines.append, wait=False) == 0, lines
     doc = json.loads((home / ".qoder-cn" / "settings.json").read_text())
     cmd = doc["hooks"]["Stop"][0]["hooks"][0]["command"]
-    assert "--agent qoder_cn " in cmd and "~/.agentail/agentail-hook.py" in cmd
+    assert "--agent qoder_cn " in cmd and '"$HOME"/.agentail/agentail-hook.py' in cmd
     assert not (home / ".qoder").exists()
     assert remove_host("gpu1", ssh=str(fake_ssh.path), out=lines.append) == 0, lines
     assert not (home / ".qoder-cn" / "settings.json").exists()

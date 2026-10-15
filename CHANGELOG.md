@@ -50,6 +50,11 @@
 
 ### Fixed
 
+- **A server whose `$HOME` has a space.** The hook command on servers wrote the script path as
+  an unquoted `~/.agentail/agentail-hook.py`, which the shell splits at a space in `$HOME`; it is
+  now `"$HOME"/.agentail/agentail-hook.py`. This changes the command on servers, which Codex
+  asks you to approve again once (as the receiver change in this release already does).
+
 - **A server whose ssh login failed once stayed red until the daemon restarted.** A login failure
   is often temporary: the keyring or ssh-agent is unlocked after the desktop session starts the
   daemon, a VPN is not up yet. It is now retried after 1 minute, then less often (up to every 15
@@ -87,7 +92,7 @@
   them when its own environment has none; `agentail doctor` shows the record and warns when your
   shell disagrees, without printing proxy passwords; `uninstall-local` removes it.
 - **Servers that share an NFS home but give you different uids.** `add-host` wrote the uid of the
-  server it ran on into the hook command (`--sock /run/user/10006/agentail.sock`), and that
+  server it ran on into the hook command (`--sock /run/user/12345/agentail.sock`), and that
   command lives in the shared config, so the other servers' events went nowhere, while
   `add-host` said "already up to date". The command now says `/run/user/{uid}/...` and the hook
   fills in the uid on each server; `hosts.toml` keeps each server's own path for its tunnel.

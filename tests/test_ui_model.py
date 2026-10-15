@@ -155,7 +155,7 @@ def test_unknown_status_maps_to_fixed_css_class():
 
 
 def test_short_cwd():
-    assert short_cwd("/data/twye/Baselines/SpatialVLA/") == "…/Baselines/SpatialVLA"
+    assert short_cwd("/data/user/Baselines/SpatialVLA/") == "…/Baselines/SpatialVLA"
     assert short_cwd("/tmp") == "/tmp"
     assert short_cwd("") == ""
 

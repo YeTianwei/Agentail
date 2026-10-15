@@ -29,3 +29,28 @@ def test_merge_keeps_user_hooks_and_is_idempotent():
 def test_remove_restores_original():
     assert remove_hooks(merge_hooks(USER, ["PreToolUse", "Stop"], **ARGS)) == USER
     assert remove_hooks(merge_hooks({}, ["Stop"], **ARGS)) == {}
+
+
+def test_home_relative_hook_path_survives_a_space_in_home(tmp_path):
+    """add-host writes ``~/.agentail/agentail-hook.py``; the shell must find it even when
+    $HOME has a space (an unquoted ``~`` would split the path)."""
+    import subprocess
+    import sys
+
+    from agentail.install import hookjson
+
+    home = tmp_path / "my home"
+    (home / ".agentail").mkdir(parents=True)
+    script = home / ".agentail" / "agentail-hook.py"
+    script.write_text("import sys, pathlib; pathlib.Path(sys.argv[1]).write_text('ran')\n")
+    cmd = hookjson.hook_command(
+        sys.executable, "~/.agentail/agentail-hook.py", "claude", "Stop", "/s"
+    )
+    assert '"$HOME"/.agentail/agentail-hook.py' in cmd
+    parsed = hookjson.parse_command(cmd)
+    assert parsed is not None and parsed.hook_path == "~/.agentail/agentail-hook.py"
+    mark = tmp_path / "mark"
+    # the hook gets the mark as its first argument in place of --agent
+    cmd = cmd.replace("--agent", str(mark), 1)
+    subprocess.run(["sh", "-c", cmd], env={"HOME": str(home), "PATH": "/usr/bin:/bin"}, check=True)
+    assert mark.read_text() == "ran"
