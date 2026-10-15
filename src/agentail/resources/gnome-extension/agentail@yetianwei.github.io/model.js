@@ -828,3 +828,37 @@ export class RateLimiter {
         return true;
     }
 }
+
+// ---- error containment ---------------------------------------------------------------
+
+// Run fn() and report what it throws to onError instead of the caller. The shell's main
+// loop callbacks (socket reads, idle renders) use this: an exception escaping one of them
+// would stop the panel from updating until GNOME Shell restarts.
+export function guard(fn, onError) {
+    try {
+        fn();
+        return true;
+    } catch (e) {
+        try {
+            onError(e);
+        } catch {
+            // nothing left to report to
+        }
+        return false;
+    }
+}
+
+// Hand one line read from ui.sock to `handle`. A line that is not JSON is skipped (the
+// next snapshot repairs any gap) and an exception from `handle` goes to onError, so the
+// read loop always goes on to read the next line. Returns whether `handle` succeeded.
+export function dispatchLine(line, handle, onError) {
+    let msg = null;
+    try {
+        msg = JSON.parse(line);
+    } catch {
+        return false;
+    }
+    if (!msg)
+        return false;
+    return guard(() => handle(msg), onError);
+}

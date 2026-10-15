@@ -80,8 +80,104 @@ def test_extension_never_renders_markup():
         "useBodyMarkup",
         "use-body-markup",
         "clutter_text.set_markup",
+        "bannerMarkup",  # GNOME 45's Notification params
     ):
         assert banned not in code, banned
+
+
+def _code():
+    """extension.js without // comments."""
+    return re.sub(r"//.*", "", (EXT / "extension.js").read_text())
+
+
+def _block(code, header):
+    """The text of the brace-balanced block opened by the `{` that ends `header`."""
+    assert header.endswith("{")
+    start = code.index(header)
+    depth, i = 0, start + len(header) - 1
+    while True:
+        depth += {"{": 1, "}": -1}.get(code[i], 0)
+        i += 1
+        if depth == 0:
+            return code[start:i]
+
+
+@pytest.mark.skipif(shutil.which("gjs") is None, reason="gjs not installed")
+def test_extension_js_parses(tmp_path):
+    # It cannot run outside GNOME Shell, but gjs can compile it: drop the imports and
+    # exports and wrap it in a function that is never called.
+    src = (EXT / "extension.js").read_text()
+    src = re.sub(r"^import .*;$", "", src, flags=re.M)
+    src = re.sub(r"^export (default )?", "", src, flags=re.M)
+    check = tmp_path / "check.js"
+    check.write_text(f"(function () {{\n{src}\n}});\n")
+    proc = subprocess.run(["gjs", str(check)], capture_output=True, text=True, timeout=60)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_read_loop_cannot_be_stopped_by_a_message():
+    """A throwing handler must not end UiClient's read loop (the panel would freeze)."""
+    client = _block(_code(), "class UiClient {")
+    read = _block(client, "_read() {")
+    assert "M.dispatchLine(line, this._onMessage," in read  # tested under gjs in test_model.js
+    assert read.index("M.dispatchLine(") < read.rindex("this._read();")
+    assert "M.guard(this._onDisconnect," in read
+    assert "this._onMessage(" not in client  # only ever called through dispatchLine
+    assert "JSON.parse" not in client
+
+
+def test_main_loop_callbacks_are_guarded():
+    code = _code()
+    render = _block(code, "_scheduleRender() {")
+    assert "M.guard(() => {" in render and "this._renderTopBar();" in render
+    assert render.index("M.guard(") < render.index("this._renderTopBar();")
+    notify = _block(code, "_notify(n) {")
+    body = r"M\.guard\(\(\) => this\._showNotification\(n\), logFailure\([^)]*\)\);"
+    assert re.fullmatch(r"_notify\(n\) \{\s*" + body + r"\s*\}", notify), notify
+
+
+def test_notifications_work_on_every_declared_shell():
+    """GNOME 45 has positional MessageTray constructors and showNotification; 46+ do not."""
+    code = _code()
+    meta = json.loads((EXT / "metadata.json").read_text())
+    assert "Config.PACKAGE_VERSION" in code
+    show = _block(code, "_showNotification(n) {")
+    assert "new MessageTray.Source({title: 'Agentail', icon})" in show
+    assert "new MessageTray.Source('Agentail'," in show
+    assert "this._source.addNotification(notification)" in show
+    assert "this._source.showNotification(notification)" in show
+    assert show.count("SHELL_MAJOR >= 46") == 3
+    if "45" not in meta["shell-version"]:
+        pytest.fail("drop the GNOME 45 path together with 45 in metadata.json")
+
+
+def test_boxes_use_orientation_where_the_shell_has_it():
+    """St.BoxLayout:vertical is deprecated from GNOME 48; 45-47 only have it."""
+    code = _code()
+    assert len(re.findall(r"\bvertical\s*:", code)) == 1
+    compat = re.search(r"const VERTICAL = (.*?);", code, re.S).group(1)
+    assert "St.BoxLayout.find_property('orientation')" in compat
+    assert "{orientation: Clutter.Orientation.VERTICAL}" in compat
+    assert "{vertical: true}" in compat
+    assert "...VERTICAL" in _block(code, "function vbox(styleClass, props = {}) {")
+
+
+def test_every_private_call_is_defined():
+    """A typo'd this._name(...) would only fail inside GNOME Shell, at that moment."""
+    code = _code()
+    called = set(re.findall(r"\bthis\.(_\w+)\(", code))
+    methods = set(re.findall(r"^ {4}(_\w+)\([^)]*\) \{$", code, re.M))
+    assigned = set(re.findall(r"\bthis\.(_\w+) = ", code))
+    assert called, "no calls found?"
+    assert called <= methods | assigned, called - methods - assigned
+
+
+def test_declared_shell_versions_match_readme():
+    versions = json.loads((EXT / "metadata.json").read_text())["shell-version"]
+    assert versions == [str(v) for v in range(int(versions[0]), int(versions[-1]) + 1)]
+    readme = (Path(__file__).parent.parent / "README.md").read_text()
+    assert f"GNOME {versions[0]}–{versions[-1]} desktops" in readme
+    assert f"GNOME%20{versions[0]}%E2%80%93{versions[-1]}" in readme
 
 
 class FakeRunner:

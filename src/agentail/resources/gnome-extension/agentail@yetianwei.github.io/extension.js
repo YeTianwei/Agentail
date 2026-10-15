@@ -15,6 +15,7 @@ import GObject from 'gi://GObject';
 import Pango from 'gi://Pango';
 import St from 'gi://St';
 
+import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as MessageTray from 'resource:///org/gnome/shell/ui/messageTray.js';
 import * as PanelMenu from 'resource:///org/gnome/shell/ui/panelMenu.js';
@@ -35,6 +36,16 @@ const USAGE_BAR_WIDTH = 120;
 // "version-name". GNOME Shell keeps an extension's code in memory until it restarts, so
 // after an upgrade the disk stamp differs from this one and the panel says so.
 const BUILD = 'dev';
+const SHELL_MAJOR = Number.parseInt(Config.PACKAGE_VERSION, 10);
+// GNOME 48 added St.BoxLayout:orientation and deprecated :vertical; 45-47 only have :vertical.
+const VERTICAL = St.BoxLayout.find_property('orientation')
+    ? {orientation: Clutter.Orientation.VERTICAL}
+    : {vertical: true};
+
+// An onError callback for M.guard: log with the stack and carry on.
+function logFailure(what) {
+    return e => console.error(`agentail: ${what}: ${e}\n${e?.stack ?? ''}`);
+}
 
 function uiSocketPath() {
     return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
@@ -120,6 +131,8 @@ class UiClient {
     }
 
     _read() {
+        if (!this._stream)
+            return; // stopped while a message was being handled
         this._stream.read_line_async(GLib.PRIORITY_DEFAULT, this._cancellable, (s, res) => {
             let line = null;
             try {
@@ -130,18 +143,12 @@ class UiClient {
             }
             if (line === null) {
                 this._close();
-                this._onDisconnect();
+                M.guard(this._onDisconnect, logFailure('cannot show the disconnect'));
                 this._retry();
                 return;
             }
-            let msg = null;
-            try {
-                msg = JSON.parse(line);
-            } catch {
-                // ignore a malformed line; the next snapshot repairs any gap
-            }
-            if (msg)
-                this._onMessage(msg);
+            // Never lets an exception out: one bad message must not end the read loop.
+            M.dispatchLine(line, this._onMessage, logFailure('cannot handle a daemon message'));
             this._read();
         });
     }
@@ -194,7 +201,7 @@ function hbox(styleClass, props = {}) {
 }
 
 function vbox(styleClass, props = {}) {
-    return new St.BoxLayout({style_class: styleClass, vertical: true, ...props});
+    return new St.BoxLayout({style_class: styleClass, ...VERTICAL, ...props});
 }
 
 const AgentailIndicator = GObject.registerClass(
@@ -292,9 +299,11 @@ class AgentailIndicator extends PanelMenu.Button {
             return;
         this._renderId = GLib.idle_add(GLib.PRIORITY_DEFAULT_IDLE, () => {
             this._renderId = 0;
-            this._renderTopBar();
-            if (this.menu.isOpen && this._add.mode !== 'picking')
-                this._renderPanel();  // a rebuild would drop what is being typed
+            M.guard(() => {
+                this._renderTopBar();
+                if (this.menu.isOpen && this._add.mode !== 'picking')
+                    this._renderPanel();  // a rebuild would drop what is being typed
+            }, logFailure('cannot render the top bar'));
             return GLib.SOURCE_REMOVE;
         });
     }
@@ -1056,26 +1065,50 @@ class AgentailIndicator extends PanelMenu.Button {
 
     // -- notifications -------------------------------------------------------------------------
 
+    // A notification API that differs on this shell must not break the client: log and go on.
     _notify(n) {
+        M.guard(() => this._showNotification(n), logFailure('cannot show a notification'));
+    }
+
+    // GNOME 46 made MessageTray's Source and Notification take one params object (and
+    // replaced showNotification with addNotification); 45 takes positional arguments.
+    _showNotification(n) {
         if (!this._source) {
-            this._source = new MessageTray.Source({
-                title: 'Agentail',
-                icon: this._gicon('agentail-mark.svg'),
-            });
-            this._source.connect('destroy', () => {
+            const icon = this._gicon('agentail-mark.svg');
+            let source;
+            if (SHELL_MAJOR >= 46) {
+                source = new MessageTray.Source({title: 'Agentail', icon});
+            } else {
+                source = new MessageTray.Source('Agentail', 'dialog-information-symbolic');
+                source.getIcon = () => icon; // 45 draws the source icon from getIcon()
+            }
+            source.connect('destroy', () => {
                 this._source = null;
             });
-            Main.messageTray.add(this._source);
+            Main.messageTray.add(source);
+            this._source = source;
         }
-        const notification = new MessageTray.Notification({
-            source: this._source,
-            title: n.title,
-            body: n.body, // use-body-markup stays false: payload text is never markup
-            gicon: KNOWN_AGENTS.includes(n.agent) ? this._gicon(`agent-${n.agent}.png`) : null,
-            urgency: n.urgent ? MessageTray.Urgency.HIGH : MessageTray.Urgency.NORMAL,
-        });
+        const gicon = KNOWN_AGENTS.includes(n.agent) ? this._gicon(`agent-${n.agent}.png`) : null;
+        const urgency = n.urgent ? MessageTray.Urgency.HIGH : MessageTray.Urgency.NORMAL;
+        let notification;
+        if (SHELL_MAJOR >= 46) {
+            notification = new MessageTray.Notification({
+                source: this._source,
+                title: n.title,
+                body: n.body, // use-body-markup stays false: payload text is never markup
+                gicon,
+                urgency,
+            });
+        } else {
+            // The 45 banner is plain text unless the params ask for markup; they never do.
+            notification = new MessageTray.Notification(this._source, n.title, n.body, {gicon});
+            notification.setUrgency(urgency);
+        }
         notification.connect('activated', () => this.menu.open());
-        this._source.addNotification(notification);
+        if (SHELL_MAJOR >= 46)
+            this._source.addNotification(notification);
+        else
+            this._source.showNotification(notification);
     }
 
     destroy() {

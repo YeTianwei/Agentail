@@ -33,7 +33,14 @@
   others work as usual. Aliases such as `me@gpu7` and `me_gpu7` no longer share one socket, and
   `add-host` refuses a server where the socket path under `$HOME` would be too long, before
   installing anything.
-
+- **One bad message no longer freezes the GNOME panel.** If handling a message from the daemon
+  threw (for example a notification call that this GNOME version does not have), the extension
+  stopped reading and the panel stayed frozen until GNOME Shell restarted. Each message, each
+  redraw and each notification is now handled on its own: a failure is written to the GNOME Shell
+  log with its stack and the panel keeps updating.
+- **Notifications on GNOME 45.** The extension used the notification API of GNOME 46 and later,
+  which GNOME 45 does not have; it now uses the older calls there. Vertical boxes use
+  `orientation` where GNOME has it (48 and later) instead of the deprecated `vertical`.
 - **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
   keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
   now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login
@@ -82,6 +89,11 @@
 - **Per-model limits.** Max plans have a weekly limit for one model next to the overall one; it now
   has its own row, "Week · Fable". Codex limits other than the main one (`rateLimitsByLimitId`,
   `limit_id` in the session files) are shown the same way. `agentail status` lists them too.
+
+### Changed
+
+- **The GNOME extension declares GNOME 49 too (45–49).** Only 46 is tested on a real desktop; 45,
+  47, 48 and 49 were checked against the upstream GNOME Shell sources, not run.
 
 ## 0.0.3 — 2026-10-12
 

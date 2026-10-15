@@ -9,7 +9,7 @@ with your subscription limits one click away.
 
 [![Release](https://img.shields.io/github/v/release/YeTianwei/Agentail?include_prereleases)](https://github.com/YeTianwei/Agentail/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9348-orange?logo=linux&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 
 <img src="docs/images/panel.png" alt="The Agentail panel: sessions grouped by agent, a permission request with its command, and two connected servers" width="440">
@@ -111,7 +111,7 @@ account as your desktop, one card covers both.
 | Where | Status |
 |---|---|
 | Ubuntu 24.04, GNOME 46 (X11 and Wayland) | ✅ tested |
-| Other GNOME 45–48 desktops | 👍 should work |
+| Other GNOME 45–49 desktops | 👍 should work (45, 47–49 checked against upstream sources only) |
 | Other Linux desktops | AppIndicator fallback: `agentail ui` |
 | Remote servers | any Linux with Python 3.6+ and key-based SSH |
 

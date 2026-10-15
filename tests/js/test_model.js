@@ -443,6 +443,46 @@ test('usage updates, removal, and disconnect', () => {
     eq(M.usageCards(st, NOW), []);
 });
 
+test('guard reports what throws and returns', () => {
+    const errors = [];
+    eq(M.guard(() => {}, e => errors.push(e)), true);
+    eq(M.guard(() => {
+        throw new Error('boom');
+    }, e => errors.push(e.message)), false);
+    eq(errors, ['boom']);
+    // A throwing reporter is swallowed too: nothing escapes into the main loop.
+    eq(M.guard(() => {
+        throw new Error('a');
+    }, () => {
+        throw new Error('b');
+    }), false);
+});
+
+test('the read loop goes on after a message handler throws', () => {
+    // Mirrors UiClient._read: dispatch each line, then read the next one.
+    const lines = [
+        '{"type":"notify","kind":"attention"}',
+        'not json',
+        'null',
+        '{"type":"session_update","boom":true}',
+        JSON.stringify({type: 'session_update', session: s('local', 'a', 'running')}),
+        '{"type":"snapshot","sessions":[],"hosts":[]}',
+    ];
+    const st = new M.UiState();
+    const handled = [], errors = [];
+    const handle = msg => {
+        if (msg.boom || msg.type === 'notify')
+            throw new TypeError(`no such API for ${msg.type}`);
+        st.apply(msg);
+        handled.push(msg.type);
+    };
+    const results = lines.map(line => M.dispatchLine(line, handle, e => errors.push(e.message)));
+    eq(results, [false, false, false, false, true, true]);
+    eq(handled, ['session_update', 'snapshot']);
+    eq(errors, ['no such API for notify', 'no such API for session_update']);
+    ok(st.connected, 'the snapshot after the failures was applied');
+});
+
 for (const [name, fn] of tests) {
     try {
         fn();
