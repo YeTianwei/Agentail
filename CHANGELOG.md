@@ -37,6 +37,16 @@
   working: an original backed up the old way is still restored from, and old backups are never
   deleted; `agentail doctor` lists them. The README now lists everything Agentail keeps on disk.
 - `agentail daemon --record` writes its files readable only by you (0600).
+- **Hook commands on servers change once, so Codex asks again.** To fix the two server problems
+  under "Fixed" (several receivers, shared homes with different uids), the hook commands on
+  servers now carry one `--sock` per receiver and `/run/user/{uid}/agentail-<desktop id>.sock`.
+  **After upgrading**, run `agentail add-host <alias>` again for each server (from every desktop
+  that watches it), then **approve the agentail hooks in Codex again** on that server (start
+  `codex`, or `/hooks`). The same happens on any machine whenever a receiver is added or removed
+  there. Hooks on your desktop that only feed its own daemon keep exactly the same command and
+  stay trusted; servers you do not add again keep working as before. The socket under `$HOME`,
+  used where `/run/user` does not exist, has a longer name now: `add-host` refuses a `$HOME`
+  deeper than 63 characters there.
 
 ### Fixed
 
@@ -76,6 +86,24 @@
   upper and lower case) in `~/.agentail/shell-env.json` (readable only by you). The daemon uses
   them when its own environment has none; `agentail doctor` shows the record and warns when your
   shell disagrees, without printing proxy passwords; `uninstall-local` removes it.
+- **Servers that share an NFS home but give you different uids.** `add-host` wrote the uid of the
+  server it ran on into the hook command (`--sock /run/user/10006/agentail.sock`), and that
+  command lives in the shared config, so the other servers' events went nowhere, while
+  `add-host` said "already up to date". The command now says `/run/user/{uid}/...` and the hook
+  fills in the uid on each server; `hosts.toml` keeps each server's own path for its tunnel.
+- **Several receivers for one machine.** A machine had room for one receiver only: on a desktop
+  that is also a server for another desktop, `install-local` and `add-host` replaced each other's
+  hooks and shared one manifest; two desktops watching the same server used the same remote
+  socket, and each tunnel deleted the other's on every reconnect. Now the hook takes `--sock` once
+  per receiver and sends every event to each socket that exists (one shared `--timeout`; a dead
+  receiver never blocks the others). Each desktop gets its own socket on a server,
+  `agentail-<desktop id>.sock`; `install-local`/`uninstall-local` and `add-host`/`remove-host`
+  add and remove only their own socket, the entries go away with the last one, and the original
+  file still comes back byte for byte. `add-host` keeps its server-side manifest in
+  `~/.agentail/install-remote.json` (`install.json` from earlier versions is still read); backup
+  rotation keeps the originals that either manifest still names.
+  `agentail doctor` accepts other receivers next to this desktop's own socket.
+
 - **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
   keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
   now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login

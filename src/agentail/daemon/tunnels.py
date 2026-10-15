@@ -3,7 +3,10 @@
 Contract (design doc section 7.2):
 
 * Before every (re)connect: ``ssh -o BatchMode=yes <alias> 'rm -f <remote_sock>'``
-  to clear a stale socket left by an unclean disconnect.
+  to clear a stale socket left by an unclean disconnect. ``remote_sock`` (hosts.toml)
+  is the concrete path on that host and is named after this desktop
+  (``agentail-<desktop id>.sock``), so another desktop's tunnel to the same server never
+  removes it.
 * Then: ``ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes
   -o ServerAliveInterval=15 -o ServerAliveCountMax=3
   -R <remote_sock>:<local host socket> <alias>``.

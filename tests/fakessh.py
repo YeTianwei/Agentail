@@ -1,10 +1,12 @@
 """A fake `ssh` for tests: no network, no real ~/.ssh.
 
 Each host alias is a directory ``<root>/<alias>/`` with a ``home/`` that acts as the
-remote $HOME (symlink two of them to model a shared NFS home). Remote commands run
-locally through ``sh -c`` in that home, like sshd does. ``-N -R remote:local``
-binds ``remote`` and relays every connection to ``local``; like a real sshd it
-refuses to bind over an existing file and never removes the socket on exit.
+remote $HOME (symlink two of them to model a shared NFS home, or link it to the test's
+own HOME to model a desktop that is also a server). Remote commands run locally
+through ``sh -c`` in that home, like sshd does; ``<root>/<alias>/bin`` comes first on
+their PATH (``add_host(uid=...)`` puts an ``id`` there that reports another uid).
+``-N -R remote:local`` binds ``remote`` and relays every connection to ``local``; like a
+real sshd it refuses to bind over an existing file and never removes the socket on exit.
 
 ``<root>/<alias>/scenario`` selects the behaviour:
 
@@ -59,6 +61,8 @@ home = os.path.realpath(os.path.join(hostdir, "home"))  # shared NFS homes: same
 
 if not no_cmd:
     env = dict(os.environ, HOME=home)
+    if os.path.isdir(os.path.join(hostdir, "bin")):
+        env["PATH"] = os.path.join(hostdir, "bin") + os.pathsep + env.get("PATH", "")
     sys.exit(subprocess.run(["sh", "-c", cmd], cwd=home, env=env).returncode)
 
 if scenario == "refuse":
@@ -118,13 +122,29 @@ class FakeSsh:
         self.path.write_text(f"#!{sys.executable}\n" + SCRIPT.replace("__ROOT__", repr(str(root))))
         self.path.chmod(0o755)
 
-    def add_host(self, alias: str, scenario: str = "ok", share_home_with: str = "") -> Path:
+    def add_host(
+        self,
+        alias: str,
+        scenario: str = "ok",
+        share_home_with: str = "",
+        uid: int | None = None,
+        home: Path | None = None,
+    ) -> Path:
         d = self.root / alias
         d.mkdir()
         if share_home_with:
             (d / "home").symlink_to(self.home(share_home_with))
+        elif home is not None:
+            (d / "home").symlink_to(home)
         else:
             (d / "home").mkdir()
+        if uid is not None:
+            (d / "bin").mkdir()
+            fake_id = d / "bin" / "id"
+            fake_id.write_text(
+                f'#!/bin/sh\nif [ "$1" = -u ]; then echo {uid}; else exec /usr/bin/id "$@"; fi\n'
+            )
+            fake_id.chmod(0o755)
         self.set_scenario(alias, scenario)
         return d / "home"
 

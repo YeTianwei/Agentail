@@ -132,7 +132,13 @@ def test_constants_in_sync_with_protocol():
     for node in tree.body:
         if isinstance(node, ast.Assign) and len(node.targets) == 1:
             name = getattr(node.targets[0], "id", None)
-            if name in ("PROTOCOL_VERSION", "MAX_STDIN_BYTES", "PING_EVENT", "ENV_WHITELIST"):
+            if name in (
+                "PROTOCOL_VERSION",
+                "MAX_STDIN_BYTES",
+                "PING_EVENT",
+                "ENV_WHITELIST",
+                "UID_PLACEHOLDER",
+            ):
                 consts[name] = (
                     ast.literal_eval(node.value)
                     if name != "MAX_STDIN_BYTES"
@@ -142,6 +148,7 @@ def test_constants_in_sync_with_protocol():
     assert consts["MAX_STDIN_BYTES"] == protocol.MAX_STDIN_BYTES
     assert consts["PING_EVENT"] == protocol.PING_EVENT
     assert tuple(consts["ENV_WHITELIST"]) == protocol.ENV_WHITELIST
+    assert consts["UID_PLACEHOLDER"] == paths.UID_PLACEHOLDER
 
 
 def test_python36_syntax_subset():
@@ -155,3 +162,62 @@ def test_python36_syntax_subset():
             assert node.module not in banned_imports and node.module != "__future__"
         if isinstance(node, ast.Import):
             assert not {a.name for a in node.names} & banned_imports
+
+
+def test_several_sockets_and_the_uid_placeholder(short_tmp):
+    """One message to every receiver; {uid} is expanded by the hook itself; a missing or
+    duplicate socket changes nothing."""
+    import os
+
+    (short_tmp / str(os.getuid())).mkdir()
+    got_a, got_b = [], []
+    ta = _serve_once(short_tmp / str(os.getuid()) / "a.sock", got_a)
+    tb = _serve_once(short_tmp / "b.sock", got_b)
+    placeholder = str(short_tmp / "{uid}" / "a.sock")
+    args = ["--agent", "claude", "--event", "Stop", "--sock", placeholder]
+    args += ["--sock", str(short_tmp / "none.sock"), "--sock", str(short_tmp / "b.sock")]
+    args += ["--sock", str(short_tmp / str(os.getuid()) / "a.sock")]  # same as the first
+    r = _run_hook(args, b'{"session_id": "s1"}')
+    ta.join(5)
+    tb.join(5)
+    assert r.returncode == 0 and r.stdout == b"" and r.stderr == b""
+    for got in (got_a, got_b):
+        assert len(got) == 1 and got[0].count(b"\n") == 1
+        assert protocol.parse_line(got[0].rstrip(b"\n")).payload() == {"session_id": "s1"}
+
+
+def test_a_hung_receiver_does_not_starve_the_next_one(short_tmp):
+    hung = short_tmp / "hung.sock"
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(hung))
+    srv.listen(0)  # accepts into the backlog but never reads
+    got = []
+    t = _serve_once(short_tmp / "ok.sock", got)
+    try:
+        start = time.monotonic()
+        big = b"x" * protocol.MAX_STDIN_BYTES  # fills the hung socket's buffer
+        args = ["--agent", "a", "--event", "e", "--timeout", "1"]
+        args += ["--sock", str(hung), "--sock", str(short_tmp / "ok.sock")]
+        r = _run_hook(args, big)
+        t.join(5)
+        assert r.returncode == 0 and r.stdout == b""
+        assert time.monotonic() - start < 4
+        assert len(got) == 1
+    finally:
+        srv.close()
+
+
+def test_ping_reports_every_socket(short_tmp):
+    a, b = str(short_tmp / "a.sock"), str(short_tmp / "b.sock")
+    got_a, got_b = [], []
+    ta = _serve_once(Path(a), got_a)
+    tb = _serve_once(Path(b), got_b)
+    r = _run_hook(["--ping", "--sock", a, "--sock", b])
+    ta.join(5)
+    tb.join(5)
+    assert r.returncode == 0 and len(got_a) == len(got_b) == 1
+    got = []
+    t = _serve_once(short_tmp / "c.sock", got)
+    r = _run_hook(["--ping", "--sock", str(short_tmp / "c.sock"), "--sock", str(short_tmp / "x")])
+    t.join(5)
+    assert r.returncode == 1 and len(got) == 1  # one receiver missing: not a success

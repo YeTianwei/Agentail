@@ -177,7 +177,17 @@ agentail remove-host gpu7
 ```
 
 Servers that share one NFS home are recognised: the hook is installed once and removed with the
-last of them. On each server, run `codex` once to trust its hooks.
+last of them, and it works even when your uid differs between them. On each server, run `codex`
+once to trust its hooks.
+
+One server can be watched from several desktops, and a desktop can itself be a server for another
+one: each receiver gets its own socket, the hook sends every event to all of them, and removing
+one leaves the others working. Codex asks you to approve the hooks again whenever a receiver is
+added or removed on a machine.
+
+> **Upgrading from 0.0.3 or earlier:** run `agentail add-host <alias>` once more for each server
+> (from every desktop that watches it) to switch it to the new socket name; then approve the
+> changed hooks in `codex` on that server. Until then the old setup keeps working as before.
 
 ## ⚙️ How it works
 
@@ -252,8 +262,9 @@ by you.
 | `~/.local/state/agentail/usage.json` | the last usage readings: plan, percentages, reset times, extra usage / credits. No login tokens | 0600 |
 | `~/.local/state/agentail/setup.json` | what the automatic setup has done | 0600 |
 | `~/.config/agentail/config.toml`, `hosts.toml` | your settings; your servers' aliases, socket paths and Python paths | 0600 when Agentail creates them |
+| `~/.config/agentail/desktop-id` | a random id that names this desktop's socket on your servers (`agentail-<id>.sock`), so several desktops can watch one server | 0600 |
 | `~/.agentail/agentail-hook.py` | the hook script (also on every server) | dir 0700, file 0700 |
-| `~/.agentail/install.json` | which agent config files Agentail changed, a hash of what it wrote and which backup holds the original (also on every server) | 0600 |
+| `~/.agentail/install.json`, `install-remote.json` | which agent config files Agentail changed, a hash of what it wrote and which backup holds the original: `install.json` for `install-local`, `install-remote.json` on a server for `add-host` (servers set up by earlier versions have `install.json`) | 0600 |
 | `~/.agentail/agent-dirs.json` | agent config dirs moved by `CLAUDE_CONFIG_DIR` / `CODEX_HOME` | 0600 |
 | `~/.agentail/backups/` | a copy of an agent config file (e.g. `claude.settings.json.1a2b3c4d.20261015-143000.bak`: agent, file, hash of its path, time) taken before every change by `install-local`, `uninstall-local`, `add-host` and `remove-host`, here and in the server's `~/.agentail/backups/`. These can contain whatever the config holds, API keys included. The 5 newest per file are kept, plus the original that uninstalling restores | dir 0700, files 0600 |
 | server: `~/.agentail/home-id`, `~/.agentail/run/` | a random id that tells servers sharing one `$HOME` apart; the tunnel socket when `/run/user/<uid>` is missing | dir 0700 |
@@ -310,6 +321,7 @@ Alt+F2, `r`, Enter (X11) or log in again.
 ```bash
 agentail remove-host gpu7      # for each server: restores its config files
 agentail uninstall-local       # restores ~/.claude/settings.json and ~/.codex/hooks.json
+                               # (other desktops' entries on this machine stay until they remove it)
 sudo apt remove agentail
 ```
 

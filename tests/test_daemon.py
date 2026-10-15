@@ -146,7 +146,7 @@ async def test_multi_host_end_to_end(runtime_env, fake_ssh, monkeypatch):
         for alias in ("gpu1", "gpu2"):
             # Both "servers" are this machine: give each its own remote socket.
             rsock = str(runtime_env / f"r-{alias}.sock")
-            monkeypatch.setattr(paths, "remote_sock_preferred", lambda uid, s=rsock: s)
+            monkeypatch.setattr(paths, "remote_sock_preferred", lambda desktop, s=rsock: s)
             lines = []
             rc = await asyncio.to_thread(add_host, alias, ssh=str(fake_ssh.path), out=lines.append)
             assert rc == 0 and f"{alias}: connected" in lines[-1], lines

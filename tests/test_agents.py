@@ -81,7 +81,7 @@ def test_dir_env_expansion_and_parent(isolated_home, monkeypatch):
 
 def test_probe_script_env_kinds(isolated_home):
     def homes(env):
-        args = ["a", "A_DIR", ".a", "a", "dir", "b", "B_HOME", ".b", "b", "parent"]
+        args = ["/run/user", "a", "A_DIR", ".a", "a", "dir", "b", "B_HOME", ".b", "b", "parent"]
         full = {"PATH": "/usr/bin:/bin", "HOME": str(isolated_home), **env}
         res = subprocess.run(
             sh_script(PROBE_SCRIPT, *args), capture_output=True, text=True, env=full, timeout=30

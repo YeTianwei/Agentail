@@ -78,11 +78,15 @@ def _install_id() -> str:
 
 
 def _has_our_hooks(path: Path) -> bool:
+    """Whether the hooks in ``path`` send to this machine's daemon (entries that only
+    feed other desktops, which added this machine as a server, do not count)."""
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return False
-    return isinstance(doc, dict) and hookjson.has_hooks(doc)
+    return isinstance(doc, dict) and any(
+        paths.is_local_sock(s) for s in hookjson.configured_socks(doc)
+    )
 
 
 def refresh_hook_script(out: Callable[[str], None] = log.info) -> bool:

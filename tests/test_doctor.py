@@ -435,3 +435,35 @@ def test_doctor_is_quiet_about_a_codex_the_daemon_finds_anyway(
     monkeypatch.setenv("PATH", str(codex.parent))
     assert shellenv.shell_codex() == str(codex)
     assert doctor.shell_env_checks() == []
+
+
+def test_hooks_with_several_receivers_and_the_uid_placeholder(
+    isolated_home, short_tmp, monkeypatch
+):
+    """Other receivers (desktops that added this machine) are fine; {uid} is expanded."""
+    import json
+    import os
+    import sys
+
+    from agentail.install import claude_config, hookjson
+
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(short_tmp / str(os.getuid())))
+    (isolated_home / ".claude").mkdir()
+    assert install_local(agents=["claude"], out=lambda _: None) == 0
+    settings = isolated_home / ".claude" / "settings.json"
+    with_uid = str(paths.local_sock()).replace(str(os.getuid()), "{uid}")
+    remote = "/run/user/{uid}/agentail-0123abcd.sock"
+    doc = json.loads(settings.read_text())
+    events = list(doc["hooks"])
+    py, hook = sys.executable, str(paths.agentail_home() / paths.HOOK_FILENAME)
+    doc = claude_config.merge_hooks(doc, events, py, hook, with_uid, paths.is_local_sock)
+    doc = claude_config.merge_hooks(doc, events, py, hook, remote)
+    assert hookjson.configured_socks(doc) == {with_uid, remote}
+    settings.write_text(json.dumps(doc))
+    c = by_name(run_checks(fake_run(), snapshot=None))["claude hooks"]
+    assert c.status == OK and "also sent to 1 other receiver" in c.detail
+
+    # Only another desktop's socket left (uninstall-local on a server): not for this daemon.
+    settings.write_text(json.dumps(hookjson.drop_socks(doc, paths.is_local_sock)))
+    c = by_name(run_checks(fake_run(), snapshot=None))["claude hooks"]
+    assert c.status == WARN and "agentail-0123abcd.sock" in c.detail and "install-local" in c.hint

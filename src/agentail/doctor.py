@@ -31,7 +31,7 @@ from agentail import agents as registry
 from agentail import paths, shellenv
 from agentail.client import clean
 from agentail.config import UsageSwitches, load_hosts, load_usage_switches
-from agentail.install import gnome, service, statusline
+from agentail.install import gnome, hookjson, service, statusline
 from agentail.install import local as local_install
 from agentail.install.local import hook_dest
 
@@ -88,12 +88,10 @@ def _our_commands(doc: dict[str, Any]) -> dict[str, str]:
     return out
 
 
-def _sock_of(command: str) -> str:
-    try:
-        argv = shlex.split(command)
-    except ValueError:
-        return ""
-    return argv[argv.index("--sock") + 1] if "--sock" in argv[:-1] else ""
+def _socks_of(command: str) -> set[str]:
+    """The sockets a hook command sends to on this machine (``{uid}`` expanded)."""
+    uid = os.getuid()
+    return {paths.expand_sock(s, uid) for s in hookjson.socks_of(command)}
 
 
 def _hook_argv(command: str) -> tuple[str, str] | None:
@@ -148,22 +146,27 @@ def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
     if problem:
         return [Check(name, FAIL, problem, "agentail install-local")]
     missing = [e for e in wanted if e not in ours]
-    socks = {_sock_of(c) for c in ours.values()}
     if missing:
         return [
             Check(name, WARN, f"missing events: {', '.join(missing)}", "agentail install-local")
         ]
-    if socks != {str(paths.local_sock())}:
+    # Other sockets are fine: desktops that added this machine as a server (add-host).
+    local = str(paths.local_sock())
+    per_event = [_socks_of(c) for c in ours.values()]
+    if not all(local in socks for socks in per_event):
+        socks = set().union(*per_event)
         return [
             Check(
                 name,
                 WARN,
-                f"hooks send to {', '.join(sorted(socks))}, the daemon listens on "
-                f"{paths.local_sock()}",
+                f"hooks send to {', '.join(sorted(socks)) or 'nothing'}, the daemon listens on "
+                f"{local}",
                 "agentail install-local",
             )
         ]
-    return [Check(name, OK, f"{len(ours)} events in {path}")]
+    others = set().union(*per_event) - {local}
+    also = f" (also sent to {len(others)} other receiver{'s' if len(others) != 1 else ''})"
+    return [Check(name, OK, f"{len(ours)} events in {path}" + (also if others else ""))]
 
 
 def _check_status_line(path: Path) -> list[Check]:
@@ -256,8 +259,11 @@ def legacy_backup_checks() -> list[Check]:
     """Backups that installs before 0.0.4 left next to the agent configs
     (``<file>.agentail-bak.<time>``, with the config's mode). Agentail never deletes them;
     this only says where they are and which one uninstall-local still needs."""
-    manifest = local_install.load_manifest()
-    files = manifest.get("files", {})
+    # add-host's manifest too, when this machine is also a server for another desktop.
+    files = {
+        **local_install.load_manifest(paths.REMOTE_MANIFEST).get("files", {}),
+        **local_install.load_manifest().get("files", {}),
+    }
     configs = {spec.config_path() for spec in registry.AGENTS} | {Path(p) for p in files}
     needed = {
         e.get("pristine") for e in files.values() if isinstance(e, dict) and e.get("pristine")
@@ -278,7 +284,11 @@ def legacy_backup_checks() -> list[Check]:
             detail += f", {readable} readable by others"
         hint = "they may hold secrets from the config; delete them when no longer needed"
         if keep:
-            hint += f", except {keep[0].name} until `agentail uninstall-local` (the original)"
+            hint += (
+                f", except {keep[0].name} until the hooks are uninstalled "
+                "(`agentail uninstall-local`, or remove-host from the desktop that added this "
+                "machine): it is the original"
+            )
         checks.append(Check("old backups", INFO, detail, hint))
     return checks
 

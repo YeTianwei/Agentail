@@ -1,7 +1,8 @@
 """The agents Agentail supports: one registry for installers, doctor and the UIs.
 
 Adding an agent means: an adapter in ``agentail.adapters``, a config module in
-``agentail.install`` with ``merge_hooks(doc, events, python, hook_path, sock)``, one
+``agentail.install`` with ``merge_hooks(doc, events, python, hook_path, sock, drop=None)``
+(``hookjson.merge_hooks`` does the work), one
 ``AgentSpec`` below, an icon (``icons/agent-<name>.png``, listed in ``icons/NOTICE.md``)
 and the display name in the GNOME extension's ``model.js`` (a test keeps it in sync).
 
@@ -31,7 +32,9 @@ from agentail import paths
 from agentail.adapters import get_adapter
 from agentail.install import claude_compat_config, claude_config, codex_config
 
-MergeFn = Callable[[dict[str, Any], list[str], str, str, str], dict[str, Any]]
+# (doc, events, python, hook_path, sock, drop=None) -> new doc; ``drop`` selects the
+# receivers (sockets) already in ``doc`` that the installer replaces (hookjson.merge_hooks).
+MergeFn = Callable[..., dict[str, Any]]
 
 # {agent: absolute config dir} as resolved by the last `install-local` from a shell, for
 # agents whose dir came from their environment variable. In ~/.agentail.
@@ -55,7 +58,7 @@ class AgentSpec:
     dir_default: str  # the agent's config dir, relative to $HOME; its presence means "used here"
     config_file: str  # hook config file inside that dir
     binary: str  # looked up on remote hosts only to warn when it is missing
-    merge: MergeFn  # (doc, events, python, hook_path, sock) -> new doc
+    merge: MergeFn  # (doc, events, python, hook_path, sock, drop=None) -> new doc
     dir_env: str = ""  # environment variable that overrides the config dir
     dir_env_is_parent: bool = False  # dir_env replaces $HOME, not the dir (e.g. GEMINI_CLI_HOME)
     trust_note: str = ""  # what the user must do before the agent runs new hooks

@@ -12,13 +12,20 @@ from typing import Any
 
 from agentail.install import hookjson
 from agentail.install.claude_config import HOOK_TIMEOUT_S
+from agentail.install.hookjson import SockFilter
 
 
-def merger(agent: str) -> Callable[[dict[str, Any], list[str], str, str, str], dict[str, Any]]:
-    """``merge_hooks(doc, events, python, hook_path, sock)`` writing ``--agent <agent>``."""
+def merger(agent: str) -> Callable[..., dict[str, Any]]:
+    """``merge_hooks(doc, events, python, hook_path, sock, drop=None)`` writing
+    ``--agent <agent>``."""
 
     def merge_hooks(
-        doc: dict[str, Any], events: list[str], python: str, hook_path: str, sock: str
+        doc: dict[str, Any],
+        events: list[str],
+        python: str,
+        hook_path: str,
+        sock: str,
+        drop: SockFilter | None = None,
     ) -> dict[str, Any]:
         return hookjson.merge_hooks(
             doc,
@@ -30,6 +37,7 @@ def merger(agent: str) -> Callable[[dict[str, Any], list[str], str, str, str], d
             timeout=HOOK_TIMEOUT_S,
             matcher="",
             filename="settings.json",
+            drop=drop,
         )
 
     return merge_hooks

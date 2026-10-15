@@ -123,3 +123,48 @@ def test_wrapper_survives_a_broken_hook_and_a_failing_original(tmp_path):
         ["sh", "-c", doc["statusLine"]["command"]], input="{}", capture_output=True, text=True
     )
     assert res.returncode == 0 and res.stdout == "shown\n"
+
+
+def test_several_receivers_share_one_entry_per_event():
+    from agentail import paths
+
+    local, remote = "/run/user/1000/agentail/local.sock", "/run/user/{uid}/agentail-0123abcd.sock"
+    user = {"model": "opus", "hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}}
+    events = ["Stop", "PreToolUse"]
+    one = claude_config.merge_hooks(user, events, PY, HOOK, local, drop=paths.is_local_sock)
+    two = claude_config.merge_hooks(one, events, PY, HOOK, remote)
+    assert hookjson.configured_socks(two) == {local, remote}
+    assert len(two["hooks"]["Stop"]) == 2 and two["hooks"]["Stop"][0] == user["hooks"]["Stop"][0]
+    cmd = two["hooks"]["Stop"][1]["hooks"][0]["command"]
+    assert hookjson.socks_of(cmd) == (local, remote)  # sorted: the same string every time
+    assert f"--sock '{remote}'" in cmd  # quoted: no shell expands the braces
+    assert hookjson.socks_of(two["statusLine"]["command"]) == (local, remote)
+    # Codex trusts commands by hash: the order of installs does not matter.
+    other_way = claude_config.merge_hooks(
+        claude_config.merge_hooks(user, events, PY, HOOK, remote), events, PY, HOOK, local
+    )
+    assert other_way == two and claude_config.merge_hooks(two, events, PY, HOOK, remote) == two
+
+    # A new local socket replaces the old one (drop), the remote one stays.
+    moved = claude_config.merge_hooks(two, events, PY, HOOK, "/x/local.sock", paths.is_local_sock)
+    assert hookjson.configured_socks(moved) == {"/x/local.sock", remote}
+
+    # Uninstall takes away one receiver at a time; the entries go with the last one.
+    left = hookjson.drop_socks(two, paths.is_local_sock)
+    assert hookjson.configured_socks(left) == {remote}
+    assert left["hooks"]["Stop"][0] == user["hooks"]["Stop"][0]
+    assert hookjson.drop_socks(two, lambda s: False) == two
+    assert hookjson.drop_socks(left, lambda s: s == remote) == user
+    assert hookjson.remove_hooks(two) == user
+
+
+def test_a_single_receiver_gives_the_earlier_command_exactly():
+    """Upgrading must not change the command of a plain install (Codex would ask again)."""
+    assert hookjson.hook_command(PY, HOOK, "codex", "Stop", SOCK) == (
+        "/usr/bin/python3 /h/agentail-hook.py --agent codex --event Stop --mode fire"
+        " --sock /run/a.sock 2>/dev/null || true"
+    )
+    assert hookjson.parse_command(hookjson.hook_command(PY, HOOK, "codex", "Stop", SOCK)) == (
+        hookjson.HookCommand(PY, HOOK, "codex", "Stop", (SOCK,))
+    )
+    assert hookjson.parse_command("echo agentail-hook") is None

@@ -10,7 +10,9 @@ about setups where our hooks would not run.
 Codex runs user hooks only after the user trusts them (startup review screen or
 ``/hooks``). The installer never writes ``trusted_hash`` itself: that would
 bypass Codex's review. The command string must stay stable across reinstalls
-(same paths and flags) so an existing trust decision keeps matching.
+(same paths and flags) so an existing trust decision keeps matching. It changes when a
+receiver is added or removed (one ``--sock`` per receiver, see hookjson): Codex then
+asks again.
 
 The legacy ``notify`` program is not installed: it passes its JSON as the last
 argv argument, which the hook client does not read (notes section 3.2).
@@ -24,7 +26,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail.install import hookjson
-from agentail.install.hookjson import remove_hooks
+from agentail.install.hookjson import SockFilter, remove_hooks
 
 __all__ = [
     "HOOK_TIMEOUT_S",
@@ -45,7 +47,12 @@ def codex_home() -> Path:
 
 
 def merge_hooks(
-    doc: dict[str, Any], events: list[str], python: str, hook_path: str, sock: str
+    doc: dict[str, Any],
+    events: list[str],
+    python: str,
+    hook_path: str,
+    sock: str,
+    drop: SockFilter | None = None,
 ) -> dict[str, Any]:
     """Return a copy of a hooks.json document with exactly one agentail entry per event.
 
@@ -61,6 +68,7 @@ def merge_hooks(
         timeout=HOOK_TIMEOUT_S,
         matcher=None,
         filename="hooks.json",
+        drop=drop,
     )
 
 

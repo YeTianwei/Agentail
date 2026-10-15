@@ -157,6 +157,31 @@ def test_an_upgrade_leaves_uninstalled_agents_alone(isolated_home, monkeypatch, 
     assert state["version"] == firstrun.SETUP_VERSION
 
 
+def test_an_upgrade_ignores_hooks_that_only_feed_other_desktops(
+    isolated_home, monkeypatch, tmp_path
+):
+    """This machine is also a server for another desktop (add-host): its entries there do
+    not mean the user wants this machine's own hooks back after uninstall-local."""
+    from agentail.install import claude_config
+
+    _env(isolated_home, monkeypatch, tmp_path)
+    (isolated_home / ".claude").mkdir()
+    remote_only = claude_config.merge_hooks(
+        {"model": "opus"},
+        ["Stop"],
+        "/usr/bin/python3",
+        "~/.agentail/agentail-hook.py",
+        "/run/user/{uid}/agentail-0123abcd.sock",
+    )
+    (isolated_home / ".claude" / "settings.json").write_text(json.dumps(remote_only))
+    paths.ensure_private_dir(paths.state_dir())
+    paths.state_dir().joinpath("setup.json").write_text(
+        json.dumps({"agents": ["claude"], "extension": True})
+    )
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    assert _settings(isolated_home) == remote_only
+
+
 def test_an_upgrade_to_0_0_3_installs_qoder_only(isolated_home, monkeypatch, tmp_path):
     _env(isolated_home, monkeypatch, tmp_path)
     (isolated_home / ".claude").mkdir()

@@ -22,7 +22,35 @@ followed by `\n`. The client half-closes after sending; in v1 the daemon never r
 | `truncated` | `true` if stdin exceeded 256 KiB. |
 
 Ping (used by `add-host` and tunnel health checks): same envelope with `"event": "__ping__"`
-and empty stdin. `agentail-hook.py --ping --sock PATH` exits 0 if the send succeeded.
+and empty stdin. `agentail-hook.py --ping --sock PATH` exits 0 if the send succeeded (with
+several `--sock`, only if it reached every one).
+
+### Receivers
+
+The hook command carries one `--sock` per receiver, e.g.
+
+```
+/usr/bin/python3 ~/.agentail/agentail-hook.py --agent claude --event Stop --mode fire \
+  --sock /run/user/1000/agentail/local.sock --sock '/run/user/{uid}/agentail-1a2b3c4d.sock' \
+  2>/dev/null || true
+```
+
+- The same message goes to every socket that exists, one connection each. The `--timeout`
+  budget is shared: each socket gets an equal part of what is left, so a hung receiver cannot
+  starve the next ones. Missing or refusing sockets are skipped silently.
+- `{uid}` in a path is replaced by the hook script with its own uid, so one command (one config
+  file on a shared NFS `$HOME`) works on hosts that give the user different uids. It is single
+  quoted in the command, so no shell touches it.
+- Duplicate paths (after expansion) receive one message.
+- Socket names: `local.sock` (in `$XDG_RUNTIME_DIR/agentail/`) is the machine's own daemon,
+  written by `install-local`; `agentail-<desktop id>.sock` (in `/run/user/<uid>/`, or
+  `~/.agentail/run/` where that does not exist) is a desktop that added the machine with
+  `add-host`, forwarded there by that desktop's `ssh -R`. The desktop id is a random 8-hex-digit
+  id kept in `~/.config/agentail/desktop-id`. Earlier versions used `agentail.sock` with the uid
+  written literally; such entries keep working until `add-host` is run again.
+- Installers add or remove only their own socket. The sockets are written sorted, so the same
+  receivers always give the same command string (Codex trusts a hook by a hash of its command:
+  adding or removing a receiver means approving the hooks again).
 
 The **source host is the socket the message arrived on** (`local.sock` → `local`,
 `hosts/<alias>.sock` → `<alias>`). Nothing in the message can change it.

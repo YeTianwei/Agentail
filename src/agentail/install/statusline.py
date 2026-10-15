@@ -10,6 +10,9 @@ instead of replacing it:
     { printf '%s' "$in" | <agentail-hook ... StatusLine> ; } >/dev/null
     [ -n "$agentail_orig" ] && printf '%s' "$in" | sh -c "$agentail_orig"
 
+``<agentail-hook ... StatusLine>`` is ``hookjson.hook_command`` with the same receivers
+(``--sock``) as the hook entries; ``drop_socks`` removes receivers like it does for them.
+
 The hook gets the JSON first (fail-open, prints nothing), then the user's command gets the
 same JSON and its output is the status line, unchanged. The user's command is kept as the
 first word of the wrapper, so it can be recovered from the document alone, even after the
@@ -20,17 +23,18 @@ else is left alone.
 from __future__ import annotations
 
 import shlex
+from collections.abc import Callable, Iterable
 from typing import Any
 
-from agentail.install.hookjson import hook_command
+from agentail.install.hookjson import hook_command, parse_command
 from agentail.paths import HOOK_MARKER
 
 EVENT = "StatusLine"
 _PREFIX = "agentail_orig="
 
 
-def _wrapper(python: str, hook_path: str, sock: str, original: str) -> str:
-    hook = hook_command(python, hook_path, "claude", EVENT, sock)
+def _wrapper(python: str, hook_path: str, socks: str | Iterable[str], original: str) -> str:
+    hook = hook_command(python, hook_path, "claude", EVENT, socks)
     return (
         f"{_PREFIX}{shlex.quote(original)} ; in=$(cat); "
         f"{{ printf '%s' \"$in\" | {hook} ; }} >/dev/null; "
@@ -50,13 +54,24 @@ def original_command(command: str) -> str | None:
         return None
 
 
-def wrap(doc: dict[str, Any], python: str, hook_path: str, sock: str) -> dict[str, Any]:
+def wrapper_command(doc: dict[str, Any]) -> str | None:
+    """The status line command of ``doc`` if it is one of our wrappers."""
+    current = doc.get("statusLine")
+    command = current.get("command") if isinstance(current, dict) else None
+    if isinstance(command, str) and original_command(command) is not None:
+        return command
+    return None
+
+
+def wrap(
+    doc: dict[str, Any], python: str, hook_path: str, socks: str | Iterable[str]
+) -> dict[str, Any]:
     """``doc`` (not modified) with its status line wrapped. Call on a document that has
     been through ``unwrap``."""
     out = dict(doc)
     current = out.get("statusLine")
     if current is None:
-        out["statusLine"] = {"type": "command", "command": _wrapper(python, hook_path, sock, "")}
+        out["statusLine"] = {"type": "command", "command": _wrapper(python, hook_path, socks, "")}
     elif (
         isinstance(current, dict)
         and current.get("type") == "command"
@@ -64,7 +79,7 @@ def wrap(doc: dict[str, Any], python: str, hook_path: str, sock: str) -> dict[st
     ):
         out["statusLine"] = {
             **current,
-            "command": _wrapper(python, hook_path, sock, current["command"]),
+            "command": _wrapper(python, hook_path, socks, current["command"]),
         }
     return out
 
@@ -83,3 +98,20 @@ def unwrap(doc: dict[str, Any]) -> dict[str, Any]:
     else:
         del out["statusLine"]
     return out
+
+
+def drop_socks(doc: dict[str, Any], drop: Callable[[str], bool]) -> dict[str, Any]:
+    """``doc`` (not modified) with the sockets ``drop`` selects removed from our wrapper;
+    unwrapped when no socket is left."""
+    command = wrapper_command(doc)
+    if command is None:
+        return doc
+    parsed = parse_command(command)
+    left = [s for s in parsed.socks if not drop(s)] if parsed else []
+    if parsed is not None and len(left) == len(parsed.socks):
+        return doc
+    out = unwrap(doc)
+    if not left:
+        return out
+    assert parsed is not None
+    return wrap(out, parsed.python, parsed.hook_path, left)

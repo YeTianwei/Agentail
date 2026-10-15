@@ -5,7 +5,14 @@ Installed on every machine that runs agents (the local desktop and each remote
 server) and invoked by the agent's hook configuration, e.g.:
 
     /usr/bin/python3 ~/.agentail/agentail-hook.py --agent claude \
-        --event PreToolUse --mode fire --sock /run/user/1000/agentail.sock
+        --event PreToolUse --mode fire --sock /run/user/1000/agentail/local.sock \
+        --sock '/run/user/{uid}/agentail-1a2b3c4d.sock'
+
+``--sock`` may be given more than once: one per receiver (this desktop's daemon, each
+desktop that added this machine as a server). ``{uid}`` in a socket path is replaced
+with this process's uid, so one command works on hosts that share an NFS $HOME but
+give the user different uids. The message goes to every socket that exists; the
+``--timeout`` budget is shared between them and a dead receiver never stops the others.
 
 Design rules (see docs/PLAN.md, "Invariants"):
 
@@ -19,8 +26,8 @@ Design rules (see docs/PLAN.md, "Invariants"):
 * Only whitelisted environment variables are forwarded (servers often have
   API keys and tokens in their environment).
 
-Exit codes: hook mode always 0. ``--ping`` returns 0 on success, 1 on failure
-(ping is used by ``agentail add-host``, not by agents).
+Exit codes: hook mode always 0. ``--ping`` returns 0 when the ping reached every
+``--sock``, 1 otherwise (ping is used by the tunnel health check, not by agents).
 """
 
 import argparse
@@ -34,6 +41,7 @@ PROTOCOL_VERSION = 1
 MAX_STDIN_BYTES = 256 * 1024
 DEFAULT_TIMEOUT = 1.0
 PING_EVENT = "__ping__"
+UID_PLACEHOLDER = "{uid}"
 
 # Keep in sync with agentail.protocol.ENV_WHITELIST (a test enforces this).
 ENV_WHITELIST = (
@@ -52,7 +60,7 @@ def _parse_args(argv):
     p.add_argument("--agent", default="unknown")
     p.add_argument("--event", default="unknown")
     p.add_argument("--mode", default="fire", choices=["fire"])  # "wait" is v2
-    p.add_argument("--sock", required=True)
+    p.add_argument("--sock", action="append", required=True)
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     p.add_argument("--ping", action="store_true")
     return p.parse_args(argv)
@@ -99,6 +107,17 @@ def _build_message(args, stdin_text, truncated):
     }
 
 
+def _sock_paths(socks):
+    """Socket paths with ``{uid}`` expanded, without duplicates, in command-line order."""
+    out = []
+    for sock in socks:
+        if UID_PLACEHOLDER in sock:
+            sock = sock.replace(UID_PLACEHOLDER, str(os.getuid()))
+        if sock and sock not in out:
+            out.append(sock)
+    return out
+
+
 def _send(sock_path, message, timeout):
     line = (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
     s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
@@ -114,6 +133,24 @@ def _send(sock_path, message, timeout):
         s.close()
 
 
+def _send_all(socks, message, timeout):
+    """Send to each socket in turn within one overall ``timeout``. Each socket gets an
+    equal share of what is left, so one hung receiver cannot starve the next ones.
+    Returns the number of sockets the message reached."""
+    deadline = time.monotonic() + timeout
+    sent = 0
+    for i, sock in enumerate(socks):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        try:
+            _send(sock, message, left / (len(socks) - i))
+            sent += 1
+        except Exception:
+            pass
+    return sent
+
+
 def main(argv=None):
     try:
         args = _parse_args(sys.argv[1:] if argv is None else argv)
@@ -121,17 +158,23 @@ def main(argv=None):
         # Bad flags must not break the agent; ping callers get a failure code.
         return 1 if "--ping" in (argv or sys.argv) else 0
 
+    try:
+        socks = _sock_paths(args.sock)
+    except Exception:
+        socks = []
+
     if args.ping:
         try:
-            _send(args.sock, _build_message(args, "", False), args.timeout)
-            return 0
+            message = _build_message(args, "", False)
+            return 0 if socks and _send_all(socks, message, args.timeout) == len(socks) else 1
         except Exception:
             return 1
 
     stdin_text, truncated = _read_stdin()
     try:
-        if os.path.exists(args.sock):
-            _send(args.sock, _build_message(args, stdin_text, truncated), args.timeout)
+        socks = [s for s in socks if os.path.exists(s)]
+        if socks:
+            _send_all(socks, _build_message(args, stdin_text, truncated), args.timeout)
     except Exception:
         pass
     return 0

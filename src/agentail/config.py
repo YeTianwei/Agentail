@@ -6,7 +6,7 @@ Example:
     alias = "gpu1"            # Host alias from ~/.ssh/config
     name = "Group GPU server" # display name (optional)
     agents = ["claude", "codex"]
-    remote_sock = "/run/user/1234/agentail.sock"  # written by add-host
+    remote_sock = "/run/user/1234/agentail-1a2b3c4d.sock"  # add-host; named after this desktop
     python = "/usr/bin/python3"                   # written by add-host
     home_id = "..."  # written by add-host; equal on hosts that share one NFS $HOME
 

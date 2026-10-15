@@ -159,7 +159,7 @@ def test_add_host_qoder_cn(fake_ssh, short_tmp, monkeypatch):
 
     home = fake_ssh.add_host("gpu1")
     (home / ".qoder-cn").mkdir()
-    monkeypatch.setattr(paths, "remote_sock_preferred", lambda uid: str(short_tmp / "r1.sock"))
+    monkeypatch.setattr(paths, "remote_sock_preferred", lambda desktop: str(short_tmp / "r1.sock"))
     lines: list[str] = []
     assert add_host("gpu1", ssh=str(fake_ssh.path), out=lines.append, wait=False) == 0, lines
     doc = json.loads((home / ".qoder-cn" / "settings.json").read_text())
