@@ -225,6 +225,20 @@ def load_claude_usage_api(path: Path | None = None) -> bool:
     return load_usage_switches(path).local
 
 
+def load_notify_details(path: Path | None = None) -> bool:
+    """``[notifications] details = true`` in config.toml puts the prompt and, for a permission
+    prompt, the command into desktop notifications (default: off, they say only what and
+    where). GNOME shows notification banners on the lock screen, so anything in them can be
+    read by whoever stands at the desk. Anything but ``true`` keeps the default."""
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            section = tomllib.load(fh).get("notifications", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return isinstance(section, dict) and section.get("details") is True
+
+
 def set_claude_usage_api(
     on: bool | None = None,
     path: Path | None = None,

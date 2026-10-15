@@ -29,6 +29,7 @@ from agentail.config import (
     default_ignore_cwd,
     load_hosts,
     load_ignore_cwd,
+    load_notify_details,
     load_retention,
     load_usage_switches,
 )
@@ -155,6 +156,8 @@ class Daemon:
             "detail": "",
             "servers": False,
         }
+        # [notifications] details: notify messages ask clients to show prompt and command.
+        self.notify_details = False
         self._dirty = False  # sessions changed since they were last saved
         self._usage_dirty = False
         self.print_events = print_events
@@ -494,8 +497,8 @@ class Daemon:
             self.ui.broadcast({"type": "usage_api_status", "agent": "claude", "status": status})
 
     def _sync_claude_api(self) -> None:
-        """Follow ``[usage]`` in config.toml and the login file; start a query when one is
-        due. Called from the main loop every few seconds."""
+        """Follow ``[usage]`` and ``[notifications]`` in config.toml and the login file; start a
+        query when one is due. Called from the main loop every few seconds."""
         path = paths.settings_file()
         try:
             mtime: int | None = path.stat().st_mtime_ns
@@ -503,6 +506,10 @@ class Daemon:
             mtime = None
         if mtime != self._settings_mtime:
             self._settings_mtime = mtime
+            details = load_notify_details(path)
+            if details != self.notify_details:
+                self.notify_details = details
+                log.info("notification details %s", "on" if details else "off")
             switches = load_usage_switches(path)
             if switches.enabled != self._usage_on:
                 self._set_usage_on(switches.enabled)
@@ -672,7 +679,7 @@ class Daemon:
         self._dirty = True
         # TODO(M4): desktop notifications.
         if self.ui is not None:
-            self.ui.publish(change)
+            self.ui.publish(change, details=self.notify_details)
         if self.print_events and change.session is not None:
             print(
                 json.dumps(

@@ -786,6 +786,9 @@ export function removedMessage(alias, output) {
 
 // ---- notifications ------------------------------------------------------------------
 
+// Banners show on the lock screen: by default a notice says only what and where (project,
+// host). The prompt and the command are added only when the daemon sends "details": true
+// ([notifications] details = true in config.toml); daemons before 0.0.4 send no such field.
 export function notice(msg, state) {
     const kind = msg?.kind;
     if (kind !== 'turn_done' && kind !== 'attention')
@@ -794,9 +797,12 @@ export function notice(msg, state) {
     const known = state.sessions.get(keyString(key));
     const c = card(known ?? {key: msg.key}, 0);
     const where = key[0] === 'local' ? 'this computer' : key[0];
-    let detail = known ? c.subtitle : '';
-    if (kind === 'attention' && c.tool && c.toolDetail)
-        detail = `${c.agentName} wants to run ${c.tool}: ${c.toolDetail}`;
+    let detail = '';
+    if (msg.details === true) {
+        detail = known ? c.subtitle : '';
+        if (kind === 'attention' && c.tool && c.toolDetail)
+            detail = `${c.agentName} wants to run ${c.tool}: ${c.toolDetail}`;
+    }
     return {
         key: keyString(key),
         kind,

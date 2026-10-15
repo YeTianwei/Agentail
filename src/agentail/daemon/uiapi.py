@@ -53,15 +53,26 @@ def session_to_dict(s: Session) -> dict[str, Any]:
 usage_to_dict = reading_to_dict
 
 
-def change_messages(change: Change) -> list[dict[str, Any]]:
-    """The UI messages for one state change (an update or removal, then maybe a notify)."""
+def change_messages(change: Change, details: bool = False) -> list[dict[str, Any]]:
+    """The UI messages for one state change (an update or removal, then maybe a notify).
+
+    ``details`` (``[notifications] details`` in config.toml) tells clients whether the
+    notification may show the prompt and the command; by default it says only what and where.
+    """
     if change.session is None:
         return [{"type": "session_remove", "key": key_to_dict(change.key)}]
     out: list[dict[str, Any]] = [
         {"type": "session_update", "session": session_to_dict(change.session)}
     ]
     if change.notify:
-        out.append({"type": "notify", "kind": change.notify, "key": key_to_dict(change.key)})
+        out.append(
+            {
+                "type": "notify",
+                "kind": change.notify,
+                "key": key_to_dict(change.key),
+                "details": details,
+            }
+        )
     return out
 
 
@@ -129,8 +140,8 @@ class UiServer:
                 self._clients.discard(client)
                 client.drop()
 
-    def publish(self, change: Change) -> None:
-        for msg in change_messages(change):
+    def publish(self, change: Change, details: bool = False) -> None:
+        for msg in change_messages(change, details):
             self.broadcast(msg)
 
     async def _on_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:

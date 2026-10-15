@@ -315,7 +315,12 @@ class Notice:
 
 
 def notice_for(msg: dict[str, Any], state: UiState) -> Notice | None:
-    """The desktop notification for a ``notify`` message, or None."""
+    """The desktop notification for a ``notify`` message, or None.
+
+    Banners show on the lock screen, so by default a notice says only what and where (agent,
+    host, project). The prompt or command is added only when the daemon sends
+    ``"details": true`` (``[notifications] details = true``); older daemons send no field.
+    """
     kind = msg.get("kind")
     if kind not in ("turn_done", "attention"):
         return None
@@ -326,7 +331,7 @@ def notice_for(msg: dict[str, Any], state: UiState) -> Notice | None:
     what = "finished" if kind == "turn_done" else "needs you"
     cwd = clean(s.get("cwd"))
     project = os.path.basename(cwd.rstrip("/")) or cwd
-    detail = clean(session_detail(s), 120)
+    detail = clean(session_detail(s), 120) if msg.get("details") is True else ""
     # One line: GNOME Shell shows the body on a single line anyway.
     body = f"{project}: {detail}" if project and detail else project or detail
     return Notice(

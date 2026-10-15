@@ -49,8 +49,15 @@ Then any number of:
 {"type": "usage_remove", "host": "gpu1", "agent": "claude"}
 {"type": "usage_api_status", "agent": "claude", "status": USAGE_API}
 {"type": "settings", "settings": SETTINGS}
-{"type": "notify", "kind": "turn_done|attention", "key": {...}}
+{"type": "notify", "kind": "turn_done|attention", "key": {...}, "details": false}
 ```
+
+`notify` asks clients for a desktop notification. Notification banners show on the lock screen,
+so a client puts only what and where in it (project, host, "needs you" / "done") unless
+`details` is `true`: then it may add the prompt or, for a permission prompt, the command. The
+daemon sets `details` from `[notifications] details` in `config.toml` (default `false`; re-read
+while running). `details` was added in 0.0.4: a message without it (an older daemon) means
+`false`, and clients treat anything but JSON `true` as `false`.
 
 ```
 SESSION = {"key": {"host", "agent", "session_id"}, "status": "running|waiting_input|needs_attention|ended|stale",

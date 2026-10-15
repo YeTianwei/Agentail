@@ -62,7 +62,9 @@ def test_change_messages():
         "type": "notify",
         "kind": "turn_done",
         "key": {"host": "local", "agent": "claude", "session_id": "s1"},
+        "details": False,
     }
+    assert change_messages(Change(key, s, notify="turn_done"), details=True)[1]["details"] is True
     assert change_messages(Change(key, None)) == [
         {"type": "session_remove", "key": {"host": "local", "agent": "claude", "session_id": "s1"}}
     ]

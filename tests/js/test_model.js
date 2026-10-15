@@ -116,12 +116,35 @@ test('notices', () => {
     const st = make([s('gpu1', 'a', 'needs_attention', {tool: 'Bash', detail: 'make', cwd: '/x/SpatialVLA'})]);
     const msg = {type: 'notify', kind: 'attention', key: {host: 'gpu1', agent: 'claude', session_id: 'a'}};
     eq(st.apply(msg), msg);
+    // Default (and daemons that predate the field): what and where only.
     const n = M.notice(msg, st);
-    eq([n.title, n.body, n.urgent, n.agent],
-        ['SpatialVLA needs you', 'gpu1 · Claude Code wants to run Bash: make', true, 'claude']);
+    eq([n.title, n.body, n.urgent, n.agent], ['SpatialVLA needs you', 'gpu1', true, 'claude']);
+    eq(M.notice({...msg, details: false}, st).body, 'gpu1');
+    eq(M.notice({...msg, details: 'yes'}, st).body, 'gpu1', 'only true turns details on');
+    const full = M.notice({...msg, details: true}, st);
+    eq([full.title, full.body], ['SpatialVLA needs you', 'gpu1 · Claude Code wants to run Bash: make']);
     const done = M.notice({kind: 'turn_done', key: {host: 'local', agent: 'codex', session_id: 'zz'}}, st);
     eq([done.title, done.body, done.urgent], ['? is done', 'this computer', false]);
     eq(M.notice({kind: 'other', key: {}}, st), null);
+});
+
+test('notices never carry the prompt or the command unless asked', () => {
+    const st = make([
+        s('local', 'p', 'waiting_input', {prompt: 'deploy with token abc123', cwd: '/x/web'}),
+        s('gpu1', 'q', 'needs_attention', {tool: 'Bash', detail: 'curl -H secret', cwd: '/x/api',
+            message: 'Claude needs your permission'}),
+    ]);
+    const done = {kind: 'turn_done', key: {host: 'local', agent: 'claude', session_id: 'p'}};
+    const att = {kind: 'attention', key: {host: 'gpu1', agent: 'claude', session_id: 'q'}};
+    for (const m of [done, att]) {
+        const n = M.notice(m, st);
+        const text = `${n.title} ${n.body}`;
+        ok(!text.includes('abc123') && !text.includes('curl') && !text.includes('permission'), text);
+    }
+    eq(M.notice(done, st).title, 'web is done');
+    eq(M.notice(att, st).title, 'api needs you');
+    eq(M.notice({...done, details: true}, st).body, 'this computer · deploy with token abc123');
+    eq(M.notice({...att, details: true}, st).body, 'gpu1 · Claude Code wants to run Bash: curl -H secret');
 });
 
 test('add server helpers', () => {

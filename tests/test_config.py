@@ -1,7 +1,7 @@
 import pytest
 
 from agentail import paths
-from agentail.config import Host, load_hosts, remove_host, save_host
+from agentail.config import Host, load_hosts, load_notify_details, remove_host, save_host
 
 ORIG = """\
 # my agentail hosts
@@ -92,3 +92,19 @@ def test_ignore_cwd_default_and_config(tmp_path, monkeypatch):
         cfg.write_text(f"[sessions]\n{bad}\n")
         with pytest.raises(ValueError):
             load_ignore_cwd(cfg)
+
+
+def test_notify_details(tmp_path):
+    cfg = tmp_path / "config.toml"
+    assert load_notify_details(cfg) is False  # missing file
+    for text, want in [
+        ("", False),
+        ("[notifications]\n", False),
+        ("[notifications]\ndetails = true\n", True),
+        ("[notifications]\ndetails = false\n", False),
+        ('[notifications]\ndetails = "yes"\n', False),
+        ("notifications = 1\n", False),
+        ("not toml [", False),
+    ]:
+        cfg.write_text(text)
+        assert load_notify_details(cfg) is want, text

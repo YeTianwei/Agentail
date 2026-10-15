@@ -168,9 +168,13 @@ def test_notice_for():
         "key": {"host": "gpu1", "agent": "claude", "session_id": "a"},
     }
     assert st.apply(msg) is msg
+    # Default, and daemons that predate the field: what and where, no prompt.
     n = notice_for(msg, st)
-    assert n.title == "claude finished — GPU one" and n.body == "proj: train the model"
+    assert n.title == "claude finished — GPU one" and n.body == "proj"
     assert not n.urgent
+    assert notice_for({**msg, "details": False}, st).body == "proj"
+    assert notice_for({**msg, "details": "true"}, st).body == "proj"  # only JSON true counts
+    assert notice_for({**msg, "details": True}, st).body == "proj: train the model"
     msg["kind"] = "attention"
     assert notice_for(msg, st).urgent and "needs you" in notice_for(msg, st).title
     msg["kind"] = "other"
@@ -181,6 +185,33 @@ def test_notice_for():
         "key": {"host": "local", "agent": "codex", "session_id": "zz"},
     }
     assert notice_for(local, st).title == "codex finished — this computer"
+
+
+def test_notice_hides_prompt_and_command_by_default():
+    st = _state(
+        [
+            _s("local", "p", "waiting_input", prompt="deploy with token abc123", cwd="/x/web"),
+            _s(
+                "gpu1",
+                "q",
+                "needs_attention",
+                tool="Bash",
+                prompt="rotate the key",
+                message="Claude needs your permission to use Bash",
+                cwd="/x/api",
+            ),
+        ]
+    )
+    done = {"kind": "turn_done", "key": {"host": "local", "agent": "claude", "session_id": "p"}}
+    att = {"kind": "attention", "key": {"host": "gpu1", "agent": "claude", "session_id": "q"}}
+    for msg in (done, att):
+        n = notice_for(msg, st)
+        text = n.title + " " + n.body
+        assert "abc123" not in text and "Bash" not in text and "rotate" not in text
+    assert notice_for(att, st).title == "claude needs you — GPU one"
+    assert notice_for(att, st).body == "api"
+    assert notice_for({**done, "details": True}, st).body == "web: deploy with token abc123"
+    assert notice_for({**att, "details": True}, st).body == "api: [Bash] rotate the key"
 
 
 def test_rate_limiter():
@@ -210,7 +241,7 @@ def test_notify_send_fallback(monkeypatch):
     n._notify, n._notify_send = None, "/usr/bin/notify-send"
     st = _state([_s("local", "a", "needs_attention", prompt="<i>x</i>")])
     key = {"host": "local", "agent": "claude", "session_id": "a"}
-    n.show(notice_for({"kind": "attention", "key": key}, st))
+    n.show(notice_for({"kind": "attention", "key": key, "details": True}, st))
     (argv,) = calls
     assert argv[:5] == ["/usr/bin/notify-send", "--app-name", "agentail", "--urgency", "critical"]
     assert argv[5] == "--" and "&lt;i&gt;x" in argv[7] and "<" not in argv[7]

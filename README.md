@@ -58,7 +58,9 @@ Agentail only watches. You still answer agents in their own terminal.
 | 🟠 orange, "*project* needs you" | an agent is asking for permission |
 | 🔴 a red dot in the corner | a server is unreachable |
 
-You also get a desktop notification when a turn finishes or an agent asks for permission.
+You also get a desktop notification when a turn finishes or an agent asks for permission. It
+names the project and the machine only, not your prompt or the command (see
+[Configuration](#-configuration)).
 
 ## 📊 Usage limits
 
@@ -218,10 +220,21 @@ auto = true                 # false: do not set up hooks and the panel automatic
 enabled = true              # false: no usage limits in Agentail at all (`agentail usage off`)
 claude_api = false          # true: ask Anthropic for Claude's limits with this computer's login
 claude_api_servers = false  # true: also with each server's own login, over ssh
+
+[notifications]
+details = false             # true: put the prompt and the command into notifications
 ```
 
-A session waiting for permission is never removed on a timer. Restart the daemon after editing:
-`systemctl --user restart agentail`.
+A session waiting for permission is never removed on a timer.
+
+**Why notifications leave out the details.** GNOME shows notification banners on the lock screen
+too, so anyone at your desk could read a prompt or a command (which may name a host, a path or a
+token). By default a notification only says which project on which machine is done or needs you;
+the panel, behind your login, still shows everything. Set `details = true` if your screen is
+private.
+
+`[usage]` and `[notifications]` apply within a few seconds; after changing `[sessions]` or
+`[setup]`, restart the daemon: `systemctl --user restart agentail`.
 
 ## 🩺 Troubleshooting
 

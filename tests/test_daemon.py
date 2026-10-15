@@ -1,6 +1,7 @@
 import asyncio
 import io
 import json
+import os
 import subprocess
 import sys
 import time
@@ -281,3 +282,44 @@ async def test_sessions_in_ignored_directories_are_not_tracked(runtime_env, isol
     d2 = Daemon()
     d2._load_sessions()
     assert [k.session_id for k in d2.store.sessions] == ["work"]
+
+
+async def test_notify_details_follow_config_without_restart(runtime_env):
+    """Notifications carry no prompt or command unless ``[notifications] details = true``;
+    the daemon re-reads config.toml while running."""
+    daemon = Daemon(hosts_poll=0.05)
+    task = await _start(daemon)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        assert json.loads(await asyncio.wait_for(r.readline(), 2))["type"] == "snapshot"
+
+        async def notify(sid):
+            prompt = {"session_id": sid, "hook_event_name": "UserPromptSubmit", "prompt": "p"}
+            await daemon.handle("local", _msg("UserPromptSubmit", json.dumps(prompt)))
+            stop = {"session_id": sid, "hook_event_name": "Stop"}
+            await daemon.handle("local", _msg("Stop", json.dumps(stop)))
+            while True:
+                m = json.loads(await asyncio.wait_for(r.readline(), 2))
+                if m["type"] == "notify":
+                    return m
+
+        async def wait_for(value):
+            for _ in range(100):
+                if daemon.notify_details is value:
+                    return
+                await asyncio.sleep(0.02)
+
+        assert (await notify("a"))["details"] is False
+        cfg = paths.settings_file()
+        cfg.parent.mkdir(parents=True, exist_ok=True)
+        cfg.write_text("[notifications]\ndetails = true\n")
+        await wait_for(True)
+        assert (await notify("b"))["details"] is True
+        cfg.write_text("[notifications]\ndetails = false\n")
+        os.utime(cfg, ns=(1, 1))  # a new mtime even within one clock tick
+        await wait_for(False)
+        assert (await notify("c"))["details"] is False
+        w.close()
+    finally:
+        daemon.stop()
+        await asyncio.wait_for(task, 5)

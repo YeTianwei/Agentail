@@ -20,6 +20,12 @@
   login, a terminal session, Codex). **After upgrading**, the
   query stays on only if you had turned it on with `agentail usage-api on`; the servers' switch
   starts off either way. `agentail doctor` and `install-local` say which switch is on.
+- **Notifications no longer show your prompt or command.** GNOME shows notification banners on
+  the lock screen, and they used to carry the prompt and, for a permission prompt, "Claude Code
+  wants to run Bash: <command>". They now say only which project on which machine is done or
+  needs you; the panel still shows everything. `[notifications] details = true` in
+  `~/.config/agentail/config.toml` brings the details back (applies without a restart). The UI
+  protocol's `notify` message gained a `details` field; a missing one counts as `false`.
 
 ### Fixed
 
