@@ -678,11 +678,9 @@ export function usageSettings(state, pending = {}, now = 0) {
             status: '',
         };
     };
-    const usage = row('usage', _('Show usage limits'),
-        [_("Claude's and Codex's limits in this panel.")], true);
+    const usage = row('usage', _('Show usage limits'), [], true);
     const api = state.usageApi.get('claude');
-    const local = row('local', _("Ask Anthropic with this computer's login"),
-        [_('Checks after every Claude turn and when you open this panel.')], true);
+    const local = row('local', _('This computer'), [], true);
     if (local.on && api) {
         const ago = api.state === 'ok' ? ageText(api.okTs, now) : '';
         if (ago)
@@ -690,17 +688,18 @@ export function usageSettings(state, pending = {}, now = 0) {
         else if (Object.hasOwn(LOCAL_STATUS, api.state))
             local.status = _(LOCAL_STATUS[api.state]);
     }
-    const servers = row('servers', _("Ask Anthropic with each server's login"),
+    const servers = row('servers', _('Servers'),
         [hasServers
-            ? _('For servers with a different Claude account. The token stays on the server.')
-            : _('For servers with a different Claude account. Add a server first.')],
+            ? _('For servers signed in to another Claude account.')
+            : _('Add a server first.')],
         hasServers || actual.servers === true);
     return {
         available: actual.usage !== null,
         usage,
         // Claude's switches only matter while usage is shown at all.
         showClaude: usage.on && actual.local !== null,
-        intro: _('Claude reports its limits only in terminal sessions. Agentail can also ask Anthropic for them.'),
+        // Under the group's title: what asking means, for both switches.
+        intro: _('After every Claude turn and when you open this panel.'),
         rows: [local, servers],
     };
 }

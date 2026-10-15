@@ -543,7 +543,8 @@ class AgentailIndicator extends PanelMenu.Button {
         page.add_child(this._languageGroup());
 
         const settings = M.usageSettings(this._state, this._usagePending, Date.now() / 1000);
-        // One group: the Usage switch, and under it (while it is on) Claude's two, indented.
+        // One group: the Usage switch, and under a divider (while it is on) Claude's two,
+        // aligned with it.
         const usage = vbox('agentail-group', {x_expand: true});
         usage.add_child(label(_('Usage limits'), 'agentail-section'));
         const card = vbox('agentail-card agentail-settings', {x_expand: true});
@@ -557,7 +558,7 @@ class AgentailIndicator extends PanelMenu.Button {
         if (settings.showClaude) {
             card.add_child(new St.Widget({style_class: 'agentail-settings-divider', x_expand: true}));
             const claude = vbox('agentail-settings-sub', {x_expand: true});
-            claude.add_child(label('Claude', 'agentail-settings-subtitle'));
+            claude.add_child(label(_("Ask Anthropic for Claude's limits"), 'agentail-settings-subtitle'));
             const intro = label(settings.intro, 'agentail-add-note agentail-settings-intro');
             intro.clutter_text.line_wrap = true;
             claude.add_child(intro);

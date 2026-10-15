@@ -132,17 +132,10 @@ export const ZH = {
     'The last query failed: see agentail doctor': '上次查询失败：见 agentail doctor',
     'Last checked {age} ago': '{age}前查询过',
     'Show usage limits': '显示用量限额',
-    "Claude's and Codex's limits in this panel.": '在面板里显示 Claude 和 Codex 的限额。',
-    "Ask Anthropic with this computer's login": '用本机的登录向 Anthropic 查询',
-    'Checks after every Claude turn and when you open this panel.':
-        '每次 Claude 回合结束和打开面板时查询。',
-    "Ask Anthropic with each server's login": '用各服务器自己的登录向 Anthropic 查询',
-    'For servers with a different Claude account. The token stays on the server.':
-        '适用于登录了其他 Claude 账号的服务器。token 不会离开服务器。',
-    'For servers with a different Claude account. Add a server first.':
-        '适用于登录了其他 Claude 账号的服务器。请先添加服务器。',
-    'Claude reports its limits only in terminal sessions. Agentail can also ask Anthropic for them.':
-        'Claude 只在终端会话里报告限额。Agentail 也可以向 Anthropic 查询。',
+    "Ask Anthropic for Claude's limits": '向 Anthropic 查询 Claude 限额',
+    'After every Claude turn and when you open this panel.': '每轮对话结束和打开面板时查询。',
+    'For servers signed in to another Claude account.': '用于登录了其他 Claude 账号的服务器。',
+    'Add a server first.': '请先添加服务器。',
     'Could not save that. Run agentail {args} in a terminal.':
         '保存失败。请在终端里运行 agentail {args}。',
     // servers

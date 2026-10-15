@@ -163,7 +163,7 @@
 .agentail-head-buttons { spacing: 2px; }
 .agentail-settings { spacing: 4px; }
 .agentail-settings-divider { height: 1px; margin: 4px 0; background-color: rgba(255, 255, 255, 0.08); }
-.agentail-settings-sub { spacing: 4px; padding-left: 14px; }
+.agentail-settings-sub { spacing: 4px; }
 .agentail-settings-subtitle { font-size: 12.5px; font-weight: bold; color: #c0bfc4; padding: 2px 4px 0 4px; }
 .agentail-settings-intro { padding: 0 4px 2px 4px; }
 .agentail-switch-button { padding: 6px 4px; border-radius: 10px; }

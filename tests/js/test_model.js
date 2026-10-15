@@ -379,7 +379,7 @@ test('settings: the two switches of the Claude usage query', () => {
     const alone = make([], [host('local', 'local')]);
     alone.apply(status('off'));
     eq(view(alone), [['local', false, true, false, ''], ['servers', false, false, false, '']]);
-    ok(M.usageSettings(alone).rows[1].notes[0].includes('Add a server first'), 'no-server note');
+    eq(M.usageSettings(alone).rows[1].notes, ['Add a server first.']);
     // with a server; this computer's switch reports the query's state
     const st = make([]);
     st.apply(status('needs_login'));
@@ -390,7 +390,8 @@ test('settings: the two switches of the Claude usage query', () => {
     // once a query succeeded, the switch says when
     st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok', servers: true, ok_ts: NOW - 42}});
     eq(M.usageSettings(st, {}, NOW).rows[0].status, 'Last checked 42s ago');
-    ok(M.usageSettings(st).intro.includes('only in terminal sessions'), 'intro');
+    eq(M.usageSettings(st).usage.notes, []);
+    eq(M.usageSettings(st).intro, 'After every Claude turn and when you open this panel.');
     // a choice the daemon has not reported yet shows as saving, until it does
     let pending = {servers: false};
     eq(M.usageSettings(st, pending).rows[1].on, false);

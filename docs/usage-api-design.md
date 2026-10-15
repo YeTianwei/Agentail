@@ -81,6 +81,8 @@
 > - 为了让只用 VS Code 的用户知道有这个功能:本机开关关闭且见过 Claude(会话或读数)时,Usage 区显示一行"Claude: terminal sessions only. More in Settings (⚙, top right)."。不弹提问卡片(最初的实现是问一次的卡片,owner 改为设置开关,2026-10-15)。
 > - UI 协议的 `USAGE_API` 新增 `servers`;`state` 为 `off` 即本机开关关闭。
 > - 关掉开关要马上看得出效果(owner 反馈 2026-10-15:开关切换后 Usage 区毫无变化,因为 gpu7 终端会话的状态栏报的是同一账号的同一组数字,而关闭时旧的接口读数又留着,30 分钟后才变灰)。所以每条读数带 `source`(`api` / `server_api` / `status_line` / `app_server` / `session_files`),关闭开关时 daemon 用同一主机、同一 agent 其他来源的最近一条读数(如终端会话的状态栏)替换该开关查到的读数并发 `usage_update`,没有其他来源时才发 `usage_remove`(桌面实测发现直接删除会让卡片整张消失,2026-10-15 改);每张用量卡片底部写明数字来自哪里;设置页的本机开关下显示"Last checked 42s ago"。设置页文字也重写得更直白:开头一句说明为什么需要它,每个开关一句说清楚做什么、什么时候查。owner 认为底部那句(接口未公开、请求标明来自 Agentail、token 不保存)没有必要,已删去;这些说明保留在 README 的 Usage 一节。
+> - 设置页再精简(owner 2026-10-15,0.0.5):"Show usage limits" 下不再有说明(标题已说清楚);Claude 小标题下的开头一句删去(Usage 区那行提示已说明只有终端会话);本机开关的说明只说何时查询,服务器开关只说适用于哪种服务器(没有服务器时只写"Add a server first."),"token 不离开服务器"那句删去,留在 README。
+> - 同日再改(owner:开关标题像一句操作说明,不像 app):Claude 一组的小标题改为"Ask Anthropic for Claude's limits",两个开关标题只写"This computer"/"Servers",小标题下一行写何时查询("After every Claude turn and when you open this panel.",两个开关都适用;owner:不写的话用户不知道"查询"指什么)。
 > - CLI:`on|off` 只作用于本机,`--servers` 只作用于服务器,`--all` 两个都改。
 > - `install-local` 在两个键都没写过时打印一行提示(`OFFER`),开启后才打印完整说明(`NOTE`);`doctor` 分别显示两个开关。
 > - 从 0.0.3 升级:没写过这个键的用户变为关闭;用 `usage-api on` 明确开过的保持开启,服务器开关一律从关闭开始。
