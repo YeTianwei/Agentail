@@ -63,12 +63,14 @@ USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts",
                         "label": "Fable" | null}],
            "extras": [{"label": "Extra usage" | "Credits", "kind": "spent" | "balance",
                        "amount": float | null, "limit": float | null, "currency": "USD" | null,
-                       "unlimited": bool}]}
+                       "unlimited": bool, "inactive": "out_of_credits" | null}]}
 ```
 
 `extras` (since 0.0.4) are amounts next to the windows: money spent beyond the plan
 (`spent`, with `limit` when capped; Claude's extra usage) or a balance left (`balance`, or
-`unlimited`; Codex credits). `currency` is an ISO 4217 code, null for plain credits. Labels are
+`unlimited`; Codex credits). `currency` is an ISO 4217 code, null for plain credits. `inactive`
+is set when the user switched it on but the service keeps it off (a short code such as
+`out_of_credits`, or `unknown`); clients put only known codes into words. Labels are
 written by the daemon, not taken from the agents; clients format the numbers themselves.
 
 `plan` is a short lowercase id (`plus`, `pro`, `max_5x`); clients format it for display

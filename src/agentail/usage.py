@@ -46,6 +46,7 @@ class UsageWindow:
 # (Codex credits).
 SPENT, BALANCE = "spent", "balance"
 _CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+_REASON_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 MAX_AMOUNT = 1e9
 
 
@@ -53,7 +54,8 @@ MAX_AMOUNT = 1e9
 class UsageExtra:
     """An amount next to the rate-limit windows: what was spent (``limit``: the cap, if
     any) or what is left (``unlimited``: no balance needed). ``currency`` is an ISO 4217
-    code; None means plain credits."""
+    code; None means plain credits. ``inactive`` is why it is switched on but cannot be used
+    (a short code such as ``out_of_credits``; clients show only the codes they know)."""
 
     label: str
     kind: str
@@ -61,6 +63,7 @@ class UsageExtra:
     limit: float | None = None
     currency: str | None = None
     unlimited: bool = False
+    inactive: str | None = None
 
 
 def make_extra(
@@ -70,6 +73,7 @@ def make_extra(
     limit: Any = None,
     currency: Any = None,
     unlimited: Any = False,
+    inactive: Any = None,
 ) -> UsageExtra | None:
     """A validated extra, or None when nothing usable is left."""
     name = clean_label(label)
@@ -85,7 +89,10 @@ def make_extra(
     cur = currency if isinstance(currency, str) and _CURRENCY_RE.match(currency) else None
     if amt is None and not unl:
         return None
-    return UsageExtra(name, kind, amt, lim if lim else None, cur, unl)
+    why = inactive if isinstance(inactive, str) and _REASON_RE.match(inactive) else None
+    if inactive is not None and why is None:
+        why = "unknown"  # still inactive, for a reason we do not show
+    return UsageExtra(name, kind, amt, lim if lim else None, cur, unl, why)
 
 
 @dataclass(frozen=True)
@@ -311,6 +318,7 @@ def reading_to_dict(r: UsageReading) -> dict[str, Any]:
                 "limit": e.limit,
                 "currency": e.currency,
                 "unlimited": e.unlimited,
+                "inactive": e.inactive,
             }
             for e in r.extras
         ],
@@ -344,6 +352,7 @@ def reading_from_dict(d: Any, now: float) -> UsageReading | None:
             e.get("limit"),
             e.get("currency"),
             e.get("unlimited"),
+            e.get("inactive"),
         )
         for e in (raw if isinstance(raw, list) else [])
         if isinstance(e, dict)

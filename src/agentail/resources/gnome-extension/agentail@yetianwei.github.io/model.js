@@ -413,6 +413,11 @@ export function amountText(amount, currency) {
 
 const amountOk = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
+// Why an extra that is switched on cannot be used (agentail.usage.UsageExtra.inactive):
+// only known codes are put into words. Keep in sync with client.INACTIVE_TEXT.
+export const INACTIVE_TEXT = {out_of_credits: 'out of credits'};
+const inactiveText = code => INACTIVE_TEXT[code] ?? 'not active';
+
 // A row for an extra (agentail.usage.UsageExtra): money spent beyond the plan, with a bar
 // when it has a cap, or a balance left, without one.
 export function extraRow(e) {
@@ -430,7 +435,15 @@ export function extraRow(e) {
     }
     if (e.kind !== 'spent' || amount === null)
         return null;
-    if (!amountOk(e.limit) || !(e.limit > 0))
+    const capped = amountOk(e.limit) && e.limit > 0;
+    if (typeof e.inactive === 'string' && e.inactive) {
+        // Switched on but not usable: grey, with the reason.
+        const amounts = capped
+            ? `${amountText(amount, e.currency)} of ${amountText(e.limit, e.currency)}`
+            : `${amountText(amount, e.currency)} spent`;
+        return {...off, bar: capped, resetText: `${amounts} · ${inactiveText(e.inactive)}`};
+    }
+    if (!capped)
         return {...off, resetText: `${amountText(amount, e.currency)} spent`};
     const percent = Math.min(100, amount / e.limit * 100);
     return {

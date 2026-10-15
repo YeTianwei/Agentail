@@ -254,6 +254,12 @@ test('usage extras: extra usage and credits', () => {
     const capped = M.extraRow({label: 'Extra usage', kind: 'spent', amount: 40, limit: 50, currency: 'USD'});
     eq([capped.bar, capped.percent, capped.level, capped.resetText], [true, 80, 'warn', '$40.00 of $50.00']);
     eq(M.extraRow({label: 'Extra usage', kind: 'spent', amount: 3, currency: 'USD'}).resetText, '$3.00 spent');
+    // the owner's account on 2026-10-15: switched on, $20 cap, no credits
+    const idle = M.extraRow({label: 'Extra usage', kind: 'spent', amount: 0, limit: 20, currency: 'USD',
+        inactive: 'out_of_credits'});
+    eq([idle.bar, idle.percent, idle.level, idle.resetText], [true, null, 'off', '$0.00 of $20.00 · out of credits']);
+    eq(M.extraRow({label: 'Extra usage', kind: 'spent', amount: 0, currency: 'USD', inactive: 'unknown'}).resetText,
+        '$0.00 spent · not active');
     const credits = M.extraRow({label: 'Credits', kind: 'balance', amount: 12.5});
     eq([credits.bar, credits.percent, credits.resetText], [false, null, '12.5 left']);
     eq(M.extraRow({label: 'Credits', kind: 'balance', unlimited: true}).resetText, 'unlimited');

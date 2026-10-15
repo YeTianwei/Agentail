@@ -44,7 +44,8 @@
   the server. A server seen with this computer's account is not asked itself. `agentail usage-api
   off` turns this off too.
 - **Extra usage and Codex credits.** When Claude's extra usage (paid usage beyond the plan) is
-  switched on, the Claude card shows what was spent, with a bar if there is a monthly cap; when
+  switched on, the Claude card shows what was spent, with a bar if there is a monthly cap (greyed
+  out with the reason, e.g. "out of credits", when Claude keeps it off); when
   Codex has credits, the Codex card shows the balance (or "unlimited").
 - **Codex usage from your servers.** Codex limits were read only on this computer, so Codex used
   only on a server (in a terminal or through VS Code Remote) showed none. The daemon now asks

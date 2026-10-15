@@ -193,11 +193,62 @@ def test_parse_labels_the_older_per_model_fields():
     assert [(w.used_percent, w.label) for w in r.windows] == [(43.0, None), (9.0, "Opus")]
 
 
+# The owner's account on 2026-10-15: extra usage switched on with a $20 monthly cap, but no
+# credits bought, so the server keeps it off ("out_of_credits").
+SPEND_NO_CREDITS = {
+    "spend": {
+        "used": {"amount_minor": 0, "currency": "USD", "exponent": 2},
+        "limit": {"amount_minor": 2000, "currency": "USD", "exponent": 2},
+        "percent": 0,
+        "severity": "normal",
+        "enabled": False,
+        "disabled_reason": "out_of_credits",
+        "cap": {"money": None, "credits": {"amount_minor": 2000, "exponent": 2}},
+        "balance": None,
+        "auto_reload": None,
+        "can_purchase_credits": False,
+        "can_toggle": False,
+    },
+    "extra_usage": {
+        "is_enabled": False,
+        "monthly_limit": 2000,
+        "used_credits": 0.0,
+        "utilization": 0.0,
+        "currency": "USD",
+        "decimal_places": 2,
+        "disabled_reason": "out_of_credits",
+        "user_disabled": False,
+        "spend_limit_reached": False,
+        "credits_ever_enabled": True,
+    },
+}
+
+
+def test_extra_usage_switched_on_without_credits():
+    e = api.parse_extra_usage(SPEND_NO_CREDITS)
+    assert (e.amount, e.limit, e.currency, e.inactive) == (0.0, 20.0, "USD", "out_of_credits")
+    # the older object alone says the same
+    e = api.parse_extra_usage({"extra_usage": SPEND_NO_CREDITS["extra_usage"]})
+    assert (e.amount, e.limit, e.inactive) == (0.0, 20.0, "out_of_credits")
+    # switched off again by the user: nothing to show
+    off = {"extra_usage": {**SPEND_NO_CREDITS["extra_usage"], "user_disabled": True}}
+    assert api.parse_extra_usage({**SPEND_NO_CREDITS, **off}) is None
+    # an odd reason is kept as "inactive for some reason", never shown as is
+    odd = {"spend": {**SPEND_NO_CREDITS["spend"], "disabled_reason": "<b>Bad</b>"}}
+    assert api.parse_extra_usage(odd).inactive == "unknown"
+
+
 def test_extra_usage_only_when_switched_on():
     # the owner's account (2026-10-14): both switched off
     off = {
         "spend": {"used": {"amount_minor": 0, "currency": "USD", "exponent": 2}, "enabled": False},
-        "extra_usage": {"is_enabled": False, "monthly_limit": None, "used_credits": None},
+        "extra_usage": {
+            "is_enabled": False,
+            "monthly_limit": None,
+            "used_credits": None,
+            "disabled_reason": None,
+            "user_disabled": True,
+        },
     }
     assert api.parse_extra_usage(off) is None
     assert api.parse_usage({**BODY, **off}, "local", NOW).extras == ()

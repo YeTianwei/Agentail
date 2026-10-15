@@ -82,7 +82,7 @@ Window       = {used_percent: float 0..100, window_minutes: int | null, resets_a
 | Codex `primary` / `secondary` | 按顺序放进 `windows`,为 null 的跳过 |
 | `plan_type` | 只保留匹配 `^[a-z0-9_-]{1,16}$` 的字符串,否则 null |
 | `spend_limit`(gateway) | 0.0.2 不处理,忽略 |
-| Claude `spend`(`enabled` 时;没有则 `extra_usage`,`is_enabled` 时)、Codex `credits`(有余额或无限额度时,0.0.4 起) | `extras`:已花金额(可带上限)或余额;两者在 owner 的账号上都是关的/空的,开启后的单位按字段名推断,标了 `TODO(M0)`。面板上有上限的画进度条,否则只有文字 |
+| Claude `spend`(`enabled` 时;没有则 `extra_usage`,`is_enabled` 时)、Codex `credits`(有余额或无限额度时,0.0.4 起) | `extras`:已花金额(可带上限)或余额;用户自己关掉时不显示;用户打开了但服务端停用(2026-10-15 实测:设了 $20 月上限、没买额度,`disabled_reason: "out_of_credits"`)时显示为灰色的 "$0.00 of $20.00 · out of credits",单位也由这次实测确认。真正花钱时的样子还没见过(`TODO(M0)`)。面板上有上限的画进度条,否则只有文字 |
 | 只针对某个模型的额度(0.0.4 起) | 单独的窗口,`label` 为模型或额度名,只保留匹配 `^[A-Za-z0-9][A-Za-z0-9 ._+-]{0,23}$` 的字符串;取不到名字的跳过 |
 
 `windows` 按 `window_minutes` 升序排列,同样长度的窗口不带 `label` 的(总额度)在前、其余按 `label` 排,UI 不依赖字段名。

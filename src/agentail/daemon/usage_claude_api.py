@@ -164,39 +164,47 @@ def _minor(money: Any) -> tuple[float, str | None] | None:
 
 
 def parse_extra_usage(body: Any) -> UsageExtra | None:
-    """Money spent beyond the plan ("extra usage", paid usage credits), when switched on.
+    """Money spent beyond the plan ("extra usage", paid usage credits), when the user has
+    switched it on; ``inactive`` carries the server's reason when it is on but cannot be used.
 
     ``spend`` states its units (minor units and an exponent) and comes first; the older
-    ``extra_usage`` gives ``used_credits`` / ``monthly_limit`` with ``decimal_places``, taken
-    here as minor units with that many decimals.
-    TODO(M0): only seen switched off (2026-10-14, Max 5x: ``spend.enabled`` false,
-    ``extra_usage.is_enabled`` false); the units of both are read from the field names.
+    ``extra_usage`` gives ``used_credits`` / ``monthly_limit`` in minor units with
+    ``decimal_places``. Verified 2026-10-15 (Max 5x, switched on with a $20 monthly cap and
+    no credits bought): ``spend.enabled`` false, ``disabled_reason`` "out_of_credits",
+    ``spend.limit`` 2000 minor units with exponent 2, ``extra_usage.monthly_limit`` 2000 with
+    ``decimal_places`` 2, ``user_disabled`` false. Switched off by the user (2026-10-14):
+    ``user_disabled`` true, no reason. TODO(M0): never seen actually spending.
     """
     if not isinstance(body, dict):
         return None
-    spend = body.get("spend")
-    if isinstance(spend, dict) and spend.get("enabled") is True:
-        used, limit = _minor(spend.get("used")), _minor(spend.get("limit"))
-        if used is not None:
-            return make_extra(EXTRA_USAGE, SPENT, used[0], limit[0] if limit else None, used[1])
-    extra = body.get("extra_usage")
-    if isinstance(extra, dict) and extra.get("is_enabled") is True:
-        places = extra.get("decimal_places")
-        scale = 10**places if isinstance(places, int) and 0 <= places <= 6 else 1
-
-        def scaled(val: Any) -> float | None:
-            if isinstance(val, bool) or not isinstance(val, int | float):
-                return None
-            return val / scale
-
+    spend = body.get("spend") if isinstance(body.get("spend"), dict) else {}
+    extra = body.get("extra_usage") if isinstance(body.get("extra_usage"), dict) else {}
+    on = spend.get("enabled") is True or extra.get("is_enabled") is True
+    reason = spend.get("disabled_reason") or extra.get("disabled_reason")
+    if not on and (extra.get("user_disabled") is True or not isinstance(reason, str)):
+        return None  # switched off by the user, or never set up
+    inactive = None if on else reason
+    used, limit = _minor(spend.get("used")), _minor(spend.get("limit"))
+    if used is not None:
         return make_extra(
-            EXTRA_USAGE,
-            SPENT,
-            scaled(extra.get("used_credits")),
-            scaled(extra.get("monthly_limit")),
-            extra.get("currency"),
+            EXTRA_USAGE, SPENT, used[0], limit[0] if limit else None, used[1], inactive=inactive
         )
-    return None
+    places = extra.get("decimal_places")
+    scale = 10**places if isinstance(places, int) and 0 <= places <= 6 else 1
+
+    def scaled(val: Any) -> float | None:
+        if isinstance(val, bool) or not isinstance(val, int | float):
+            return None
+        return val / scale
+
+    return make_extra(
+        EXTRA_USAGE,
+        SPENT,
+        scaled(extra.get("used_credits")),
+        scaled(extra.get("monthly_limit")),
+        extra.get("currency"),
+        inactive=inactive,
+    )
 
 
 def parse_usage(body: Any, host: str, now: float, plan: str | None = None) -> UsageReading | None:

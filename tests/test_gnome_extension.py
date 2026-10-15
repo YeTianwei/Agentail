@@ -52,6 +52,14 @@ def test_account_tolerance_matches_python():
     assert re.search(rf"export const SAME_ACCOUNT_S = {SAME_ACCOUNT_S};", src)
 
 
+def test_inactive_texts_match_python():
+    from agentail.client import INACTIVE_TEXT
+
+    src = (EXT / "model.js").read_text()
+    body = re.search(r"export const INACTIVE_TEXT = \{(.*?)\};", src, re.S).group(1)
+    assert dict(re.findall(r"(\w+): '([^']*)'", body)) == INACTIVE_TEXT
+
+
 def test_referenced_icons_exist():
     src = (EXT / "extension.js").read_text() + (EXT / "model.js").read_text()
     names = set(re.findall(r"'([\w.-]+\.(?:svg|png))'", src))

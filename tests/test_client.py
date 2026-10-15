@@ -195,6 +195,11 @@ def test_format_extras():
     assert f({"label": "Extra usage", "kind": "spent", "amount": 3, "currency": "EUR"}) == (
         "Extra usage 3.00 EUR spent"
     )
+    idle = {"label": "Extra usage", "kind": "spent", "amount": 0, "limit": 20, "currency": "USD"}
+    assert (
+        f({**idle, "inactive": "out_of_credits"}) == "Extra usage $0.00 of $20.00 (out of credits)"
+    )
+    assert f({**idle, "inactive": "unknown"}).endswith("(not active)")
     assert f({"label": "Credits", "kind": "balance", "amount": 12.5}) == "Credits 12.5 left"
     assert f({"label": "Credits", "kind": "balance", "unlimited": True}) == "Credits unlimited"
     assert (

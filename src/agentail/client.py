@@ -160,6 +160,11 @@ def _amount(val: Any, currency: Any) -> str:
     return f"${val:.2f}" if currency == "USD" else f"{val:.2f} {currency}"
 
 
+# Why an extra that is switched on cannot be used: only known codes are put into words.
+# Keep in sync with INACTIVE_TEXT in the GNOME extension's model.js.
+INACTIVE_TEXT = {"out_of_credits": "out of credits"}
+
+
 def format_extra(e: Any) -> str:
     """ "Extra usage $8.61 of $50.00", "Credits 12.5 left" ... for one USAGE extra."""
     if not isinstance(e, dict):
@@ -179,8 +184,13 @@ def format_extra(e: Any) -> str:
     if e.get("kind") != "spent" or not number(amount):
         return ""
     if number(limit) and limit > 0:
-        return f"{label} {_amount(amount, cur)} of {_amount(limit, cur)}"
-    return f"{label} {_amount(amount, cur)} spent"
+        text = f"{label} {_amount(amount, cur)} of {_amount(limit, cur)}"
+    else:
+        text = f"{label} {_amount(amount, cur)} spent"
+    why = e.get("inactive")
+    if isinstance(why, str) and why:
+        text += f" ({INACTIVE_TEXT.get(why, 'not active')})"
+    return text
 
 
 def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:

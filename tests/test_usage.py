@@ -183,6 +183,10 @@ def test_make_extra_validates():
     assert make_extra("Credits", BALANCE, 12.5, currency="usd").currency is None
     assert make_extra("Extra usage", SPENT, 1, 0).limit is None  # a zero cap is no cap
     assert make_extra("Extra usage", SPENT, unlimited=True) is None  # only balances
+    assert make_extra("Extra usage", SPENT, 0, 20, "USD", inactive="out_of_credits").inactive == (
+        "out_of_credits"
+    )
+    assert make_extra("Extra usage", SPENT, 0, inactive="Out Of\nCredits").inactive == "unknown"
     for bad in (
         ("<b>", SPENT, 1),
         ("Credits", "other", 1),
