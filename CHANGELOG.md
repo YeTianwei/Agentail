@@ -11,7 +11,10 @@
   does written next to it, and `agentail usage-api on|off` in a terminal. Servers have a switch of
   their own (`--servers`, `[usage] claude_api_servers = true`): a server's login is never read
   unless it is on. `agentail usage-api off --all` turns both off. While the query is off, the Usage
-  section says that Claude's limits come from terminal sessions only. **After upgrading**, the
+  section says that Claude's limits come from terminal sessions only, and turning a switch off
+  removes what it had fetched at once. Every Usage card now says where its numbers come from
+  (Anthropic with this computer's or a server's login, a terminal session, Codex). **After
+  upgrading**, the
   query stays on only if you had turned it on with `agentail usage-api on`; the servers' switch
   starts off either way. `agentail doctor` and `install-local` say which switch is on.
 

@@ -21,7 +21,7 @@ from agentail.adapters.base import (
     tool_preview,
 )
 from agentail.protocol import HookMessage
-from agentail.usage import UsageReading, make_window, sorted_windows
+from agentail.usage import SOURCE_STATUS_LINE, UsageReading, make_window, sorted_windows
 
 _KINDS = {
     "SessionStart": EventKind.SESSION_START,
@@ -141,4 +141,6 @@ class ClaudeAdapter:
         ordered = sorted_windows(windows)
         if not ordered:
             return None
-        return UsageReading(host=host, agent=self.name, windows=ordered, ts=msg.ts)
+        return UsageReading(
+            host=host, agent=self.name, windows=ordered, ts=msg.ts, source=SOURCE_STATUS_LINE
+        )

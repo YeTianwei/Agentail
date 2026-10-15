@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail.usage import (
+    SOURCE_API,
     SPENT,
     UsageExtra,
     UsageReading,
@@ -218,7 +219,9 @@ def parse_extra_usage(body: Any) -> UsageExtra | None:
     )
 
 
-def parse_usage(body: Any, host: str, now: float, plan: str | None = None) -> UsageReading | None:
+def parse_usage(
+    body: Any, host: str, now: float, plan: str | None = None, source: str = SOURCE_API
+) -> UsageReading | None:
     """The endpoint's JSON as a reading: ``limits[]`` first, else the older top-level
     ``five_hour`` / ``seven_day`` objects. None if no window is usable."""
     if not isinstance(body, dict):
@@ -259,6 +262,7 @@ def parse_usage(body: Any, host: str, now: float, plan: str | None = None) -> Us
         ts=now,
         plan=plan,
         extras=(extra,) if extra else (),
+        source=source,
     )
 
 

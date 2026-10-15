@@ -364,12 +364,22 @@ async def test_daemon_publishes_usage_from_both_agents(runtime_env, tmp_path):
         assert [(u["host"], u["agent"], u["plan"]) for u in snap["usage"]] == [
             ("local", "codex", "plus")
         ]
-        assert set(snap["usage"][0]) == {"host", "agent", "plan", "windows", "extras", "updated_ts"}
+        assert set(snap["usage"][0]) == {
+            "host",
+            "agent",
+            "plan",
+            "windows",
+            "extras",
+            "updated_ts",
+            "source",
+        }
+        assert snap["usage"][0]["source"] == "session_files"
 
         now = time.time()
         payload = {"rate_limits": {"five_hour": {"used_percentage": 41, "resets_at": now + 600}}}
         await d.handle("gpu1", _statusline(payload))
         msg = await _read(r)
+        assert msg["usage"]["source"] == "status_line"
         assert msg["type"] == "usage_update" and msg["usage"]["host"] == "gpu1"
         assert msg["usage"]["windows"][0]["window_minutes"] == 300
 
@@ -486,3 +496,23 @@ async def test_usage_survives_a_daemon_restart(runtime_env, tmp_path):
     await run(first)
     assert oct(paths.usage_file().stat().st_mode & 0o777) == "0o600"
     await run(second)
+
+
+def test_source_round_trips_counts_as_a_change_and_is_validated():
+    from agentail.usage import (
+        SOURCE_API,
+        SOURCE_STATUS_LINE,
+        UsageKey,
+        reading_from_dict,
+        reading_to_dict,
+    )
+
+    w = (UsageWindow(10.0, 300),)
+    api = UsageReading("local", "claude", w, 100.0, source=SOURCE_API)
+    store = UsageStore()
+    assert store.update(api)
+    # the same numbers from the status line a moment later: the card must say so
+    assert store.update(UsageReading("local", "claude", w, 101.0, source=SOURCE_STATUS_LINE))
+    assert reading_from_dict(reading_to_dict(api), 200.0).source == SOURCE_API
+    assert reading_from_dict({**reading_to_dict(api), "source": "evil"}, 200.0).source is None
+    assert store.drop(UsageKey("local", "claude")) and not store.readings

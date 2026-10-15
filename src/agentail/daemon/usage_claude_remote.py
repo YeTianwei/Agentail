@@ -33,7 +33,7 @@ from agentail.daemon.usage_claude_api import (
     parse_usage,
 )
 from agentail.sshexec import ssh_argv
-from agentail.usage import UsageReading, clean_plan
+from agentail.usage import SOURCE_SERVER_API, UsageReading, clean_plan
 
 TIMEOUT_S = 40.0  # ssh, python start-up and up to two requests of 15 s
 MAX_OUTPUT = 2 * 1024 * 1024
@@ -157,7 +157,9 @@ def parse_output(raw: bytes, host: str, now: float) -> tuple[UsageReading, str |
     usage = out.get("usage")
     if not isinstance(usage, dict) or "body" not in usage:
         raise _endpoint_error(usage)
-    reading = parse_usage(usage["body"], host, now, plan or clean_plan(out.get("plan")))
+    reading = parse_usage(
+        usage["body"], host, now, plan or clean_plan(out.get("plan")), SOURCE_SERVER_API
+    )
     if reading is None:
         raise FetchError(ERROR, "no usable limits in the response")
     return reading, plan

@@ -353,8 +353,12 @@ test('settings: the two switches of the Claude usage query', () => {
         ['servers', false, true, false, '']]);
     st.apply(status('ok', true));
     eq(view(st), [['local', true, true, false, ''], ['servers', true, true, false, '']]);
+    // once a query succeeded, the switch says when
+    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok', servers: true, ok_ts: NOW - 42}});
+    eq(M.usageSettings(st, {}, NOW).rows[0].status, 'Last checked 42s ago');
+    ok(M.usageSettings(st).intro.includes('only from terminal sessions'), 'intro');
     // what turning one on means is said once, below the switches
-    ok(M.usageSettings(st).footer.includes('unofficial endpoint'), 'footer');
+    ok(M.usageSettings(st).footer.includes('does not document'), 'footer');
     ok(M.usageSettings(st).footer.includes('marked as Agentail'), 'footer');
     // a choice the daemon has not reported yet shows as saving, until it does
     let pending = {servers: false};
@@ -369,6 +373,20 @@ test('settings: the two switches of the Claude usage query', () => {
     const gone = make([], [host('local', 'local')]);
     gone.apply(status('off', true));
     eq(view(gone)[1], ['servers', true, true, false, '']);
+});
+
+test('usage: each card says where its numbers come from', () => {
+    const rec = (h, source, ts) => ({...usage(h, 'claude', [win(10, 300, NOW + 86400)], {ts}), source});
+    const st = withUsage([rec('local', 'api', NOW - 10)]);
+    eq(M.usageCards(st, NOW)[0].sourceText, "From Anthropic, with this computer's Claude login");
+    st.apply({type: 'usage_update', usage: rec('gpu1', 'status_line', NOW - 5)});  // fresher
+    eq(M.usageCards(st, NOW)[0].sourceText, 'From a Claude session in a terminal');
+    st.apply({type: 'usage_update', usage: rec('gpu1', 'server_api', NOW - 1)});
+    eq(M.usageCards(st, NOW)[0].sourceText, 'From Anthropic, with the Claude login on gpu1');
+    st.apply({type: 'usage_update', usage: rec('gpu1', 'whatever', NOW)});
+    eq(M.usageCards(st, NOW)[0].sourceText, '');  // unknown or missing: nothing said
+    const codex = withUsage([{...usage('local', 'codex', [win(4, 300)]), source: 'session_files'}]);
+    eq(M.usageCards(codex, NOW)[0].sourceText, "From Codex's session files");
 });
 
 test('usage: a hint while the Claude query is off and Claude is used', () => {

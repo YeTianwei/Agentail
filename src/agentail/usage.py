@@ -95,6 +95,22 @@ def make_extra(
     return UsageExtra(name, kind, amt, lim if lim else None, cur, unl, why)
 
 
+# Where a reading came from (UsageReading.source), so the panel can say so and the daemon can
+# drop what a switch that was turned off had fetched.
+SOURCE_API = "api"  # Anthropic's usage endpoint, this computer's Claude login
+SOURCE_SERVER_API = "server_api"  # the same, with a server's own login, over ssh
+SOURCE_STATUS_LINE = "status_line"  # Claude's statusLine input, from a terminal session
+SOURCE_APP_SERVER = "app_server"  # codex app-server
+SOURCE_SESSION_FILES = "session_files"  # Codex's rollout files
+SOURCES = (
+    SOURCE_API,
+    SOURCE_SERVER_API,
+    SOURCE_STATUS_LINE,
+    SOURCE_APP_SERVER,
+    SOURCE_SESSION_FILES,
+)
+
+
 @dataclass(frozen=True)
 class UsageReading:
     host: str
@@ -103,6 +119,7 @@ class UsageReading:
     ts: float
     plan: str | None = None
     extras: tuple[UsageExtra, ...] = ()
+    source: str | None = None  # one of SOURCES; None when unknown (saved by an older daemon)
 
 
 class UsageKey(NamedTuple):
@@ -189,6 +206,7 @@ def fill_in(partial: UsageReading, full: UsageReading) -> UsageReading:
         partial.ts,
         partial.plan or full.plan,
         partial.extras or full.extras,
+        partial.source,
     )
 
 
@@ -264,15 +282,19 @@ class UsageStore:
         if old is not None and reading.ts < old.ts:
             return False  # out of order: keep the newer reading
         if old is not None:
-            same = (old.windows, old.plan, old.extras) == (
+            same = (old.windows, old.plan, old.extras, old.source) == (
                 reading.windows,
                 reading.plan,
                 reading.extras,
+                reading.source,
             )
             if same and reading.ts - old.ts < REFRESH_S:
                 return False  # keep the old timestamp: the throttle counts from the last send
         self.readings[key] = reading
         return True
+
+    def drop(self, key: UsageKey) -> bool:
+        return self.readings.pop(key, None) is not None
 
     def drop_host(self, host: str) -> list[UsageKey]:
         gone = [k for k in self.readings if k.host == host]
@@ -323,6 +345,7 @@ def reading_to_dict(r: UsageReading) -> dict[str, Any]:
             for e in r.extras
         ],
         "updated_ts": r.ts,
+        "source": r.source,
     }
 
 
@@ -364,4 +387,5 @@ def reading_from_dict(d: Any, now: float) -> UsageReading | None:
         min(ts, now),
         clean_plan(d.get("plan")),
         tuple(e for e in extras if e is not None),
+        d.get("source") if d.get("source") in SOURCES else None,
     )

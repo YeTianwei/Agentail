@@ -58,13 +58,19 @@ HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_fa
 ```
 
 ```
-USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts",
+USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts", "source": SOURCE | null,
            "windows": [{"used_percent": 0..100, "window_minutes": int | null, "resets_at": int | null,
                         "label": "Fable" | null}],
            "extras": [{"label": "Extra usage" | "Credits", "kind": "spent" | "balance",
                        "amount": float | null, "limit": float | null, "currency": "USD" | null,
                        "unlimited": bool, "inactive": "out_of_credits" | null}]}
 ```
+
+`source` (since 0.0.4) says where the reading came from: `api` (Anthropic's usage endpoint with
+this computer's Claude login), `server_api` (the same with the server's own login), `status_line`
+(Claude's status line in a terminal), `app_server` (`codex app-server`) or `session_files` (Codex's
+rollout files); null when unknown (a reading saved by an older daemon). When a usage switch is
+turned off, the daemon sends `usage_remove` for every reading that switch had fetched.
 
 `extras` (since 0.0.4) are amounts next to the windows: money spent beyond the plan
 (`spent`, with `limit` when capped; Claude's extra usage) or a balance left (`balance`, or

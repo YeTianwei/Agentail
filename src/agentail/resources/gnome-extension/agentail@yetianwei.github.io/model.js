@@ -103,7 +103,7 @@ export class UiState {
         this.sessions = new Map(); // keyString -> session
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
-        this.usageApi = new Map(); // agent -> {state, servers} of the daemon's usage query
+        this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
     }
 
     disconnect() {
@@ -181,6 +181,7 @@ export class UiState {
             this.usageApi.set(clean(agent), {
                 state: clean(status.state, 20),
                 servers: status.servers === true,
+                okTs: typeof status.ok_ts === 'number' ? status.ok_ts : null,
             });
         }
     }
@@ -533,6 +534,21 @@ export function usageGroups(records, now) {
 // account the card names the host only when the record came from a server ("via gpu8");
 // with several, every card lists the hosts it is seen on. Windows without a usable
 // percentage are skipped; an agent without any is not listed.
+// Where a card's numbers come from (USAGE "source"), as one line at its foot. The host is
+// named in the card's head ("via gpu7"), except for a server's own login, which is the point.
+const SOURCE_TEXT = {
+    api: () => "From Anthropic, with this computer's Claude login",
+    server_api: host => `From Anthropic, with the Claude login on ${host}`,
+    status_line: () => 'From a Claude session in a terminal',
+    app_server: () => 'From Codex',
+    session_files: () => "From Codex's session files",
+};
+
+export function sourceText(u, state) {
+    const text = SOURCE_TEXT[clean(u?.source)];
+    return text ? text(state.hostTitle(clean(u.host))) : '';
+}
+
 export function usageCards(state, now) {
     const byAgent = new Map();
     for (const members of usageGroups(state.usage.values(), now)) {
@@ -565,6 +581,7 @@ export function usageCards(state, now) {
                     ? `sign-in expired · run ${agent} once`
                     : ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
                 stale: !(ts > 0) || now - ts > USAGE_STALE_S,
+                sourceText: sourceText(u, state),
                 rows,
                 labelWidth: usageLabelWidth(rows.map(r => r.label)),
             });
@@ -596,7 +613,7 @@ const LOCAL_STATUS = {
 
 // The settings page. `pending`: {local, servers} the user just chose that the daemon has not
 // reported yet; they are shown (as "saving") instead of the daemon's values.
-export function usageSettings(state, pending = {}) {
+export function usageSettings(state, pending = {}, now = 0) {
     const actual = usageSwitches(state);
     const hasServers = [...state.hosts.keys()].some(alias => alias !== 'local');
     const row = (id, title, notes, enabled) => {
@@ -609,20 +626,29 @@ export function usageSettings(state, pending = {}) {
         };
     };
     const api = state.usageApi.get('claude');
-    const local = row('local', "This computer's Claude login",
-        ['Counts VS Code and Claude Desktop sessions too.'], true);
-    local.status = local.on && api ? LOCAL_STATUS[api.state] ?? '' : '';
-    const servers = row('servers', "Each server's own login",
-        [hasServers ? 'For servers with another Claude account, over ssh.'
-            : 'For servers with another Claude account. Add a server first.'],
+    const local = row('local', "Ask Anthropic with this computer's login",
+        ['Checks after every Claude turn and when you open this panel.'], true);
+    local.status = '';
+    if (local.on && api) {
+        const ago = api.state === 'ok' ? ageText(api.okTs, now) : '';
+        local.status = ago ? `Last checked ${ago} ago` : LOCAL_STATUS[api.state] ?? '';
+    }
+    const servers = row('servers', "Ask Anthropic with each server's login",
+        [hasServers
+            ? 'Only for a server logged in to a different Claude account than this ' +
+              'computer. Runs over ssh; the token stays on the server.'
+            : 'Only for servers logged in to a different Claude account. Add a server first.'],
         hasServers || actual?.servers === true);
     servers.status = '';
     return {
         available: actual !== null,
+        intro: 'Claude Code reports its limits only from terminal sessions. To also see them ' +
+            'while you use VS Code or Claude Desktop, Agentail can ask Anthropic for them.',
         rows: [local, servers],
         // What turning one on means, in one place (docs/usage-api-design.md section 4).
-        footer: 'Both ask api.anthropic.com as /usage does: an unofficial endpoint, and the ' +
-            'requests are marked as Agentail. Tokens are never stored.',
+        footer: "This uses the endpoint behind Claude Code's /usage. Anthropic does not " +
+            'document it, and the requests are marked as Agentail. The login token is read ' +
+            'for each request and never stored.',
     };
 }
 

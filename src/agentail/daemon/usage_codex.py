@@ -17,6 +17,7 @@ from typing import Any
 
 from agentail.usage import (
     BALANCE,
+    SOURCE_SESSION_FILES,
     UsageExtra,
     UsageReading,
     UsageWindow,
@@ -116,6 +117,7 @@ def parse_rate_limits(limits: Any, host: str, ts: float) -> UsageReading | None:
         ts=ts,
         plan=clean_plan(limits.get("plan_type")),
         extras=(extra,) if extra else (),
+        source=SOURCE_SESSION_FILES,
     )
 
 

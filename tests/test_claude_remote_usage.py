@@ -193,6 +193,12 @@ async def test_daemon_asks_a_server_until_it_shares_this_computers_account(
         await asyncio.sleep(0.6)
         assert d._remote_claude["gpu1"].same_until > time.monotonic()
         assert len(server_requests()) == n  # not asked again
+
+        # the servers' switch off: what the server's login fetched goes at once
+        config.set_claude_usage_api(servers=False)
+        msg = await _until(r, lambda m: m["type"] == "usage_remove")
+        assert (msg["host"], msg["agent"]) == ("gpu1", "claude")
+        assert {k.host for k in d.usage.readings} == {"local"}
         w.close()
     finally:
         d.stop()

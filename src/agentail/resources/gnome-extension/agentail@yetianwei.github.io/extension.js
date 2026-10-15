@@ -521,7 +521,10 @@ class AgentailIndicator extends PanelMenu.Button {
 
         const group = vbox('agentail-group', {x_expand: true});
         group.add_child(label('Claude usage limits', 'agentail-section'));
-        const settings = M.usageSettings(this._state, this._usagePending);
+        const settings = M.usageSettings(this._state, this._usagePending, Date.now() / 1000);
+        const intro = label(settings.intro, 'agentail-add-note');
+        intro.clutter_text.line_wrap = true;
+        group.add_child(intro);
         const card = vbox('agentail-card agentail-settings', {x_expand: true});
         if (!settings.available) {
             const off = label('The agentail daemon is not running, or is too old for these settings.',
@@ -709,6 +712,8 @@ class AgentailIndicator extends PanelMenu.Button {
             row.add_child(label(r.resetText, 'agentail-usage-reset', {ellipsize: true, xExpand: true}));
             box.add_child(row);
         }
+        if (c.sourceText)
+            box.add_child(label(c.sourceText, 'agentail-usage-source', {ellipsize: true}));
         return box;
     }
 

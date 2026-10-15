@@ -42,7 +42,15 @@ from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
 from agentail.daemon.usage_codex import read_codex_usage
 from agentail.protocol import HookMessage
-from agentail.usage import UsageKey, UsageReading, UsageStore, fill_in, same_account
+from agentail.usage import (
+    SOURCE_API,
+    SOURCE_SERVER_API,
+    UsageKey,
+    UsageReading,
+    UsageStore,
+    fill_in,
+    same_account,
+)
 
 log = logging.getLogger(__name__)
 
@@ -485,6 +493,7 @@ class Daemon:
                 if not switches.servers:
                     for task in self._remote_claude_tasks.values():
                         task.cancel()
+                    self._drop_usage_from(SOURCE_SERVER_API)
             self._publish_claude_api_status(self.claude_api_status)
             on = switches.local
             if on != self._claude_api_on:
@@ -496,7 +505,8 @@ class Daemon:
                     self._set_claude_api_status(claude_api.PENDING)
                 else:
                     self._set_claude_api_status(claude_api.OFF)
-                    self._full_usage.pop(UsageKey(LOCAL_SOURCE, "claude"), None)
+                    self._claude_plan = None
+                    self._drop_usage_from(SOURCE_API)
         if not self._claude_api_on:
             return
         try:
@@ -563,6 +573,20 @@ class Daemon:
             return
         self._set_claude_api_status(claude_api.OK)
         self._on_usage(reading, full=True)
+
+    def _drop_usage_from(self, source: str) -> None:
+        """Forget what a switch that was just turned off had fetched, so the panel shows at once
+        what is left (a terminal session's numbers, or nothing)."""
+        for key, reading in list(self.usage.readings.items()):
+            if reading.source != source:
+                continue
+            self.usage.drop(key)
+            self._usage_dirty = True
+            if self.ui is not None:
+                self.ui.broadcast({"type": "usage_remove", "host": key.host, "agent": key.agent})
+        for key, reading in list(self._full_usage.items()):
+            if reading.source == source:
+                del self._full_usage[key]
 
     @staticmethod
     def _codex_spec_home() -> Path:

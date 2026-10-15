@@ -27,7 +27,14 @@ from typing import Any
 from agentail.daemon.schedule import RemoteSchedule  # noqa: F401  (re-exported)
 from agentail.daemon.usage_codex import credits_extra
 from agentail.sshexec import sh_script, ssh_argv
-from agentail.usage import UsageReading, clean_label, clean_plan, make_window, sorted_windows
+from agentail.usage import (
+    SOURCE_APP_SERVER,
+    UsageReading,
+    clean_label,
+    clean_plan,
+    make_window,
+    sorted_windows,
+)
 
 log = logging.getLogger(__name__)
 
@@ -126,6 +133,7 @@ def parse_rate_limits(result: Any, host: str, now: float) -> UsageReading | None
         ts=now,
         plan=clean_plan(snap.get("planType")),
         extras=(extra,) if extra else (),
+        source=SOURCE_APP_SERVER,
     )
 
 

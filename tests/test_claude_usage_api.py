@@ -17,6 +17,7 @@ from agentail import config, paths
 from agentail.daemon import usage_claude_api as api
 from agentail.daemon.main import Daemon
 from agentail.protocol import HookMessage
+from agentail.usage import UsageKey
 
 TOKEN = "sk-ant-oat01-SECRET-test-token"
 NOW = 1_791_772_000.0
@@ -613,6 +614,10 @@ async def test_daemon_panel_open_refreshes_and_config_turns_it_off(
         config.set_claude_usage_api(False)
         msg = await _until(r, lambda m: m["type"] == "usage_api_status")
         assert msg["status"]["state"] == api.OFF
+        # what the query had fetched goes at once: the panel shows what is left
+        msg = await _until(r, lambda m: m["type"] == "usage_remove")
+        assert (msg["host"], msg["agent"]) == ("local", "claude")
+        assert UsageKey("local", "claude") not in d.usage.readings
         n, before = len(opened), fake_api.count()
         await d.handle("local", _stop_msg())
         w.write(b'{"type": "refresh_usage"}\n')
