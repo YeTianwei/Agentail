@@ -103,7 +103,7 @@ export class UiState {
         this.sessions = new Map(); // keyString -> session
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
-        this.usageApi = new Map(); // agent -> {state, detail} of the daemon's usage query
+        this.usageApi = new Map(); // agent -> {state, decided, servers} of the daemon's usage query
     }
 
     disconnect() {
@@ -177,8 +177,14 @@ export class UiState {
     }
 
     _setUsageApi(agent, status) {
-        if (status && typeof status === 'object')
-            this.usageApi.set(clean(agent), {state: clean(status.state, 20)});
+        if (status && typeof status === 'object') {
+            this.usageApi.set(clean(agent), {
+                state: clean(status.state, 20),
+                // A daemon from before the question sends no "decided": never ask then.
+                decided: status.decided !== false,
+                servers: status.servers === true,
+            });
+        }
     }
 
     hostTitle(alias) {
@@ -567,6 +573,21 @@ export function usageCards(state, now) {
         }
     }
     return cards;
+}
+
+// The one question the panel asks: may the daemon use Claude Code's login to ask Anthropic
+// for Claude's limits? Off until answered (docs/usage-api-design.md section 4). Asked once
+// Claude has been seen (a session or a reading) while the user has not chosen; null otherwise.
+// `servers`: offer the servers too, when there are any.
+export function usageConsent(state) {
+    const api = state.usageApi.get('claude');
+    if (!api || api.decided)
+        return null;
+    const seen = [...state.sessions.values()].some(s => keyOf(s?.key)[1] === 'claude') ||
+        [...state.usage.values()].some(u => clean(u?.agent) === 'claude');
+    if (!seen)
+        return null;
+    return {servers: [...state.hosts.keys()].some(alias => alias !== 'local')};
 }
 
 // Host chips wrapped into rows that fit the panel. Clutter's FlowLayout under-reports its

@@ -2,8 +2,9 @@
 
 The local query (usage_claude_api) covers every server that uses the same account. A server
 logged in to another account, or one used while this computer has no Claude login at all
-(Claude only through VS Code Remote, whose statusLine never runs), needs its own query. The
-owner allowed reading the server's login for that (2026-10-15).
+(Claude only through VS Code Remote, whose statusLine never runs), needs its own query. It runs
+only while ``[usage] claude_api_servers`` is on, a switch separate from this computer's and off
+until the user turns it on (config.UsageSwitches).
 
 Nothing is installed for it: ``SCRIPT`` is a constant Python 3.6 program run with the
 server's ``python3 -c`` (the interpreter add-host recorded). On the server it reads

@@ -27,10 +27,10 @@ from agentail.config import (
     Host,
     cwd_ignored,
     default_ignore_cwd,
-    load_claude_usage_api,
     load_hosts,
     load_ignore_cwd,
     load_retention,
+    load_usage_switches,
 )
 from agentail.daemon import usage_claude_api as claude_api
 from agentail.daemon import usage_claude_remote as claude_remote
@@ -131,9 +131,18 @@ class Daemon:
         self._claude_task: asyncio.Task[None] | None = None
         self._claude_cred_mtime: int | None = None
         self._settings_mtime: int | None = -1  # -1: not read yet
+        # [usage] in config.toml (config.UsageSwitches): both off until the user turns them on.
         self._claude_api_on = False
-        # The usage_api record of the UI protocol: how the Claude query is doing.
-        self.claude_api_status: dict[str, Any] = {"state": claude_api.OFF, "detail": ""}
+        self._claude_servers_on = False
+        self._claude_decided = False
+        # The usage_api record of the UI protocol: how the Claude query is doing, and the
+        # switches (the panel asks once while "decided" is false).
+        self.claude_api_status: dict[str, Any] = {
+            "state": claude_api.OFF,
+            "detail": "",
+            "decided": False,
+            "servers": False,
+        }
         self._dirty = False  # sessions changed since they were last saved
         self._usage_dirty = False
         self.print_events = print_events
@@ -367,10 +376,10 @@ class Daemon:
         return self._remote_claude[alias]
 
     def _remote_claude_needed(self, st: _RemoteClaude, now: float) -> bool:
-        """Whether a server must be asked itself: the local query is switched on (the same
-        switch covers both) but cannot speak for the server, because this computer has no
-        working login or the server has not been seen to share its account lately."""
-        if not self._claude_api_on:
+        """Whether a server must be asked itself: the servers' switch is on and the local
+        query cannot speak for the server, because it is off, this computer has no working
+        login, or the server has not been seen to share its account lately."""
+        if not self._claude_servers_on:
             return False
         return self.claude_api_status.get("state") != claude_api.OK or st.same_until <= now
 
@@ -437,7 +446,7 @@ class Daemon:
             st.plan, st.plan_at = plan, time.monotonic()
         if st.plan:
             reading = replace(reading, plan=st.plan)
-        if alias in self.remotes and self._claude_api_on:
+        if alias in self.remotes and self._claude_servers_on:
             self._on_usage(reading, full=True)
 
     # -- Claude usage endpoint (daemon/usage_claude_api.py) --------------------------------
@@ -451,6 +460,10 @@ class Daemon:
             status["ok_ts"] = time.time()
         elif "ok_ts" in self.claude_api_status:
             status["ok_ts"] = self.claude_api_status["ok_ts"]
+        self._publish_claude_api_status(status)
+
+    def _publish_claude_api_status(self, status: dict[str, Any]) -> None:
+        status = {**status, "decided": self._claude_decided, "servers": self._claude_servers_on}
         if status == self.claude_api_status:
             return
         self.claude_api_status = status
@@ -458,8 +471,8 @@ class Daemon:
             self.ui.broadcast({"type": "usage_api_status", "agent": "claude", "status": status})
 
     def _sync_claude_api(self) -> None:
-        """Follow ``[usage] claude_api`` in config.toml and the login file; start a query
-        when one is due. Called from the main loop every few seconds."""
+        """Follow ``[usage]`` in config.toml and the login file; start a query when one is
+        due. Called from the main loop every few seconds."""
         path = paths.settings_file()
         try:
             mtime: int | None = path.stat().st_mtime_ns
@@ -467,7 +480,16 @@ class Daemon:
             mtime = None
         if mtime != self._settings_mtime:
             self._settings_mtime = mtime
-            on = load_claude_usage_api(path)
+            switches = load_usage_switches(path)
+            self._claude_decided = switches.decided
+            if switches.servers != self._claude_servers_on:
+                self._claude_servers_on = switches.servers
+                log.info("Claude usage on the servers %s", "on" if switches.servers else "off")
+                if not switches.servers:
+                    for task in self._remote_claude_tasks.values():
+                        task.cancel()
+            self._publish_claude_api_status(self.claude_api_status)
+            on = switches.local
             if on != self._claude_api_on:
                 self._claude_api_on = on
                 log.info("Claude usage endpoint %s", "on" if on else "off")
@@ -790,6 +812,7 @@ class Daemon:
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
         self.ui = UiServer(paths.ui_sock(), self.snapshot, on_refresh_usage=self.panel_opened)
         try:
+            self._sync_claude_api()  # the switches, before the first snapshot
             await self.ui.start()
             for listener in self.listeners:
                 await listener.start()

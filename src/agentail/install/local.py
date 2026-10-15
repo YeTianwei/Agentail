@@ -296,11 +296,15 @@ def install_local(
             out(f"warning: {warning}")
         if spec.trust_note:
             out(f"{spec.name}: {spec.trust_note}")
-    from agentail.config import load_claude_usage_api
-    from agentail.daemon.usage_claude_api import NOTE
+    from agentail.config import load_usage_switches
+    from agentail.daemon.usage_claude_api import NOTE, OFFER
 
-    if any(p.target.agent == "claude" for p in plans) and load_claude_usage_api():
-        out(NOTE)
+    if any(p.target.agent == "claude" for p in plans):
+        switches = load_usage_switches()
+        if switches.local:
+            out(NOTE)
+        elif not switches.decided:
+            out(OFFER)
     out(f"Events go to {paths.local_sock()}; start `agentail daemon` to receive them.")
     return 0
 

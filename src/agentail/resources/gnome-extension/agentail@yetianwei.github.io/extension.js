@@ -213,6 +213,7 @@ class AgentailIndicator extends PanelMenu.Button {
         this._addProc = null;
         this._addCancel = null;
         this._addTimer = 0;
+        this._consentError = '';
 
         // The "island": a dark capsule inside the panel button. Its content is rebuilt
         // by _renderTopBar() whenever the summary changes.
@@ -409,8 +410,9 @@ class AgentailIndicator extends PanelMenu.Button {
         // The light/dark switch sits top right, on the first agent's row.
         groups.forEach((g, i) => content.add_child(this._agentGroup(g, i === 0)));
         const usage = M.usageCards(st, now);
-        if (usage.length)
-            content.add_child(this._usage(usage));
+        const consent = M.usageConsent(st);
+        if (usage.length || consent)
+            content.add_child(this._usage(usage, consent));
         content.add_child(this._hosts(M.hostRows(st)));
 
         const scroll = new St.ScrollView({
@@ -531,7 +533,7 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    _usage(cards) {
+    _usage(cards, consent) {
         const box = vbox('agentail-group', {x_expand: true});
         const open = this._prefs.usage_open;
         const head = hbox('agentail-servers-head', {x_expand: true});
@@ -556,9 +558,77 @@ class AgentailIndicator extends PanelMenu.Button {
             this._renderPanel();
         });
         box.add_child(toggle);
+        if (open && consent)
+            box.add_child(this._usageConsent(consent));
         if (open)
             cards.forEach(c => box.add_child(this._usageCard(c)));
         return box;
+    }
+
+    // Asks once whether the daemon may use Claude Code's login (M.usageConsent). The answer is
+    // written by `agentail usage-api`, like the terminal would; the daemon then reports it.
+    _usageConsent(c) {
+        const box = vbox('agentail-card agentail-consent', {x_expand: true});
+        box.add_child(label("Show Claude's limits from every session?", 'agentail-add-title'));
+        const paragraphs = [
+            'Claude Code gives its limits only to the status line of a terminal session. ' +
+            "Agentail can ask Anthropic for them with Claude Code's login on this computer, the " +
+            'way /usage does: the token is read for each request, sent only to ' +
+            'api.anthropic.com and never stored.',
+            'Anthropic does not document this endpoint, and the requests say they come from ' +
+            'Agentail, not Claude Code.',
+        ];
+        if (c.servers) {
+            paragraphs.push("On servers, each server's own login is used, over ssh, when its " +
+                'account is not the one on this computer.');
+        }
+        for (const text of paragraphs) {
+            const l = label(text, 'agentail-add-note');
+            l.clutter_text.line_wrap = true;
+            box.add_child(l);
+        }
+        if (this._consentError) {
+            const err = label(this._consentError, 'agentail-add-result agentail-add-fail');
+            err.clutter_text.line_wrap = true;
+            box.add_child(err);
+        }
+        const row = hbox('agentail-add-row');
+        row.add_child(this._button('Turn on', 'agentail-btn-add', () => this._setUsageApi(['on'])));
+        if (c.servers) {
+            row.add_child(this._button('Also on servers', 'agentail-btn-add',
+                () => this._setUsageApi(['on', '--servers'])));
+        }
+        row.add_child(this._button('No thanks', 'agentail-btn-quiet', () => this._setUsageApi(['off'])));
+        box.add_child(row);
+        box.add_child(label('Change it later with agentail usage-api on|off.', 'agentail-add-note'));
+        return box;
+    }
+
+    // Runs `agentail usage-api <args>` (argv list, no shell).
+    _setUsageApi(args) {
+        const fail = () => {
+            this._consentError = `Could not save that. Run agentail usage-api ${args.join(' ')} in a terminal.`;
+            this._renderPanel();
+        };
+        const bin = this._agentailBinary();
+        if (!bin) {
+            fail();
+            return;
+        }
+        try {
+            const proc = Gio.Subprocess.new([bin, 'usage-api', ...args],
+                Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE);
+            proc.wait_check_async(null, (p, res) => {
+                try {
+                    p.wait_check_finish(res);
+                    this._consentError = '';
+                } catch {
+                    fail();
+                }
+            });
+        } catch {
+            fail();
+        }
     }
 
     _usageCard(c) {

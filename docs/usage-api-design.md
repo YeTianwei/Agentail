@@ -72,7 +72,18 @@
 6. **只查本机账号。** 远程服务器不读凭据;owner 已决定(2026-10-12)默认本机与服务器使用同一个账号,服务器上的 Claude 仍走 statusLine。
 7. **不改线协议、不改 hook。** 读数仍是 `UsageReading(host="local", agent="claude")`,USAGE 记录不变;UI 协议只为查询状态加了向后兼容的字段与消息(§4.1)。
 
-## 4. 开关:默认开启,可关闭(owner 决定 2026-10-12)
+## 4. 开关:默认关闭,面板询问一次(owner 决定 2026-10-15)
+
+> **2026-10-15 改为默认关闭**(推广前的安全评估,"安全 1"):默认开启意味着用户在不知情时,daemon 就拿 Claude Code 的 OAuth token 以 `User-Agent: agentail` 访问一个未公开的接口;是否允许第三方工具这样用由 Anthropic 决定,被限流或封号的风险落在用户身上;`.deb` 又会对机器上每个用户自动生效。现在:
+>
+> - `[usage] claude_api`(本机登录)和 `claude_api_servers`(各服务器自己的登录,经 ssh)两个开关,**都默认关闭**;只有布尔值算"已选择"。
+> - 两个键都没写过时,UI 协议的 `USAGE_API.decided` 为 false;GNOME 面板在见过 Claude(会话或读数)后,在 Usage 区问一次:「Turn on」/「Also on servers」(有服务器时)/「No thanks」,答案通过 `agentail usage-api on|off [--servers]` 写进 `config.toml`。说明文字写明接口未公开、请求标明来自 Agentail。
+> - `install-local` 在未选择时打印一行提示(`OFFER`),开启后才打印完整说明(`NOTE`);`doctor` 分别显示两个开关。
+> - 从 0.0.3 升级:没写过这个键的用户变为关闭,面板会问一次;用 `usage-api on` 明确开过的保持开启,但服务器那一侧要另外打开。
+>
+> 下面是 2026-10-12 的原决定,保留作记录;"默认开启"和"面板上不放开关"两条已被上面取代。
+
+### 4.0 原决定:默认开启,可关闭(2026-10-12,已取代)
 
 会看 Usage 的用户本来就需要 Claude 额度,所以**默认开启,面板上不放开关**。关闭的办法保留在配置里:
 

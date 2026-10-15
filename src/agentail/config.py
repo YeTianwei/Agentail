@@ -166,28 +166,72 @@ def load_auto_setup(path: Path | None = None) -> bool:
     return value is not False
 
 
-def load_claude_usage_api(path: Path | None = None) -> bool:
-    """``[usage] claude_api`` in config.toml (default: on). When on, the daemon reads Claude
-    Code's login to query Anthropic's usage endpoint (docs/usage-api-design.md). Anything
-    but ``false`` keeps the default."""
+@dataclass(frozen=True)
+class UsageSwitches:
+    """``[usage]`` in config.toml: may the daemon use Claude Code's login to ask Anthropic for
+    Claude's limits (docs/usage-api-design.md)? Both are off until the user turns them on;
+    None means the user has not chosen (the panel then asks once).
+
+        [usage]
+        claude_api = true          # this computer's login
+        claude_api_servers = true  # each server's own login, over ssh
+    """
+
+    claude_api: bool | None = None
+    claude_api_servers: bool | None = None
+
+    @property
+    def local(self) -> bool:
+        return self.claude_api is True
+
+    @property
+    def servers(self) -> bool:
+        return self.claude_api_servers is True
+
+    @property
+    def decided(self) -> bool:
+        return self.claude_api is not None or self.claude_api_servers is not None
+
+
+def load_usage_switches(path: Path | None = None) -> UsageSwitches:
+    """Only ``true`` turns a switch on and only a boolean counts as a choice; anything
+    unreadable leaves both unchosen (off)."""
     path = path or paths.settings_file()
     try:
         with path.open("rb") as fh:
-            value = tomllib.load(fh).get("usage", {}).get("claude_api", True)
-    except (OSError, tomllib.TOMLDecodeError, AttributeError):
-        return True
-    return value is not False
+            usage = tomllib.load(fh).get("usage", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return UsageSwitches()
+    if not isinstance(usage, dict):
+        return UsageSwitches()
+
+    def choice(key: str) -> bool | None:
+        value = usage.get(key)
+        return value if isinstance(value, bool) else None
+
+    return UsageSwitches(choice("claude_api"), choice("claude_api_servers"))
 
 
-def set_claude_usage_api(on: bool, path: Path | None = None) -> None:
-    """Write ``[usage] claude_api``, keeping the rest of config.toml."""
+def load_claude_usage_api(path: Path | None = None) -> bool:
+    """Whether the daemon may read this computer's Claude Code login (default: off)."""
+    return load_usage_switches(path).local
+
+
+def set_claude_usage_api(
+    on: bool | None = None, path: Path | None = None, *, servers: bool | None = None
+) -> None:
+    """Write ``[usage] claude_api`` (``on``) and ``claude_api_servers`` (``servers``); None
+    leaves that key alone. The rest of config.toml is kept."""
     path = path or paths.settings_file()
     doc = _load_doc(path)
     usage = doc.get("usage")
     if usage is None:
         usage = tomlkit.table()
         doc.append("usage", usage)
-    usage["claude_api"] = on
+    if on is not None:
+        usage["claude_api"] = on
+    if servers is not None:
+        usage["claude_api_servers"] = servers
     _write_doc(path, doc)
 
 

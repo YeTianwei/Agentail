@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+### Changed
+
+- **The Claude usage query is off until you turn it on.** Asking Anthropic for Claude's limits
+  uses Claude Code's login, sends requests that say they come from Agentail to an endpoint Anthropic
+  does not document, and was on by default, so it happened without anyone agreeing to it. Now
+  the panel's Usage section asks once, after Claude has been seen ("Turn on", "Also on servers",
+  "No thanks"); `agentail usage-api on|off` does the same in a terminal. Servers have a switch of
+  their own (`agentail usage-api on --servers`, `[usage] claude_api_servers = true`): a server's
+  login is never read unless it is on. **After upgrading**, the query stays on only if you had
+  turned it on with `agentail usage-api on`; otherwise the panel asks. Without it, Claude's limits
+  still come from Claude in a terminal (its status line). `agentail doctor` and `install-local`
+  say which switch is on.
+
 ### Fixed
 
 - **A server whose ssh login failed once stayed red until the daemon restarted.** A login failure
@@ -41,8 +54,8 @@
   Claude used only on servers (VS Code Remote, where the status line never runs), showed nothing
   or the wrong account. The daemon now asks the endpoint on such a server over ssh, with the
   server's own login: a short Python script runs there, nothing is installed, the token stays on
-  the server. A server seen with this computer's account is not asked itself. `agentail usage-api
-  off` turns this off too.
+  the server. A server seen with this computer's account is not asked itself. Only while
+  `agentail usage-api on --servers` is on (see Changed).
 - **Extra usage and Codex credits.** When Claude's extra usage (paid usage beyond the plan) is
   switched on, the Claude card shows what was spent, with a bar if there is a monthly cap (greyed
   out with the reason, e.g. "out of credits", when Claude keeps it off); when

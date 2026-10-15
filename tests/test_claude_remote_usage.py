@@ -141,7 +141,7 @@ async def test_daemon_asks_a_server_until_it_shares_this_computers_account(
     from agentail.config import Host, save_host
     from agentail.daemon.schedule import RemoteSchedule
 
-    monkeypatch.setattr(daemon_main, "load_claude_usage_api", config.load_claude_usage_api)
+    config.set_claude_usage_api(True)  # this computer only: the servers are a switch of their own
     monkeypatch.setattr(
         daemon_main, "RemoteSchedule", lambda: RemoteSchedule(debounce=0.1, interval=0.1)
     )
@@ -170,7 +170,14 @@ async def test_daemon_asks_a_server_until_it_shares_this_computers_account(
         r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
         await _read(r)
         d._set_host("gpu1", "connected", "")
-        # this computer's login has expired: the server is asked itself, with its plan
+        # the servers' switch is off: a server's login is never read, even when this
+        # computer's login has expired
+        await d.handle("gpu1", _stop_msg())
+        await asyncio.sleep(0.5)
+        assert server_requests() == [] and "gpu1" not in {k.host for k in d.usage.readings}
+        config.set_claude_usage_api(servers=True)
+        await _until(r, lambda m: m["type"] == "usage_api_status" and m["status"]["servers"])
+        # now the server is asked itself, with its plan
         await d.handle("gpu1", _stop_msg())
         msg = await _until(r, lambda m: m["type"] == "usage_update")
         assert msg["usage"]["host"] == "gpu1" and msg["usage"]["plan"] == "max_5x"

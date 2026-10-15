@@ -25,7 +25,7 @@ from typing import Any
 from agentail import agents as registry
 from agentail import paths
 from agentail.client import clean
-from agentail.config import load_claude_usage_api, load_hosts
+from agentail.config import UsageSwitches, load_hosts, load_usage_switches
 from agentail.install import gnome, service, statusline
 from agentail.install.local import hook_dest
 
@@ -262,38 +262,69 @@ def _ago(ts: Any, now: float) -> str:
 
 
 def usage_api_checks(snapshot: dict[str, Any] | None, now: float | None = None) -> list[Check]:
-    """How the daemon's query of Claude's usage endpoint is doing (daemon/usage_claude_api.py)."""
+    """How the daemon's query of Claude's usage endpoint is doing (daemon/usage_claude_api.py),
+    and whether the servers' own logins may be used for it. Both are off until turned on."""
     spec = registry.get("claude")
     if spec is None or not spec.home().is_dir():
         return []
+    switches = load_usage_switches()
+    checks = []
+    local = _usage_api_check(switches, snapshot, time.time() if now is None else now)
+    if local is not None:
+        checks.append(local)
+    try:
+        has_hosts = bool(load_hosts())
+    except (OSError, ValueError):
+        has_hosts = False  # host_checks reports a broken hosts.toml
+    if has_hosts:
+        name = "claude usage servers"
+        if switches.servers:
+            checks.append(Check(name, INFO, "on: a server with another account is asked"))
+        else:
+            checks.append(
+                Check(
+                    name,
+                    INFO,
+                    "off: a server's own Claude login is not used",
+                    "agentail usage-api on --servers",
+                )
+            )
+    return checks
+
+
+def _usage_api_check(
+    switches: UsageSwitches, snapshot: dict[str, Any] | None, now: float
+) -> Check | None:
     name = "claude usage api"
-    if not load_claude_usage_api():
-        return [Check(name, INFO, "off ([usage] claude_api = false)", "agentail usage-api on")]
+    if not switches.local:
+        if switches.claude_api is False:
+            return Check(name, INFO, "off ([usage] claude_api = false)", "agentail usage-api on")
+        return Check(
+            name,
+            INFO,
+            "off until you turn it on: limits come only from Claude in a terminal",
+            "agentail usage-api on",
+        )
     if snapshot is None:
-        return []  # the daemon check already says it is not running
+        return None  # the daemon check already says it is not running
     api = snapshot.get("usage_api")
     status = api.get("claude") if isinstance(api, dict) else None
     if not isinstance(status, dict):
-        return [
-            Check(
-                name,
-                WARN,
-                "the daemon does not query it",
-                f"systemctl --user restart {service.UNIT}",
-            )
-        ]
+        return Check(
+            name, WARN, "the daemon does not query it", f"systemctl --user restart {service.UNIT}"
+        )
     state, detail = clean(status.get("state"), 20), clean(status.get("detail"), 120)
-    ago = _ago(status.get("ok_ts"), time.time() if now is None else now)
+    ago = _ago(status.get("ok_ts"), now)
     last = f" (last success {ago})" if ago else ""
     if state == "ok":
-        return [Check(name, OK, f"last query {ago}" if ago else "last query succeeded")]
+        return Check(name, OK, f"last query {ago}" if ago else "last query succeeded")
     if state == "pending":
-        return [Check(name, INFO, "waiting for the first query")]
+        return Check(name, INFO, "waiting for the first query")
     if state == "needs_login":
-        return [Check(name, WARN, detail + last, "run claude once: it refreshes its login")]
+        return Check(name, WARN, detail + last, "run claude once: it refreshes its login")
     if state == "off":
-        return [Check(name, INFO, "off in the daemon; it picks up config.toml within seconds")]
-    return [Check(name, WARN, (detail or state) + last, f"journalctl --user -u {service.UNIT}")]
+        return Check(name, INFO, "off in the daemon; it picks up config.toml within seconds")
+    return Check(name, WARN, (detail or state) + last, f"journalctl --user -u {service.UNIT}")
 
 
 # ---- daemon, service, hosts, extension ----------------------------------------------------

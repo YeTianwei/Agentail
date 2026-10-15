@@ -80,6 +80,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="turn the Claude usage query (Claude Code's login, api.anthropic.com) on or off",
     )
     ua.add_argument("action", choices=["on", "off", "status"])
+    ua.add_argument(
+        "--servers",
+        action="store_true",
+        help="on: also ask servers with their own login (over ssh); off: turn only that off",
+    )
 
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
@@ -145,10 +150,16 @@ def main(argv: list[str] | None = None) -> int:
         from agentail import config, doctor
         from agentail.daemon import usage_claude_api as claude_api
 
-        if args.action != "status":
-            config.set_claude_usage_api(args.action == "on")
+        if args.action == "on":
+            config.set_claude_usage_api(True, servers=True if args.servers else None)
+        elif args.action == "off":
+            config.set_claude_usage_api(None if args.servers else False, servers=False)
         print(claude_api.NOTE)
-        print(f"Now {'on' if config.load_claude_usage_api() else 'off'} ({paths.settings_file()}).")
+        sw = config.load_usage_switches()
+        print(
+            f"This computer: {'on' if sw.local else 'off'}. "
+            f"Servers: {'on' if sw.servers else 'off'}. ({paths.settings_file()})"
+        )
         for c in (
             doctor.usage_api_checks(doctor.fetch_snapshot()) if args.action == "status" else []
         ):

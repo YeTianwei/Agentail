@@ -89,14 +89,23 @@ Stop there, or when the panel opens), stored under that server's alias. A readin
 `usage_remove` is sent when a host is removed. Clients ignore message types and snapshot keys
 they do not know. See `docs/usage-design.md`.
 
-Since 0.0.3 the daemon also asks Anthropic's usage endpoint with Claude Code's login (on by
-default, `[usage] claude_api = false` in `config.toml` turns it off; `docs/usage-api-design.md`).
-Its readings are ordinary `USAGE` records from `local`. How that query is doing:
+Since 0.0.3 the daemon can also ask Anthropic's usage endpoint with Claude Code's login
+(`docs/usage-api-design.md`). Since 0.0.4 this is off until the user turns it on: `[usage]
+claude_api = true` in `config.toml` for this computer's login, `claude_api_servers = true` for each
+server's own login over ssh. Its readings are ordinary `USAGE` records (from `local`, or the
+server's alias). How that query is doing:
 
 ```
 USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "HTTP 401: login rejected",
-             "ok_ts": 1791772000.0}   # ok_ts: last success, absent if none
+             "ok_ts": 1791772000.0,   # ok_ts: last success, absent if none
+             "decided": false,        # since 0.0.4: the user has answered (either switch is set)
+             "servers": false}        # since 0.0.4: claude_api_servers is on
 ```
+
+While `decided` is false, a client may ask the user once whether to turn the query on (the GNOME
+panel does, after Claude has been seen) and write the answer with `agentail usage-api on|off
+[--servers]`; the daemon picks up `config.toml` within seconds and sends a new `usage_api_status`.
+A client treats a missing `decided` as true (a daemon that predates the question).
 
 `needs_login` means Claude Code's login is missing, expired or rejected; running `claude` once
 refreshes it. `detail` is written by the daemon (no payload content); `usage_api_status` is sent

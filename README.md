@@ -41,9 +41,10 @@ Agentail only watches. You still answer agents in their own terminal.
 - 🛡️ **Never in the agent's way.** The hook sends one message and exits. If your desktop is not
   listening it returns at once, prints nothing, and never blocks or fails a tool call.
 - 📊 **Usage limits at a glance.** Claude Code's 5-hour and weekly limits and Codex's, with when
-  each one resets, without reading your login files.
+  each one resets. Your Claude login is used only if you say yes.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
-  account, no cloud, no telemetry.
+  account, no cloud, no telemetry. Agentail talks to no online service of its own accord; the
+  Claude usage query does, if you turn it on (Codex's limits are asked by Codex itself).
 - 🌗 **Light and dark.** One click, top right of the panel.
 - 🆓 **Open source.** MIT licensed, written from scratch.
 
@@ -67,17 +68,26 @@ and red from 90 %.
 
 | Agent | Where the numbers come from | When they refresh |
 |---|---|---|
-| Claude Code (Pro / Max) | Anthropic's usage endpoint, asked with Claude Code's login on this computer; also the input Claude Code gives its status line | a few seconds after a Claude turn ends (at most once a minute) and when you open the panel |
+| Claude Code (Pro / Max) | the input Claude Code gives its status line in a terminal; if you turn it on, also Anthropic's usage endpoint, asked with Claude Code's login | whenever a terminal session answers; with the endpoint, also a few seconds after any Claude turn ends (at most once a minute) and when you open the panel |
 | Codex | Codex itself (`codex app-server`), else its session files | when you open the panel (at most once a minute) |
 
-**Claude and your login.** Claude Code only hands its limits to the status line of an
-interactive terminal session; the VS Code extension and Claude Desktop never do. So the daemon asks
-`api.anthropic.com` for them itself, the way Claude Code's `/usage` does, with the access token of
-Claude Code's login in `~/.claude/.credentials.json`. The token is read for each request and sent
-only to that address; it is never refreshed (an expired login waits until you next run `claude`),
-written anywhere or logged. Nothing else from the file is used. This is on by default; turn it off
-with `agentail usage-api off` (or `[usage] claude_api = false` in `~/.config/agentail/config.toml`).
-The endpoint is not documented by Anthropic and may change. `agentail doctor` shows how it is doing.
+**Claude and your login (off until you turn it on).** Claude Code only hands its limits to the
+status line of an interactive terminal session; the VS Code extension and Claude Desktop never do.
+Agentail can ask `api.anthropic.com` for them itself, the way Claude Code's `/usage` does, with the
+access token of Claude Code's login in `~/.claude/.credentials.json`. It does so only after you say
+yes: the panel's Usage section asks once, or run `agentail usage-api on`. The token is then read
+for each request and sent only to that address; it is never refreshed (an expired login waits until
+you next run `claude`), written anywhere or logged. Nothing else from the file is used.
+
+Before you say yes, know that Anthropic does not document this endpoint, that it may change, and
+that the requests say they come from Agentail, not from Claude Code. How Anthropic treats such
+requests from tools other than Claude Code is up to Anthropic.
+
+**Servers** have a switch of their own (`agentail usage-api on --servers`, or "Also on servers" in
+the panel). With it, a server whose Claude account is not the one on this computer is asked over
+ssh with the server's own login: a short Python script runs there, nothing is installed, and the
+token never leaves the server. `agentail usage-api off` turns both off; `agentail doctor` shows how
+the query is doing.
 
 Agentail also wraps your status line command, so terminal sessions on your servers report too: it
 still gets the same input and prints the same output, and uninstalling puts it back. Agentail
@@ -202,7 +212,8 @@ ignore_cwd = ["~/.local/share/CodexBar"]
 auto = true                 # false: do not set up hooks and the panel automatically
 
 [usage]
-claude_api = true           # false: do not ask Anthropic for Claude's limits with your login
+claude_api = false          # true: ask Anthropic for Claude's limits with this computer's login
+claude_api_servers = false  # true: also with each server's own login, over ssh
 ```
 
 A session waiting for permission is never removed on a timer. Restart the daemon after editing:
@@ -221,7 +232,7 @@ the panel, and prints the command that fixes each problem.
 |---|---|
 | `agentail status` | machines, usage limits and sessions in the terminal |
 | `agentail tail` | live session changes |
-| `agentail usage-api on\|off\|status` | the Claude usage query with Claude Code's login |
+| `agentail usage-api on\|off\|status [--servers]` | the Claude usage query with Claude Code's login (off until turned on) |
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |
 

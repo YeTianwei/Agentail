@@ -14,7 +14,6 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import pytest
 
 from agentail import config, paths
-from agentail.daemon import main as daemon_main
 from agentail.daemon import usage_claude_api as api
 from agentail.daemon.main import Daemon
 from agentail.protocol import HookMessage
@@ -517,8 +516,9 @@ async def _until(reader, pred):
 
 
 @pytest.fixture
-def api_on(monkeypatch):
-    monkeypatch.setattr(daemon_main, "load_claude_usage_api", config.load_claude_usage_api)
+def api_on(runtime_env):
+    """The query is off until the user turns it on: turn it on for this computer."""
+    config.set_claude_usage_api(True)
 
 
 async def test_daemon_queries_at_start_and_after_a_stop(
@@ -693,16 +693,74 @@ async def test_daemon_completes_status_line_readings_of_the_same_account(
 
 def test_setting_round_trip_keeps_the_rest_of_the_file(runtime_env):
     path = paths.settings_file()
-    assert config.load_claude_usage_api() is True  # default on
+    sw = config.load_usage_switches()
+    assert (sw.local, sw.servers, sw.decided) == (False, False, False)  # off until chosen
+    assert config.load_claude_usage_api() is False
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("# mine\n[sessions]\nstale_after_minutes = 5\n")
     config.set_claude_usage_api(False)
-    assert config.load_claude_usage_api() is False
+    sw = config.load_usage_switches()
+    assert (sw.local, sw.servers, sw.decided) == (False, False, True)  # "No thanks"
     text = path.read_text()
     assert "# mine" in text and "stale_after_minutes = 5" in text
     config.set_claude_usage_api(True)
     assert config.load_claude_usage_api() is True
-    path.write_text("[usage]\nclaude_api = 'no'\n")
-    assert config.load_claude_usage_api() is True  # only false turns it off
+    assert config.load_usage_switches().servers is False  # a switch of its own
+    config.set_claude_usage_api(servers=True)
+    assert config.load_usage_switches() == config.UsageSwitches(True, True)
+    config.set_claude_usage_api(None, servers=False)
+    assert config.load_usage_switches() == config.UsageSwitches(True, False)
+    path.write_text("[usage]\nclaude_api = 'yes'\nclaude_api_servers = 1\n")
+    sw = config.load_usage_switches()
+    assert (sw.local, sw.servers, sw.decided) == (False, False, False)  # only booleans count
     path.write_text("not toml [")
-    assert config.load_claude_usage_api() is True
+    assert config.load_usage_switches() == config.UsageSwitches()
+
+
+def test_cli_usage_api_switches(runtime_env, capsys):
+    from agentail import cli
+
+    assert cli.main(["usage-api", "on"]) == 0
+    assert config.load_usage_switches() == config.UsageSwitches(True, None)
+    assert "This computer: on. Servers: off." in capsys.readouterr().out
+    assert cli.main(["usage-api", "on", "--servers"]) == 0
+    assert config.load_usage_switches() == config.UsageSwitches(True, True)
+    assert cli.main(["usage-api", "off", "--servers"]) == 0  # only the servers
+    assert config.load_usage_switches() == config.UsageSwitches(True, False)
+    assert cli.main(["usage-api", "off"]) == 0  # everything
+    assert config.load_usage_switches() == config.UsageSwitches(False, False)
+
+
+async def test_daemon_reports_the_switches_and_starts_off(runtime_env, tmp_path, fake_api, cred):
+    d = Daemon(
+        codex_usage_home=tmp_path / "none",
+        hosts_poll=0.05,
+        claude_credentials=cred,
+        claude_usage_url=fake_api.url,
+    )
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        snap = await _read(r)
+        assert snap["usage_api"]["claude"] == {
+            "state": api.OFF,
+            "detail": "",
+            "decided": False,
+            "servers": False,
+        }
+        await d.handle("local", _stop_msg())
+        await asyncio.sleep(0.3)
+        assert fake_api.count() == 0  # nothing asked before the user said yes
+
+        config.set_claude_usage_api(False)  # "No thanks": still off, but decided
+        msg = await _until(r, lambda m: m["type"] == "usage_api_status")
+        assert msg["status"]["decided"] is True and msg["status"]["state"] == api.OFF
+        config.set_claude_usage_api(servers=True)
+        msg = await _until(r, lambda m: m["type"] == "usage_api_status")
+        assert msg["status"]["servers"] is True and msg["status"]["state"] == api.OFF
+        assert fake_api.count() == 0
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)

@@ -334,6 +334,31 @@ test('usage: an expired Claude login is shown instead of the age', () => {
     eq(M.usageCards(snap, NOW)[0].updatedText, 'updated 2m ago');
 });
 
+test('usage: the question about Claude Code\'s login', () => {
+    const undecided = {type: 'usage_api_status', agent: 'claude',
+        status: {state: 'off', decided: false, servers: false}};
+    // nothing asked before Claude has been seen
+    const quiet = make([], [host('local', 'local')]);
+    quiet.apply(undecided);
+    eq(M.usageConsent(quiet), null);
+    // a Claude session here: asked, without the servers when there are none
+    const here = make([s('local', 'a', 'running')], [host('local', 'local')]);
+    here.apply(undecided);
+    eq(M.usageConsent(here), {servers: false});
+    // a server is configured: the servers are offered too; a reading counts as seen
+    const st = withUsage([usage('local', 'claude', [win(10, 300)])], [undecided]);
+    eq(M.usageConsent(st), {servers: true});
+    // answered (either way), or a daemon that predates the question: never asked
+    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'off', decided: true}});
+    eq(M.usageConsent(st), null);
+    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok'}});
+    eq(M.usageConsent(st), null);
+    eq(st.usageApi.get('claude'), {state: 'ok', decided: true, servers: false});
+    // only Codex here: nothing to ask
+    const codex = withUsage([usage('local', 'codex', [win(10, 300)])], [undecided]);
+    eq(M.usageConsent(codex), null);
+});
+
 test('usage updates, removal, and disconnect', () => {
     const u = usage('gpu1', 'claude', [win(10, 300)]);
     const st = withUsage([], [{type: 'usage_update', usage: u}]);

@@ -162,6 +162,7 @@
 /* add server */
 .agentail-add { spacing: 6px; }
 .agentail-add-row { spacing: 8px; }
+.agentail-consent { spacing: 6px; }
 .agentail-add-title { font-size: 13px; font-weight: bold; }
 .agentail-add-note { font-size: 12px; color: #9a9aa0; }
 .agentail-btn {

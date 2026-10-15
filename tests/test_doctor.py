@@ -156,11 +156,17 @@ def test_claude_usage_api_check(runtime_env, isolated_home):
 
     assert check(snap("ok")) is None  # no ~/.claude: not mentioned
     (isolated_home / ".claude").mkdir()
+    c = check(None)  # not chosen yet: off, whatever the daemon says
+    assert c.status == INFO and c.detail.startswith("off until you turn it on")
+    assert c.hint == "agentail usage-api on"
+    set_claude_usage_api(True)
     assert check(None) is None  # the daemon check reports that
     assert check({}).status == WARN  # a daemon from before the feature
+    set_claude_usage_api(True)
     c = check(snap("ok", ok_ts=1000.0 - 300))
     assert c.status == OK and c.detail == "last query 5m ago"
-    assert check(snap("pending")).status == INFO
+    c = check(snap("pending"))
+    assert c.status == INFO
     c = check(snap("needs_login", detail="HTTP 401: login rejected", ok_ts=1000.0 - 7200))
     assert c.status == WARN and c.detail == "HTTP 401: login rejected (last success 2h ago)"
     assert "run claude once" in c.hint
@@ -169,23 +175,44 @@ def test_claude_usage_api_check(runtime_env, isolated_home):
     set_claude_usage_api(False)
     c = check(snap("off"))
     assert c.status == INFO and c.hint == "agentail usage-api on"
+    assert "claude_api = false" in c.detail
+
+
+def test_claude_usage_api_check_servers(runtime_env, isolated_home):
+    from agentail.config import Host, save_host, set_claude_usage_api
+
+    (isolated_home / ".claude").mkdir()
+
+    def checks():
+        return {c.name: c for c in doctor.usage_api_checks(None, now=1000.0)}
+
+    assert "claude usage servers" not in checks()  # no servers
+    save_host(Host("gpu1"))
+    c = checks()["claude usage servers"]
+    assert c.status == INFO and c.hint == "agentail usage-api on --servers"
+    set_claude_usage_api(servers=True)
+    assert checks()["claude usage servers"].detail.startswith("on")
 
 
 def test_install_local_tells_about_the_usage_query(runtime_env, isolated_home):
     from agentail.config import set_claude_usage_api
-    from agentail.daemon.usage_claude_api import NOTE
+    from agentail.daemon.usage_claude_api import NOTE, OFFER
 
     (isolated_home / ".codex").mkdir()
     lines = []
     assert install_local(out=lines.append) == 0
-    assert NOTE not in lines  # no Claude here
+    assert NOTE not in lines and OFFER not in lines  # no Claude here
     (isolated_home / ".claude").mkdir()
     assert install_local(out=lines.append) == 0
-    assert NOTE in lines
+    assert OFFER in lines and NOTE not in lines  # off until chosen: only the offer
+    set_claude_usage_api(True)
+    lines.clear()
+    assert install_local(out=lines.append) == 0
+    assert NOTE in lines and OFFER not in lines
     set_claude_usage_api(False)
     lines.clear()
     assert install_local(out=lines.append) == 0
-    assert NOTE not in lines
+    assert NOTE not in lines and OFFER not in lines  # "No thanks" is not asked again
 
 
 def test_doctor_compares_the_shell_dir_with_the_daemon_dir(isolated_home, runtime_env, monkeypatch):
