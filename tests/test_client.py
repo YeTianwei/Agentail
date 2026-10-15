@@ -159,6 +159,25 @@ def test_format_status_shows_usage_and_survives_junk():
     assert "USAGE" not in client.format_status({"sessions": [], "hosts": []}, now=NOW)
 
 
+def test_format_status_numbers_the_accounts():
+    def u(host, week):
+        return {
+            "host": host,
+            "agent": "claude",
+            "updated_ts": NOW - 60,
+            "windows": [{"used_percent": 3, "window_minutes": 10080, "resets_at": week}],
+        }
+
+    snap = {"usage": [u("local", NOW + 9000), u("gpu8", NOW + 9100), u("gpu7", NOW + 99000)]}
+    snap["usage"].append(u("gpu6", NOW - 5))  # its week is over
+    rows = {
+        line.split()[2]: line.split()[1]
+        for line in client.format_status(snap, now=NOW).splitlines()
+        if line.startswith("  claude")
+    }
+    assert rows == {"local": "1", "gpu8": "1", "gpu7": "2", "gpu6": "-"}
+
+
 def test_format_event_usage():
     u = {"host": "gpu1", "agent": "codex", "windows": [{"used_percent": 10, "window_minutes": 300}]}
     line = client.format_event({"type": "usage_update", "usage": u}, now=NOW)

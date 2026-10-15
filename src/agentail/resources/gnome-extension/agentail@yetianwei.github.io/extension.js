@@ -574,7 +574,8 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         top.add_child(label(c.plan ? `${c.name} · ${c.plan}` : c.name, 'agentail-project',
             {ellipsize: true, xExpand: true}));
-        const when = [c.via ? `via ${c.via}` : '', c.updatedText].filter(t => t).join(' · ');
+        const where = c.sources || (c.via ? `via ${c.via}` : '');
+        const when = [where, c.updatedText].filter(t => t).join(' · ');
         if (when)
             top.add_child(label(when, 'agentail-age'));
         box.add_child(top);

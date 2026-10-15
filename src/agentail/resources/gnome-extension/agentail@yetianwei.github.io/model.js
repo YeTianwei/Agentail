@@ -400,40 +400,114 @@ function usageRow(w, now) {
     };
 }
 
-// One card per agent that has a reading: the freshest one when several hosts report
-// (the account is the same in the common case). Windows without a usable percentage are
-// skipped; an agent without any is not listed.
+// Accounts, as agentail.usage.group_by_account (Python) tells them apart: same agent and
+// weekly windows that reset within SAME_ACCOUNT_S of each other. Keep the two in sync.
+export const SAME_ACCOUNT_S = 600;
+const WEEK_MINUTES = 10080;
+
+const usableWindow = w => w && typeof w === 'object' &&
+    typeof w.used_percent === 'number' && Number.isFinite(w.used_percent);
+
+function weekReset(u) {
+    for (const w of u.windows) {
+        if (w.window_minutes === WEEK_MINUTES && !w.label &&
+            typeof w.resets_at === 'number' && w.resets_at > 0)
+            return w.resets_at;
+    }
+    return null;
+}
+
+// USAGE records grouped by agent and account, freshest record first in each group and
+// freshest group first. A record without a usable weekly window joins its own host's group
+// when there is exactly one, else its agent's only group; one whose week has already reset
+// is left out when its agent has a current group. Records without a usable window are left out.
+export function usageGroups(records, now) {
+    const items = [];
+    for (const u of records) {
+        if (!u || typeof u !== 'object' || !Array.isArray(u.windows))
+            continue;
+        const windows = u.windows.filter(usableWindow);
+        if (!windows.length)
+            continue;
+        const r = {u, agent: clean(u.agent), host: clean(u.host), windows,
+            ts: typeof u.updated_ts === 'number' && Number.isFinite(u.updated_ts) ? u.updated_ts : 0};
+        r.reset = weekReset(r);
+        items.push(r);
+    }
+    items.sort((a, b) => b.ts - a.ts);
+    const groups = [];
+    const later = [];
+    for (const r of items) {
+        const fp = r.reset !== null && r.reset > now ? r.reset : null;
+        if (fp === null) {
+            later.push(r);
+            continue;
+        }
+        const g = groups.find(x => x.agent === r.agent && x.rep !== null &&
+            Math.abs(x.rep - fp) <= SAME_ACCOUNT_S);
+        if (g)
+            g.members.push(r);
+        else
+            groups.push({agent: r.agent, rep: fp, members: [r]});
+    }
+    const current = new Set(groups.map(g => g.agent));
+    for (const r of later) {
+        if (r.reset !== null && current.has(r.agent))
+            continue; // its week is over: outdated
+        const theirs = groups.filter(g => g.agent === r.agent);
+        const mine = theirs.filter(g => g.members.some(m => m.host === r.host));
+        if (mine.length === 1)
+            mine[0].members.push(r);
+        else if (theirs.length === 1)
+            theirs[0].members.push(r);
+        else
+            groups.push({agent: r.agent, rep: null, members: [r]});
+    }
+    for (const g of groups)
+        g.members.sort((a, b) => b.ts - a.ts);
+    groups.sort((a, b) => b.members[0].ts - a.members[0].ts);
+    return groups.map(g => g.members);
+}
+
+// One card per agent and account, showing the freshest record of that account. With one
+// account the card names the host only when the record came from a server ("via gpu8");
+// with several, every card lists the hosts it is seen on. Windows without a usable
+// percentage are skipped; an agent without any is not listed.
 export function usageCards(state, now) {
-    const best = new Map();
-    for (const u of state.usage.values()) {
-        const agent = clean(u.agent);
-        const ts = typeof u.updated_ts === 'number' ? u.updated_ts : 0;
-        const have = best.get(agent);
-        if (!have || ts > have.ts)
-            best.set(agent, {u, ts});
+    const byAgent = new Map();
+    for (const members of usageGroups(state.usage.values(), now)) {
+        const agent = members[0].agent;
+        if (!byAgent.has(agent))
+            byAgent.set(agent, []);
+        byAgent.get(agent).push(members);
     }
     const cards = [];
-    for (const agent of sortAgents(best.keys())) {
-        const {u, ts} = best.get(agent);
-        const rows = (Array.isArray(u.windows) ? u.windows : [])
-            .filter(w => w && typeof w === 'object' &&
-                typeof w.used_percent === 'number' && Number.isFinite(w.used_percent))
-            .map(w => usageRow(w, now));
-        if (!rows.length)
-            continue;
-        const host = clean(u.host);
-        cards.push({
-            agent,
-            name: AGENT_NAME[agent] ?? agent,
-            plan: planText(u.plan),
-            via: host && host !== 'local' ? state.hostTitle(host) : '',
-            updatedText: state.usageApi.get(agent)?.state === 'needs_login'
-                ? `sign-in expired · run ${agent} once`
-                : ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
-            stale: !(ts > 0) || now - ts > USAGE_STALE_S,
-            rows,
-            labelWidth: usageLabelWidth(rows.map(r => r.label)),
-        });
+    for (const agent of sortAgents(byAgent.keys())) {
+        const groups = byAgent.get(agent);
+        // This computer's account first, then the freshest.
+        groups.sort((a, b) => Number(b.some(m => m.host === 'local')) - Number(a.some(m => m.host === 'local')));
+        for (const members of groups) {
+            const {u, ts, host, windows} = members[0];
+            const rows = windows.map(w => usageRow(w, now));
+            const hosts = [...new Set(members.map(m => m.host))]
+                .sort((a, b) => Number(b === 'local') - Number(a === 'local'));
+            const local = hosts.includes('local');
+            cards.push({
+                agent,
+                name: AGENT_NAME[agent] ?? agent,
+                plan: planText(members.map(m => clean(m.u.plan, 16)).find(p => p)),
+                via: host && host !== 'local' ? state.hostTitle(host) : '',
+                sources: groups.length > 1
+                    ? hosts.map(h => h === 'local' ? 'this computer' : state.hostTitle(h)).join(' · ')
+                    : '',
+                updatedText: local && state.usageApi.get(agent)?.state === 'needs_login'
+                    ? `sign-in expired · run ${agent} once`
+                    : ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
+                stale: !(ts > 0) || now - ts > USAGE_STALE_S,
+                rows,
+                labelWidth: usageLabelWidth(rows.map(r => r.label)),
+            });
+        }
     }
     return cards;
 }

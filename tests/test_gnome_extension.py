@@ -45,6 +45,13 @@ def test_agent_names_match_registry():
         assert f".agentail-light .agentail-chip-{a} " in css
 
 
+def test_account_tolerance_matches_python():
+    from agentail.usage import SAME_ACCOUNT_S
+
+    src = (EXT / "model.js").read_text()
+    assert re.search(rf"export const SAME_ACCOUNT_S = {SAME_ACCOUNT_S};", src)
+
+
 def test_referenced_icons_exist():
     src = (EXT / "extension.js").read_text() + (EXT / "model.js").read_text()
     names = set(re.findall(r"'([\w.-]+\.(?:svg|png))'", src))

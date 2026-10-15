@@ -23,6 +23,12 @@
 
 ### Added
 
+- **One Usage card per account.** Limits belong to an account, not to a machine, but the panel
+  showed one card per agent, taken from whichever machine reported last: with another account on a
+  server, the card switched between the two. Readings whose weekly limits reset at the same time
+  are now one account; each account gets its own card, which names the machines it is seen on when
+  there is more than one. A reading from before its weekly reset is no longer shown next to a
+  current one. `agentail status` has an ACCOUNT column, the tray menu one line per account.
 - **Per-model limits.** Max plans have a weekly limit for one model next to the overall one; it now
   has its own row, "Week · Fable". Codex limits other than the main one (`rateLimitsByLimitId`,
   `limit_id` in the session files) are shown the same way. `agentail status` lists them too.

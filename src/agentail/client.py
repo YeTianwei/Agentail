@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any, TextIO
 
 from agentail import paths
+from agentail.usage import group_by_account
 
 CONNECT_TIMEOUT_S = 2.0
 
@@ -165,12 +166,22 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
 
     usage = [u for u in snapshot.get("usage") or [] if isinstance(u, dict)]
     if usage:
+        # ACCOUNT: 1, 2 ... per agent as the panel groups them; "-" for a reading the panel
+        # leaves out (its week is over and a newer reading exists).
+        account: dict[int, str] = {}
+        seen: dict[str, int] = {}
+        for group in group_by_account(usage, now):
+            agent = clean(group[0].get("agent"))
+            seen[agent] = seen.get(agent, 0) + 1
+            for u in group:
+                account[id(u)] = str(seen[agent])
         usage.sort(key=lambda u: (clean(u.get("agent")), clean(u.get("host"))))
-        rows = [["AGENT", "HOST", "PLAN", "UPDATED", "LIMITS"]]
+        rows = [["AGENT", "ACCOUNT", "HOST", "PLAN", "UPDATED", "LIMITS"]]
         for u in usage:
             rows.append(
                 [
                     clean(u.get("agent")),
+                    account.get(id(u), "-"),
                     clean(u.get("host")),
                     clean(u.get("plan")) or "-",
                     age_text(u.get("updated_ts"), now),

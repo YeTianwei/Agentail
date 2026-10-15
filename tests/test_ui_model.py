@@ -265,3 +265,31 @@ def test_usage_lines_in_the_indicator_menu():
     st.disconnect()
     assert st.usage == {}
     assert not [e for e in model.menu_entries(st, 5000.0) if e.kind == "usage"]
+
+
+def test_usage_lines_name_the_hosts_of_each_account():
+    st = model.UiState()
+    u = lambda host, pct, ts, week: {  # noqa: E731
+        "host": host,
+        "agent": "claude",
+        "updated_ts": ts,
+        "windows": [
+            {"used_percent": pct, "window_minutes": 300, "resets_at": 5000.0 + 7800},
+            {"used_percent": 1, "window_minutes": 10080, "resets_at": week},
+        ],
+    }
+    st.apply(
+        {
+            "type": "snapshot",
+            "sessions": [],
+            "hosts": [],
+            "usage": [u("gpu7", 30, 4900, 900_000), u("local", 20, 4000, 600_000)],
+        }
+    )
+    st.apply({"type": "usage_update", "usage": u("gpu8", 25, 4990, 600_100)})
+    lines = [e.text for e in model.menu_entries(st, 5000.0) if e.kind == "usage"]
+    assert [line.split(":")[0] for line in lines] == [
+        "Claude Code (this computer, gpu8)",
+        "Claude Code (gpu7)",
+    ]
+    assert lines[0].startswith("Claude Code (this computer, gpu8): 5h 25%")  # freshest of the two

@@ -17,6 +17,7 @@ from agentail.usage import (
     clean_label,
     clean_plan,
     fill_in,
+    group_by_account,
     make_window,
     same_account,
     sorted_windows,
@@ -117,6 +118,55 @@ def test_fill_in_adds_the_plan_and_the_missing_labelled_windows():
     own = _reading("gpu1", week, UsageWindow(9, 10080, week, "Fable"), plan="pro")
     assert fill_in(own, api) is own
     assert fill_in(api, line) is api
+
+
+def _rec(host, ts, week_reset=None, agent="claude", five=10):
+    windows = [{"used_percent": five, "window_minutes": 300, "resets_at": int(NOW) + 3600}]
+    if week_reset is not None:
+        windows.append({"used_percent": 5, "window_minutes": 10080, "resets_at": week_reset})
+    return {"host": host, "agent": agent, "plan": None, "updated_ts": ts, "windows": windows}
+
+
+def _hosts(groups):
+    return [[(u["agent"], u["host"]) for u in g] for g in groups]
+
+
+def test_group_by_account():
+    week = int(NOW) + 86400
+    other = week + 61 * 3600  # gpu7's account in the owner's setup (2026-10-15)
+    records = [
+        _rec("local", NOW - 10, week),
+        _rec("gpu8", NOW - 5, week + 300),  # same account, rounded differently
+        _rec("gpu7", NOW - 50, other),  # another account
+        _rec("gpu9", NOW - 2),  # no weekly window, a host of its own: joins nobody
+        _rec("local", NOW - 1, week, agent="codex"),
+        "junk",
+        {"host": "x", "agent": "claude", "updated_ts": NOW, "windows": []},
+    ]
+    assert _hosts(group_by_account(records, NOW)) == [
+        [("codex", "local")],
+        [("claude", "gpu9")],
+        [("claude", "gpu8"), ("claude", "local")],
+        [("claude", "gpu7")],
+    ]
+
+
+def test_group_by_account_without_fingerprints_and_after_a_reset():
+    week = int(NOW) + 86400
+    # no weekly windows at all: one group per agent, as before accounts were told apart
+    assert _hosts(group_by_account([_rec("local", NOW - 9), _rec("gpu1", NOW - 1)], NOW)) == [
+        [("claude", "gpu1"), ("claude", "local")]
+    ]
+    # a reading without its weekly window joins its own host's account
+    records = [_rec("local", NOW - 9, week), _rec("gpu7", NOW - 5, week + 7200), _rec("local", NOW)]
+    assert _hosts(group_by_account(records, NOW)) == [
+        [("claude", "local"), ("claude", "local")],
+        [("claude", "gpu7")],
+    ]
+    # a week that is over: left out when a current account exists, kept when it is all we have
+    old = _rec("gpu7", NOW - 6 * 86400, int(NOW) - 3600)
+    assert _hosts(group_by_account([old, _rec("local", NOW, week)], NOW)) == [[("claude", "local")]]
+    assert _hosts(group_by_account([old], NOW)) == [[("claude", "gpu7")]]
 
 
 def test_claude_statusline_usage():

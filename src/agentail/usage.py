@@ -137,6 +137,64 @@ def fill_in(partial: UsageReading, full: UsageReading) -> UsageReading:
     )
 
 
+def account_fingerprint(r: UsageReading, now: float) -> int | None:
+    """The weekly reset time that tells accounts apart (see ``same_account``), None when
+    the reading has no weekly window or that window has reset since."""
+    reset = _week_reset(r)
+    return reset if reset is not None and reset > now else None
+
+
+def group_by_account(records: list[Any], now: float) -> list[list[dict[str, Any]]]:
+    """USAGE records (docs/protocol.md) grouped by agent and account, for the UIs: one group
+    per card, freshest record first, groups of one agent freshest first.
+
+    Records of one agent whose weekly windows reset at the same time (``SAME_ACCOUNT_S``)
+    share a group. A record without a usable weekly window joins the group of its own host
+    when there is exactly one, else its agent's group when there is exactly one (so an agent
+    without fingerprints still gets a single card), else gets its own. A record whose weekly
+    window has already
+    reset is left out when its agent has any current group: it predates the reset, so a
+    newer record knows more. Malformed records are left out."""
+    parsed = []
+    for d in records:
+        r = reading_from_dict(d, now)
+        if r is not None:
+            parsed.append((d, r))
+    parsed.sort(key=lambda p: p[1].ts, reverse=True)
+    # [agent, fingerprint or None, records]
+    groups: list[tuple[str, int | None, list[tuple[dict[str, Any], UsageReading]]]] = []
+    later = []
+    for d, r in parsed:
+        fp = account_fingerprint(r, now)
+        if fp is None:
+            later.append((d, r))
+            continue
+        for agent, rep, members in groups:
+            if agent == r.agent and rep is not None and abs(rep - fp) <= SAME_ACCOUNT_S:
+                members.append((d, r))
+                break
+        else:
+            groups.append((r.agent, fp, [(d, r)]))
+    current = {agent for agent, _, _ in groups}
+    for d, r in later:
+        if _week_reset(r) is not None and r.agent in current:
+            continue  # its week is over: outdated
+        theirs = [g for g in groups if g[0] == r.agent]
+        mine = [g for g in theirs if any(m.host == r.host for _, m in g[2])]
+        if len(mine) == 1:
+            mine[0][2].append((d, r))
+        elif len(theirs) == 1:
+            theirs[0][2].append((d, r))
+        else:
+            groups.append((r.agent, None, [(d, r)]))
+    out = []
+    for _, _, members in groups:
+        members.sort(key=lambda p: p[1].ts, reverse=True)
+        out.append([d for d, _ in members])
+    out.sort(key=lambda g: -(_number(g[0].get("updated_ts")) or 0))
+    return out
+
+
 class UsageStore:
     """Latest reading per (host, agent). Mutations return what to tell the UI."""
 

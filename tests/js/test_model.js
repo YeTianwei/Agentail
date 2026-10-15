@@ -225,6 +225,29 @@ test('usage: plan names and per-model windows', () => {
     eq(M.usageCards(junk, NOW)[0].rows.map(r => r.label), ['5h · a b', '5h · 7']);
 });
 
+test('usage: one card per account, hosts named only when there are several', () => {
+    const week = NOW + 86400;
+    const rec = (h, pct, ts, reset, plan) => usage(h, 'claude', [win(pct, 300), win(1, 10080, reset)], {ts, plan});
+    const one = withUsage([rec('local', 10, NOW - 300, week, 'max_5x'), rec('gpu1', 20, NOW - 60, week + 300)]);
+    const [c] = M.usageCards(one, NOW);
+    eq(M.usageCards(one, NOW).length, 1);
+    eq([c.via, c.sources, c.plan, c.rows[0].percent], ['gpu1', '', 'Max 5x', 20]);  // plan from the group
+
+    const two = withUsage([rec('local', 10, NOW - 300, week, 'max_5x'), rec('gpu1', 20, NOW - 60, week + 300),
+        rec('gpu7', 30, NOW - 30, week + 61 * 3600)]);
+    const cards = M.usageCards(two, NOW);
+    eq(cards.map(x => [x.sources, x.rows[0].percent, x.plan]),
+        [['this computer · gpu1', 20, 'Max 5x'], ['gpu7', 30, '']]);  // this computer's account first
+
+    // a week that is over is left out next to a current reading
+    const old = withUsage([rec('local', 10, NOW - 60, week), rec('gpu7', 30, NOW - 6 * 86400, NOW - 3600)]);
+    eq(M.usageCards(old, NOW).map(x => x.sources), ['']);
+    // sign-in problems belong to this computer's account only
+    const login = withUsage([rec('local', 10, NOW - 300, week), rec('gpu7', 30, NOW - 30, week + 61 * 3600)],
+        [{type: 'usage_api_status', agent: 'claude', status: {state: 'needs_login', detail: ''}}]);
+    eq(M.usageCards(login, NOW).map(x => x.updatedText), ['sign-in expired · run claude once', 'updated 30s ago']);
+});
+
 test('usage levels switch at 70 and 90 percent', () => {
     const st = withUsage([usage('local', 'codex', [win(69.9, 300), win(70, 300), win(89.9, 300), win(90, 300), win(120, 300)])]);
     eq(M.usageCards(st, NOW)[0].rows.map(r => [r.level, r.percent]),

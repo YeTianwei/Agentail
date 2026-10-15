@@ -24,6 +24,7 @@ from agentail.client import (
     session_detail,
     short_id,
 )
+from agentail.usage import group_by_account
 
 Key = tuple[str, str, str]  # (host, agent, session_id)
 
@@ -279,22 +280,24 @@ def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
 
 
 def usage_entries(state: UiState, now: float) -> list[MenuEntry]:
-    """One line per agent: the freshest reading, e.g. "Claude Code: 5h 41% (resets in 2h 10m)"."""
-    freshest: dict[str, dict[str, Any]] = {}
-    for (_, agent), u in state.usage.items():
-        ts = u.get("updated_ts")
-        have = freshest.get(agent)
-        if have is None or (isinstance(ts, int | float) and ts > (have.get("updated_ts") or 0)):
-            freshest[agent] = u
+    """One line per agent and account: its freshest reading, e.g. "Claude Code: 5h 41%
+    (resets in 2h 10m)". With several accounts each line names its hosts."""
+    by_agent: dict[str, list[list[dict[str, Any]]]] = {}
+    for group in group_by_account(list(state.usage.values()), now):
+        by_agent.setdefault(clean(group[0].get("agent")), []).append(group)
     lines = []
-    for agent in sorted(freshest, key=lambda a: (a not in AGENT_NAME, a)):
-        text = format_usage_windows(freshest[agent], now)
-        if text:
-            lines.append(
-                MenuEntry(
-                    "usage", clean(f"{AGENT_NAME.get(agent, agent)}: {text}", MENU_TEXT_LIMIT)
-                )
-            )
+    for agent in sorted(by_agent, key=lambda a: (a not in AGENT_NAME, a)):
+        groups = by_agent[agent]
+        groups.sort(key=lambda g: not any(u.get("host") == "local" for u in g))
+        for group in groups:
+            text = format_usage_windows(group[0], now)
+            if not text:
+                continue
+            name = AGENT_NAME.get(agent, agent)
+            if len(groups) > 1:
+                hosts = sorted({clean(u.get("host")) for u in group}, key=lambda h: h != "local")
+                name += f" ({', '.join('this computer' if h == 'local' else h for h in hosts)})"
+            lines.append(MenuEntry("usage", clean(f"{name}: {text}", MENU_TEXT_LIMIT)))
     return ([MenuEntry("note", "Usage")] + lines) if lines else []
 
 
