@@ -164,7 +164,7 @@ def test_format_status_numbers_the_accounts():
         return {
             "host": host,
             "agent": "claude",
-            "updated_ts": NOW - 60,
+            "updated_ts": NOW - (1 if host == "gpu7" else 60),  # the other account is fresher
             "windows": [{"used_percent": 3, "window_minutes": 10080, "resets_at": week}],
         }
 

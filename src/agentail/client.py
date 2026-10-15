@@ -170,7 +170,9 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
         # leaves out (its week is over and a newer reading exists).
         account: dict[int, str] = {}
         seen: dict[str, int] = {}
-        for group in group_by_account(usage, now):
+        groups = group_by_account(usage, now)
+        groups.sort(key=lambda g: not any(u.get("host") == "local" for u in g))  # as the panel
+        for group in groups:
             agent = clean(group[0].get("agent"))
             seen[agent] = seen.get(agent, 0) + 1
             for u in group:
