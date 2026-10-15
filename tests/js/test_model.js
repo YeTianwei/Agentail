@@ -353,8 +353,9 @@ test('settings: the two switches of the Claude usage query', () => {
         ['servers', false, true, false, '']]);
     st.apply(status('ok', true));
     eq(view(st), [['local', true, true, false, ''], ['servers', true, true, false, '']]);
-    // every row says what it does, including that the endpoint is undocumented
-    ok(M.usageSettings(st).rows[0].notes.join(' ').includes('does not document'), 'local note');
+    // what turning one on means is said once, below the switches
+    ok(M.usageSettings(st).footer.includes('unofficial endpoint'), 'footer');
+    ok(M.usageSettings(st).footer.includes('marked as Agentail'), 'footer');
     // a choice the daemon has not reported yet shows as saving, until it does
     let pending = {servers: false};
     eq(M.usageSettings(st, pending).rows[1].on, false);

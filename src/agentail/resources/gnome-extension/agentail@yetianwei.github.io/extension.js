@@ -463,14 +463,16 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    _iconButton(iconName, accessibleName, onClick) {
+    // `icon`: a themed icon name, or a Gio.Icon of our own.
+    _iconButton(icon, accessibleName, onClick) {
         const b = new St.Button({
             style_class: 'agentail-btn agentail-btn-icon',
             reactive: true,
             can_focus: true,
             track_hover: true,
             accessible_name: accessibleName,
-            child: new St.Icon({icon_name: iconName, icon_size: 14}),
+            child: new St.Icon(typeof icon === 'string'
+                ? {icon_name: icon, icon_size: 14} : {gicon: icon, icon_size: 14}),
         });
         b.connect('clicked', onClick);
         return b;
@@ -491,8 +493,9 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _themeButton() {
         const light = this._theme() === 'light';
+        // A half-filled circle in both themes: a sun next to the settings gear looked alike.
         return this._iconButton(
-            light ? 'weather-clear-night-symbolic' : 'weather-clear-symbolic',
+            this._gicon('theme-symbolic.svg'),
             light ? 'Use dark colours' : 'Use light colours',
             () => {
                 this._prefs.theme = light ? 'dark' : 'light';
@@ -534,9 +537,9 @@ class AgentailIndicator extends PanelMenu.Button {
             card.add_child(err);
         }
         group.add_child(card);
-        const cli = label('Same as agentail usage-api on|off [--servers] in a terminal.', 'agentail-add-note');
-        cli.clutter_text.line_wrap = true;
-        group.add_child(cli);
+        const footer = label(settings.footer, 'agentail-add-note');
+        footer.clutter_text.line_wrap = true;
+        group.add_child(footer);
         page.add_child(group);
         return page;
     }

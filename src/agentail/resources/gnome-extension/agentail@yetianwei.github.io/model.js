@@ -609,22 +609,21 @@ export function usageSettings(state, pending = {}) {
         };
     };
     const api = state.usageApi.get('claude');
-    const local = row('local', "Use this computer's Claude login", [
-        "Asks api.anthropic.com for Claude's limits with the token of Claude Code's login, as " +
-        '/usage does, so sessions in VS Code and Claude Desktop count too. The token is read ' +
-        'for each request and never stored.',
-        'Anthropic does not document this endpoint, and the requests say they come from ' +
-        'Agentail, not Claude Code.',
-    ], true);
+    const local = row('local', "This computer's Claude login",
+        ['Counts VS Code and Claude Desktop sessions too.'], true);
     local.status = local.on && api ? LOCAL_STATUS[api.state] ?? '' : '';
-    const servers = row('servers', "Use each server's own login", [
-        hasServers
-            ? 'A server logged in to another account is asked the same way, over ssh, with ' +
-              'its own login. The token stays on the server.'
-            : 'For servers with another Claude account. Add a server first.',
-    ], hasServers || actual?.servers === true);
+    const servers = row('servers', "Each server's own login",
+        [hasServers ? 'For servers with another Claude account, over ssh.'
+            : 'For servers with another Claude account. Add a server first.'],
+        hasServers || actual?.servers === true);
     servers.status = '';
-    return {available: actual !== null, rows: [local, servers]};
+    return {
+        available: actual !== null,
+        rows: [local, servers],
+        // What turning one on means, in one place (docs/usage-api-design.md section 4).
+        footer: 'Both ask api.anthropic.com as /usage does: an unofficial endpoint, and the ' +
+            'requests are marked as Agentail. Tokens are never stored.',
+    };
 }
 
 // Drops the pending choices the daemon now reports (or that no longer differ).
