@@ -544,7 +544,7 @@ async def test_daemon_collects_no_usage_while_switched_off(runtime_env, tmp_path
     try:
         r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
         snap = await _read(r)
-        assert snap["usage"] == [] and snap["settings"] == {"usage": False}
+        assert snap["usage"] == [] and snap["settings"]["usage"] is False
         now = time.time()
         payload = {"rate_limits": {"five_hour": {"used_percentage": 41, "resets_at": now + 600}}}
         await d.handle("gpu1", _statusline(payload))
@@ -552,7 +552,7 @@ async def test_daemon_collects_no_usage_while_switched_off(runtime_env, tmp_path
 
         config.set_claude_usage_api(enabled=True)
         msg = await _read(r)
-        assert msg == {"type": "settings", "settings": {"usage": True}}
+        assert msg["type"] == "settings" and msg["settings"]["usage"] is True
         while msg["type"] != "usage_update":  # Codex's files are read again at once
             msg = await _read(r)
         assert msg["usage"]["agent"] == "codex"

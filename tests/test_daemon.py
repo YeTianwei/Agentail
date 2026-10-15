@@ -349,3 +349,44 @@ async def test_notify_details_follow_config_without_restart(runtime_env):
     finally:
         daemon.stop()
         await asyncio.wait_for(task, 5)
+
+
+async def test_switched_off_notifications_are_not_sent(runtime_env):
+    """``[notifications] turn_done = false``: the session still updates, with no notify; the
+    clients learn the switches from ``settings``."""
+    cfg = paths.settings_file()
+    cfg.parent.mkdir(parents=True, exist_ok=True)
+    cfg.write_text("[notifications]\nturn_done = false\n")
+    daemon = Daemon(hosts_poll=0.05)
+    task = await _start(daemon)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        snap = json.loads(await asyncio.wait_for(r.readline(), 2))
+        want = {"turn_done": False, "attention": True, "details": False}
+        assert snap["settings"]["notifications"] == want
+
+        async def turn(sid):
+            """Runs one turn; returns the message after its waiting_input update, if any."""
+            for event in ("UserPromptSubmit", "Stop"):
+                payload = {"session_id": sid, "hook_event_name": event, "prompt": "p"}
+                await daemon.handle("local", _msg(event, json.dumps(payload)))
+            while True:
+                m = json.loads(await asyncio.wait_for(r.readline(), 2))
+                if m["type"] == "session_update" and m["session"]["status"] == "waiting_input":
+                    break
+            try:  # a notify comes right after its update
+                return json.loads(await asyncio.wait_for(r.readline(), 0.3))
+            except TimeoutError:
+                return None
+
+        assert await turn("a") is None
+        cfg.write_text("[notifications]\nturn_done = true\n")
+        os.utime(cfg, ns=(1, 1))
+        msg = json.loads(await asyncio.wait_for(r.readline(), 5))
+        on = {**want, "turn_done": True}
+        assert msg == {"type": "settings", "settings": {"usage": True, "notifications": on}}
+        assert (await turn("b"))["kind"] == "turn_done"
+        w.close()
+    finally:
+        daemon.stop()
+        await asyncio.wait_for(task, 5)

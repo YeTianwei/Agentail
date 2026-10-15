@@ -91,6 +91,19 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     scope.add_argument("--all", action="store_true", help="both switches")
 
+    no = sub.add_parser(
+        "notifications", help="desktop notifications: when it is your turn, when an agent needs you"
+    )
+    no.add_argument("action", choices=["on", "off", "status"])
+    kind = no.add_mutually_exclusive_group()
+    kind.add_argument("--turn-done", action="store_true", help="only when it is your turn")
+    kind.add_argument("--attention", action="store_true", help="only when an agent needs you")
+    kind.add_argument(
+        "--details",
+        action="store_true",
+        help="the prompt and the command in them (also on the lock screen; default off)",
+    )
+
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -182,6 +195,25 @@ def main(argv: list[str] | None = None) -> int:
             doctor.usage_api_checks(doctor.fetch_snapshot()) if args.action == "status" else []
         ):
             print(f"{doctor.MARK[c.status]} {c.detail}")
+        return 0
+    if args.command == "notifications":
+        from agentail import config
+
+        if args.action != "status":
+            on = args.action == "on"
+            if args.details:
+                config.set_notify_switches(details=on)
+            else:  # no flag: both kinds
+                config.set_notify_switches(
+                    turn_done=on if not args.attention else None,
+                    attention=on if not args.turn_done else None,
+                )
+        sw = config.load_notify_switches()
+        word = {True: "on", False: "off"}
+        print(
+            f"Your turn: {word[sw.turn_done]}. Needs you: {word[sw.attention]}. "
+            f"Prompt and command in them: {word[sw.details]}. ({paths.settings_file()})"
+        )
         return 0
     if args.command == "paths":
         print(f"runtime dir : {paths.runtime_dir()}")

@@ -25,11 +25,12 @@ from agentail.adapters import get_adapter
 from agentail.adapters.base import EventKind
 from agentail.config import (
     Host,
+    NotifySwitches,
     cwd_ignored,
     default_ignore_cwd,
     load_hosts,
     load_ignore_cwd,
-    load_notify_details,
+    load_notify_switches,
     load_retention,
     load_usage_switches,
 )
@@ -162,7 +163,7 @@ class Daemon:
             "servers": False,
         }
         # [notifications] details: notify messages ask clients to show prompt and command.
-        self.notify_details = False
+        self.notify = NotifySwitches()
         self._dirty = False  # sessions changed since they were last saved
         self._usage_dirty = False
         self.print_events = print_events
@@ -309,7 +310,11 @@ class Daemon:
 
     def settings(self) -> dict[str, Any]:
         """The SETTINGS record of the UI protocol: switches that are not about one agent."""
-        return {"usage": self._usage_on}
+        return {"usage": self._usage_on, "notifications": self.notify.as_dict()}
+
+    @property
+    def notify_details(self) -> bool:
+        return self.notify.details
 
     def request_live_usage(self) -> None:
         """The panel was opened: ask Codex for its current limits, at most once a minute,
@@ -520,10 +525,12 @@ class Daemon:
             mtime = None
         if mtime != self._settings_mtime:
             self._settings_mtime = mtime
-            details = load_notify_details(path)
-            if details != self.notify_details:
-                self.notify_details = details
-                log.info("notification details %s", "on" if details else "off")
+            notify = load_notify_switches(path)
+            if notify != self.notify:
+                self.notify = notify
+                log.info("notifications %s", notify.as_dict())
+                if self.ui is not None:
+                    self.ui.broadcast({"type": "settings", "settings": self.settings()})
             switches = load_usage_switches(path)
             if switches.enabled != self._usage_on:
                 self._set_usage_on(switches.enabled)
@@ -691,6 +698,8 @@ class Daemon:
 
     def _publish(self, change: Change) -> None:
         self._dirty = True
+        if change.notify and not self.notify.allows(change.notify):
+            change = replace(change, notify=None)  # that kind is switched off
         # TODO(M4): desktop notifications.
         if self.ui is not None:
             self.ui.publish(change, details=self.notify_details)

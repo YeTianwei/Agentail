@@ -242,6 +242,8 @@ claude_api = false          # true: ask Anthropic for Claude's limits with this 
 claude_api_servers = false  # true: also with each server's own login, over ssh
 
 [notifications]
+turn_done = true            # false: no notification when it is your turn
+attention = true            # false: none when an agent needs your approval
 details = false             # true: put the prompt and the command into notifications
 ```
 
@@ -315,6 +317,7 @@ prints the command that fixes each problem.
 | `agentail status` | machines, usage limits and sessions in the terminal |
 | `agentail tail` | live session changes |
 | `agentail usage on\|off\|status` | usage limits in Agentail at all (on by default; also in the panel's settings) |
+| `agentail notifications on\|off\|status [--turn-done\|--attention\|--details]` | desktop notifications: both kinds, one of them, or the prompt and command in them (also in the panel's settings) |
 | `agentail usage-api on\|off\|status [--servers\|--all]` | the Claude usage query with Claude Code's login, this computer's or the servers' switch (both off until turned on; also in the panel's settings) |
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |

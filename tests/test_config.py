@@ -1,7 +1,16 @@
 import pytest
 
 from agentail import paths
-from agentail.config import Host, load_hosts, load_notify_details, remove_host, save_host
+from agentail.config import (
+    Host,
+    NotifySwitches,
+    load_hosts,
+    load_notify_details,
+    load_notify_switches,
+    remove_host,
+    save_host,
+    set_notify_switches,
+)
 
 ORIG = """\
 # my agentail hosts
@@ -92,6 +101,31 @@ def test_ignore_cwd_default_and_config(tmp_path, monkeypatch):
         cfg.write_text(f"[sessions]\n{bad}\n")
         with pytest.raises(ValueError):
             load_ignore_cwd(cfg)
+
+
+def test_notify_switches(tmp_path):
+    cfg = tmp_path / "config.toml"
+    assert load_notify_switches(cfg) == NotifySwitches(True, True, False)  # missing file
+    for text, want in [
+        ("[notifications]\nturn_done = false\n", (False, True, False)),
+        ("[notifications]\nattention = false\ndetails = true\n", (True, False, True)),
+        ('[notifications]\nturn_done = "no"\nattention = 0\n', (True, True, False)),
+        ("notifications = 1\n", (True, True, False)),
+        ("not toml [", (True, True, False)),
+    ]:
+        cfg.write_text(text)
+        assert load_notify_switches(cfg) == NotifySwitches(*want), text
+    sw = NotifySwitches(turn_done=False)
+    allowed = (sw.allows("turn_done"), sw.allows("attention"), sw.allows("other"))
+    assert allowed == (False, True, True)
+
+    cfg.write_text("# mine\n[usage]\nenabled = false\n[notifications]\ndetails = true\n")
+    set_notify_switches(cfg, turn_done=False)
+    assert load_notify_switches(cfg) == NotifySwitches(False, True, True)
+    set_notify_switches(cfg, attention=False, details=False)
+    assert load_notify_switches(cfg) == NotifySwitches(False, False, False)
+    text = cfg.read_text()
+    assert text.startswith("# mine\n") and "enabled = false" in text  # the rest is kept
 
 
 def test_notify_details(tmp_path):

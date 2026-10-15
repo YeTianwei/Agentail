@@ -746,6 +746,30 @@ def test_cli_usage_api_switches(runtime_env, capsys):
         cli.main(["usage-api", "on", "--all", "--servers"])
 
 
+def test_cli_notification_switches(runtime_env, capsys):
+    """One kind at a time (what the panel does), both kinds without a flag, details apart."""
+    from agentail import cli
+
+    def switches():
+        return config.load_notify_switches()
+
+    assert cli.main(["notifications", "status"]) == 0
+    out = capsys.readouterr().out
+    assert "Your turn: on. Needs you: on. Prompt and command in them: off." in out
+    assert cli.main(["notifications", "off", "--turn-done"]) == 0
+    assert switches() == config.NotifySwitches(False, True, False)
+    assert cli.main(["notifications", "on", "--details"]) == 0
+    assert switches() == config.NotifySwitches(False, True, True)
+    assert cli.main(["notifications", "off"]) == 0
+    assert switches() == config.NotifySwitches(False, False, True)
+    assert cli.main(["notifications", "on", "--attention"]) == 0
+    assert switches() == config.NotifySwitches(False, True, True)
+    assert cli.main(["notifications", "on"]) == 0
+    assert switches() == config.NotifySwitches(True, True, True)
+    with pytest.raises(SystemExit):
+        cli.main(["notifications", "on", "--details", "--attention"])
+
+
 async def test_daemon_reports_the_switches_and_starts_off(runtime_env, tmp_path, fake_api, cred):
     d = Daemon(
         codex_usage_home=tmp_path / "none",

@@ -225,18 +225,76 @@ def load_claude_usage_api(path: Path | None = None) -> bool:
     return load_usage_switches(path).local
 
 
-def load_notify_details(path: Path | None = None) -> bool:
-    """``[notifications] details = true`` in config.toml puts the prompt and, for a permission
-    prompt, the command into desktop notifications (default: off, they say only what and
-    where). GNOME shows notification banners on the lock screen, so anything in them can be
-    read by whoever stands at the desk. Anything but ``true`` keeps the default."""
+@dataclass(frozen=True)
+class NotifySwitches:
+    """``[notifications]`` in config.toml.
+
+    ``turn_done`` and ``attention`` (default on): whether a turn that finished, or an agent
+    that asks for permission, raises a desktop notification at all. ``details`` (default off)
+    puts the prompt and, for a permission prompt, the command into them. GNOME shows
+    notification banners on the lock screen, so anything in them can be read by whoever
+    stands at the desk.
+
+        [notifications]
+        turn_done = true   # false: no notification when it is your turn
+        attention = true   # false: none when an agent needs you
+        details = false    # true: the prompt and the command in them
+    """
+
+    turn_done: bool = True
+    attention: bool = True
+    details: bool = False
+
+    def allows(self, kind: str) -> bool:
+        """Whether a ``notify`` of this kind (``turn_done`` | ``attention``) is sent."""
+        return {"turn_done": self.turn_done, "attention": self.attention}.get(kind, True)
+
+    def as_dict(self) -> dict[str, bool]:
+        return {"turn_done": self.turn_done, "attention": self.attention, "details": self.details}
+
+
+def load_notify_switches(path: Path | None = None) -> NotifySwitches:
+    """Only ``false`` turns a kind off and only ``true`` turns details on; anything unreadable
+    keeps the defaults."""
     path = path or paths.settings_file()
     try:
         with path.open("rb") as fh:
             section = tomllib.load(fh).get("notifications", {})
     except (OSError, tomllib.TOMLDecodeError):
-        return False
-    return isinstance(section, dict) and section.get("details") is True
+        return NotifySwitches()
+    if not isinstance(section, dict):
+        return NotifySwitches()
+    return NotifySwitches(
+        turn_done=section.get("turn_done") is not False,
+        attention=section.get("attention") is not False,
+        details=section.get("details") is True,
+    )
+
+
+def load_notify_details(path: Path | None = None) -> bool:
+    """``[notifications] details = true``: see NotifySwitches."""
+    return load_notify_switches(path).details
+
+
+def set_notify_switches(
+    path: Path | None = None,
+    *,
+    turn_done: bool | None = None,
+    attention: bool | None = None,
+    details: bool | None = None,
+) -> None:
+    """Write ``[notifications]`` keys; None leaves that key alone. The rest of config.toml is
+    kept."""
+    path = path or paths.settings_file()
+    doc = _load_doc(path)
+    section = doc.get("notifications")
+    if section is None:
+        section = tomlkit.table()
+        doc.append("notifications", section)
+    for key, value in (("turn_done", turn_done), ("attention", attention), ("details", details)):
+        if value is not None:
+            section[key] = value
+    _write_doc(path, doc)
 
 
 def set_claude_usage_api(

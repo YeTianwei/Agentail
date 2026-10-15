@@ -11,6 +11,13 @@
   (`docs/protocol.md`); a 0.0.4 daemon ignores it, so the button does nothing until the daemon is
   upgraded too.
 
+- **Choose which notifications you get.** The panel's settings have a Notifications group:
+  when it's your turn, when an agent needs your approval, and whether they show the prompt and
+  the command (the existing `details`, off by default, now a switch). They are
+  `[notifications] turn_done`, `attention` and `details` in `config.toml`, also
+  `agentail notifications on|off [--turn-done|--attention|--details]`, and apply within seconds.
+  A kind that is off is not sent to any client; the UI protocol's `settings` carries the three
+  switches.
 - **The panel in Chinese.** The panel and its notifications are in English or Chinese: they
   follow the desktop's language (Chinese when it is the first of English and Chinese in
   `LANGUAGE`/`LANG`, else English), or what you pick under Language in the panel's settings

@@ -235,7 +235,7 @@ class AgentailIndicator extends PanelMenu.Button {
         this._view = 'main';
         this._settingsError = '';
         // Switches just flipped in the settings that the daemon has not reported yet.
-        this._usagePending = {};
+        this._pending = {};
 
         // The "island": a dark capsule inside the panel button. Its content is rebuilt
         // by _renderTopBar() whenever the summary changes.
@@ -296,7 +296,7 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _onMessage(msg) {
         const notify = this._state.apply(msg);
-        this._usagePending = M.settlePending(this._state, this._usagePending);
+        this._pending = M.settlePending(this._state, this._pending);
         if (notify) {
             const n = M.notice(notify, this._state);
             if (n && this._limiter.allow(n, GLib.get_monotonic_time() / 1e6))
@@ -541,8 +541,9 @@ class AgentailIndicator extends PanelMenu.Button {
         head.add_child(this._themeButton());
         page.add_child(head);
         page.add_child(this._languageGroup());
+        page.add_child(this._notificationGroup());
 
-        const settings = M.usageSettings(this._state, this._usagePending, Date.now() / 1000);
+        const settings = M.usageSettings(this._state, this._pending, Date.now() / 1000);
         // One group: the Usage switch, and under a divider (while it is on) Claude's two,
         // aligned with it.
         const usage = vbox('agentail-group', {x_expand: true});
@@ -600,6 +601,24 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         const card = vbox('agentail-card agentail-settings', {x_expand: true});
         card.add_child(row);
+        group.add_child(card);
+        return group;
+    }
+
+    // When it's your turn / when an agent needs you / with the prompt and the command.
+    _notificationGroup() {
+        const settings = M.notificationSettings(this._state, this._pending);
+        const group = vbox('agentail-group', {x_expand: true});
+        group.add_child(label(_('Notifications'), 'agentail-section'));
+        const card = vbox('agentail-card agentail-settings', {x_expand: true});
+        if (!settings.available) {
+            const off = label(_('The agentail daemon is not running, or is too old for this setting.'),
+                'agentail-add-note');
+            off.clutter_text.line_wrap = true;
+            card.add_child(off);
+        }
+        for (const r of settings.rows)
+            card.add_child(this._switchRow(r));
         group.add_child(card);
         return group;
     }
@@ -806,20 +825,28 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    // Runs `agentail usage on|off` (id "usage") or `agentail usage-api on|off [--servers]`
-    // (argv list, no shell). The switch shows the new value at once; the daemon confirms it
-    // within seconds (M.settlePending).
+    // Runs `agentail usage on|off`, `agentail usage-api on|off [--servers]` or
+    // `agentail notifications on|off --<kind>` (argv list, no shell). The switch shows the new
+    // value at once; the daemon confirms it within seconds (M.settlePending).
     _setSwitch(id, on) {
         const value = on ? 'on' : 'off';
-        const argv = id === 'usage' ? ['usage', value]
-            : ['usage-api', value, ...id === 'servers' ? ['--servers'] : []];
+        const argv = {
+            usage: ['usage', value],
+            local: ['usage-api', value],
+            servers: ['usage-api', value, '--servers'],
+            turn_done: ['notifications', value, '--turn-done'],
+            attention: ['notifications', value, '--attention'],
+            details: ['notifications', value, '--details'],
+        }[id];
+        if (!argv)
+            return;
         const fail = () => {
-            delete this._usagePending[id];
+            delete this._pending[id];
             this._settingsError = _('Could not save that. Run agentail {args} in a terminal.', {args: argv.join(' ')});
             this._renderPanel();
         };
         this._settingsError = '';
-        this._usagePending = {...this._usagePending, [id]: on};
+        this._pending = {...this._pending, [id]: on};
         this._renderPanel();
         const bin = this._agentailBinary();
         if (!bin) {

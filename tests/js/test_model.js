@@ -407,6 +407,30 @@ test('settings: the two switches of the Claude usage query', () => {
     eq(view(gone)[1], ['servers', true, true, false, '']);
 });
 
+test('settings: notifications', () => {
+    const view = (st, pending) => M.notificationSettings(st, pending).rows.map(r => [r.id, r.on, r.enabled, r.saving]);
+    const old = make([]);
+    old.apply({type: 'settings', settings: {usage: true}});  // a daemon before 0.0.5
+    eq(M.notificationSettings(old).available, false);
+    eq(view(old).map(r => r[2]), [false, false, false]);
+
+    const st = make([]);
+    st.apply({type: 'settings', settings: {usage: true, notifications: {turn_done: true, attention: true, details: false}}});
+    eq(M.notificationSettings(st).available, true);
+    eq(view(st), [['turn_done', true, true, false], ['attention', true, true, false], ['details', false, true, false]]);
+    eq(M.notificationSettings(st).rows[2].notes, ['Also on the lock screen.']);
+
+    const pending = {turn_done: false};
+    eq(view(st, pending)[0], ['turn_done', false, true, true]);
+    eq(M.settlePending(st, pending), pending);
+    st.apply({type: 'settings', settings: {usage: true, notifications: {turn_done: false, attention: false, details: true}}});
+    eq(M.settlePending(st, pending), {});
+    eq(view(st)[2], ['details', true, false, false]);  // no notifications: nothing to show them in
+
+    st.apply({type: 'settings', settings: {usage: true, notifications: {turn_done: 'yes', attention: false}}});
+    eq(st.settings.notifications, {turn_done: null, attention: false, details: null});
+});
+
 test('settings: the Usage switch', () => {
     const st = make([s('local', 'a', 'running')]);
     st.apply({type: 'snapshot', sessions: [s('local', 'a', 'running')], hosts: [host('local', 'local')],
@@ -429,7 +453,7 @@ test('settings: the Usage switch', () => {
     st.apply({type: 'settings', settings: {usage: 'yes'}});
     eq([M.usageSettings(st).available, M.usageSettings(st).usage.enabled], [false, false]);
     st.disconnect();
-    eq(st.settings, {usage: null});
+    eq(st.settings, {usage: null, notifications: null});
 });
 
 test('usage: each card says where its numbers come from', () => {

@@ -122,6 +122,13 @@ export const ZH = {
     'Use dark colours': '使用深色',
     'Use light colours': '使用浅色',
     'Language': '语言',
+    'Notifications': '通知',
+    "When it's your turn": '轮到你时',
+    'When an agent needs your approval': '需要你批准时',
+    'Show the prompt and the command': '显示 prompt 和命令',
+    'Also on the lock screen.': '锁屏上也会显示。',
+    'The agentail daemon is not running, or is too old for this setting.':
+        'agentail daemon 没有运行，或者版本太旧，不支持这项设置。',
     'System': '跟随系统',
     'Usage limits': '用量限额',
     'The agentail daemon is not running, or is too old for these settings.':

@@ -159,7 +159,8 @@ refreshes it. `detail` is written by the daemon (no payload content); `usage_api
 when it changes.
 
 ```
-SETTINGS = {"usage": true}   # since 0.0.4
+SETTINGS = {"usage": true,   # since 0.0.4
+            "notifications": {"turn_done": true, "attention": true, "details": false}}  # since 0.0.5
 ```
 
 `SETTINGS` holds switches that are not about one agent; `settings` is sent when it changes.
@@ -167,6 +168,12 @@ SETTINGS = {"usage": true}   # since 0.0.4
 off the daemon collects no usage at all (no Codex files, no `codex app-server`, no usage endpoint,
 status line readings ignored), sends `usage_remove` for every reading it had, and clients hide
 their usage display. Claude's two usage switches keep their values but count as off.
+
+`notifications` is `[notifications]` in `config.toml` (`agentail notifications on|off
+[--turn-done|--attention|--details]`). `turn_done` and `attention` (default on) say whether the
+daemon sends a `notify` of that kind at all: while one is off, the session updates still come,
+without their `notify`. `details` is the same value as the `details` field of `notify`. Clients
+before 0.0.5 ignore the key; clients treat a missing key (an older daemon) as unknown.
 
 `tool_detail` is one line describing the current tool call (a shell command, a file path), kept
 while a permission prompt is open. `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not

@@ -119,7 +119,7 @@ export class UiState {
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
         this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
-        this.settings = {usage: null}; // the daemon's SETTINGS; null: not reported
+        this.settings = {usage: null, notifications: null}; // the daemon's SETTINGS; null: not reported
     }
 
     disconnect() {
@@ -128,7 +128,7 @@ export class UiState {
         this.hosts.clear();
         this.usage.clear();
         this.usageApi.clear();
-        this.settings = {usage: null};
+        this.settings = {usage: null, notifications: null};
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -198,8 +198,14 @@ export class UiState {
     }
 
     _setSettings(settings) {
-        const usage = settings && typeof settings === 'object' ? settings.usage : null;
-        this.settings = {usage: typeof usage === 'boolean' ? usage : null};
+        const s = settings && typeof settings === 'object' ? settings : {};
+        const n = s.notifications && typeof s.notifications === 'object' ? s.notifications : null;
+        const flag = v => typeof v === 'boolean' ? v : null;
+        this.settings = {
+            usage: flag(s.usage),
+            // Since 0.0.5; null from an older daemon.
+            notifications: n && {turn_done: flag(n.turn_done), attention: flag(n.attention), details: flag(n.details)},
+        };
     }
 
     _setUsageApi(agent, status) {
@@ -634,7 +640,7 @@ export function usageCards(state, now) {
     return cards;
 }
 
-// ---- settings: the two switches of the Claude usage query ------------------------------
+// ---- settings: switches the daemon keeps in config.toml ----------------------------------
 //
 // Both are off until the user turns them on (docs/usage-api-design.md section 4). The panel
 // writes them with `agentail usage-api`; the daemon reports them back in usage_api_status.
@@ -648,11 +654,41 @@ const claudeSeen = state =>
 function switchValues(state) {
     const api = state.usageApi.get('claude');
     const usage = state.settings.usage;
+    const n = state.settings.notifications;
     return {
         usage: typeof usage === 'boolean' ? usage : null,
         local: api ? api.state !== 'off' : null,
         servers: api ? api.servers : null,
+        turn_done: n?.turn_done ?? null,
+        attention: n?.attention ?? null,
+        details: n?.details ?? null,
     };
+}
+
+// One switch row. `pending`: values the user just chose that the daemon has not reported
+// yet; they are shown (as "saving") instead of the daemon's.
+function switchRow(actual, pending, id, title, notes, enabled) {
+    const want = typeof pending[id] === 'boolean' ? pending[id] : null;
+    const known = actual[id] !== null;
+    return {
+        id, title, notes,
+        on: want ?? actual[id] ?? false,
+        enabled: known && enabled,
+        saving: known && want !== null && want !== actual[id],
+        status: '',
+    };
+}
+
+// The Notifications group: one switch per kind, then whether they carry the prompt and the
+// command (pointless while both kinds are off). `available` is false for a daemon before 0.0.5.
+export function notificationSettings(state, pending = {}) {
+    const actual = switchValues(state);
+    const row = (...args) => switchRow(actual, pending, ...args);
+    const turnDone = row('turn_done', _("When it's your turn"), [], true);
+    const attention = row('attention', _('When an agent needs your approval'), [], true);
+    const details = row('details', _('Show the prompt and the command'),
+        [_('Also on the lock screen.')], turnDone.on || attention.on);
+    return {available: actual.turn_done !== null, rows: [turnDone, attention, details]};
 }
 
 const LOCAL_STATUS = {
@@ -661,23 +697,11 @@ const LOCAL_STATUS = {
     error: N_('The last query failed: see agentail doctor'),
 };
 
-// The settings page: the Usage switch, then (while it is on) Claude's two. `pending`: values
-// the user just chose that the daemon has not reported yet; they are shown (as "saving")
-// instead of the daemon's.
+// The Usage limits group: the Usage switch, then (while it is on) Claude's two.
 export function usageSettings(state, pending = {}, now = 0) {
     const actual = switchValues(state);
     const hasServers = [...state.hosts.keys()].some(alias => alias !== 'local');
-    const row = (id, title, notes, enabled) => {
-        const want = typeof pending[id] === 'boolean' ? pending[id] : null;
-        const known = actual[id] !== null;
-        return {
-            id, title, notes,
-            on: want ?? actual[id] ?? false,
-            enabled: known && enabled,
-            saving: known && want !== null && want !== actual[id],
-            status: '',
-        };
-    };
+    const row = (...args) => switchRow(actual, pending, ...args);
     const usage = row('usage', _('Show usage limits'), [], true);
     const api = state.usageApi.get('claude');
     const local = row('local', _('This computer'), [], true);
