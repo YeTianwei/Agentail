@@ -190,6 +190,29 @@ _EXTRA_CHECKS: dict[str, Callable[[registry.AgentSpec], list[Check]]] = {
 }
 
 
+def _dir_checks(spec: registry.AgentSpec) -> list[Check]:
+    """Whether this shell and the daemon agree on where the agent keeps its config: the
+    daemon runs under systemd without the shell's environment (agents.DIRS_FILE)."""
+    if not spec.dir_env:
+        return []
+    env = spec.env_home()
+    saved = registry.recorded_dirs().get(spec.name)
+    daemon = Path(saved) if saved else spec.default_home()
+    name = f"{spec.name} config dir"
+    if env is not None and env.resolve() != daemon.resolve():
+        return [
+            Check(
+                name,
+                WARN,
+                f"${spec.dir_env} here is {env}, but the daemon uses {daemon}",
+                "agentail install-local",
+            )
+        ]
+    if env is None and saved:
+        return [Check(name, INFO, f"{saved} (recorded by install-local; ${spec.dir_env} unset)")]
+    return []
+
+
 def local_checks() -> list[Check]:
     checks = []
     used = any(a.home().is_dir() for a in registry.AGENTS)
@@ -212,6 +235,7 @@ def local_checks() -> list[Check]:
     else:
         checks.append(Check("hook script", OK, str(dest)))
     for spec in registry.AGENTS:
+        checks += _dir_checks(spec)
         hooks = _check_agent_hooks(spec.name, spec.config_path(), spec.home())
         checks += hooks
         if hooks[0].status != OK:

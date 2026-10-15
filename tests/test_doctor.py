@@ -186,3 +186,20 @@ def test_install_local_tells_about_the_usage_query(runtime_env, isolated_home):
     lines.clear()
     assert install_local(out=lines.append) == 0
     assert NOTE not in lines
+
+
+def test_doctor_compares_the_shell_dir_with_the_daemon_dir(isolated_home, runtime_env, monkeypatch):
+    elsewhere = isolated_home / "codex-home"
+    elsewhere.mkdir()
+    monkeypatch.setenv("CODEX_HOME", str(elsewhere))
+    c = by_name(run_checks(fake_run(), snapshot=None))
+    check = c["codex config dir"]
+    assert check.status == WARN and str(elsewhere) in check.detail
+    assert check.hint == "agentail install-local"
+
+    assert install_local(out=lambda _: None, from_shell=True) == 0
+    assert "codex config dir" not in by_name(run_checks(fake_run(), snapshot=None))
+    monkeypatch.delenv("CODEX_HOME")
+    c = by_name(run_checks(fake_run(), snapshot=None))
+    assert c["codex config dir"].status == INFO
+    assert c["codex hooks"].status == OK  # checked in the recorded dir

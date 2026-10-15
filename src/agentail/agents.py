@@ -11,20 +11,41 @@ only is a window with a ``label`` (see ``agentail.usage``). Nothing else in the 
 
 Everything that is the same for every agent (backups, manifest, uninstall, remote
 read/write, the hook command itself) stays in ``install/local.py`` and ``install/remote.py``.
+
+Config dirs moved by an environment variable (``CODEX_HOME``, ``CLAUDE_CONFIG_DIR``) are
+usually set in the user's shell, which the systemd daemon does not see. ``install-local``
+run from a shell therefore records the dir it used (``DIRS_FILE``), and ``home()`` falls back
+to that record when its own environment does not set the variable.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentail import paths
 from agentail.adapters import get_adapter
 from agentail.install import claude_compat_config, claude_config, codex_config
 
 MergeFn = Callable[[dict[str, Any], list[str], str, str, str], dict[str, Any]]
+
+# {agent: absolute config dir} as resolved by the last `install-local` from a shell, for
+# agents whose dir came from their environment variable. In ~/.agentail.
+DIRS_FILE = "agent-dirs.json"
+
+
+def recorded_dirs() -> dict[str, str]:
+    try:
+        data = json.loads((paths.agentail_home() / DIRS_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    return {k: v for k, v in data.items() if isinstance(v, str) and Path(v).is_absolute()}
 
 
 @dataclass(frozen=True)
@@ -40,15 +61,31 @@ class AgentSpec:
     trust_note: str = ""  # what the user must do before the agent runs new hooks
     warnings: Callable[[Path], list[str]] | None = None  # problems in the local config dir
 
-    def home(self) -> Path:
+    def env_home(self) -> Path | None:
+        """The dir this process's environment points to, None if the variable is unset."""
         env = os.environ.get(self.dir_env) if self.dir_env else None
         if not env:
-            return Path.home() / self.dir_default
+            return None
         base = Path(env).expanduser()
         return base / self.dir_default if self.dir_env_is_parent else base
 
-    def config_path(self) -> Path:
-        return self.home() / self.config_file
+    def default_home(self) -> Path:
+        return Path.home() / self.dir_default
+
+    def home(self, recorded: bool = True) -> Path:
+        """The environment variable, else (with ``recorded``) the dir install-local recorded
+        from a shell, else the default."""
+        env = self.env_home()
+        if env is not None:
+            return env
+        if recorded and self.dir_env:
+            saved = recorded_dirs().get(self.name)
+            if saved:
+                return Path(saved)
+        return self.default_home()
+
+    def config_path(self, recorded: bool = True) -> Path:
+        return self.home(recorded) / self.config_file
 
     def events(self) -> list[str]:
         adapter = get_adapter(self.name)
@@ -61,6 +98,9 @@ AGENTS: tuple[AgentSpec, ...] = (
         name="claude",
         display_name="Claude Code",
         dir_default=".claude",
+        # Moves settings.json and .credentials.json alike
+        # (https://code.claude.com/docs/en/authentication, checked 2026-10-15).
+        dir_env="CLAUDE_CONFIG_DIR",
         config_file="settings.json",
         binary="claude",
         merge=claude_config.merge_hooks,
@@ -117,4 +157,6 @@ def display_name(name: str) -> str:
 
 def dir_hint() -> str:
     """The config dirs we look for, for "nothing found" messages."""
-    return ", ".join(f"${a.dir_env}" if a.dir_env else f"~/{a.dir_default}" for a in AGENTS)
+    return ", ".join(
+        f"~/{a.dir_default}" + (f" (${a.dir_env})" if a.dir_env else "") for a in AGENTS
+    )

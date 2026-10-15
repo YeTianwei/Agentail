@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "install-local":
         from agentail.install.local import install_local
 
-        return install_local(agents=args.agent, dry_run=args.dry_run)
+        return install_local(agents=args.agent, dry_run=args.dry_run, from_shell=True)
     if args.command == "uninstall-local":
         from agentail.install.local import uninstall_local
 
@@ -173,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install import gnome, service
         from agentail.install.local import install_local
 
-        rc = install_local(agents=None, dry_run=False)
+        rc = install_local(agents=None, dry_run=False, from_shell=True)
         if rc == 0:
             rc = service.start_packaged() if service.packaged() else service.install()
         if rc == 0:

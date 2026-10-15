@@ -134,11 +134,38 @@ def local_python() -> str:
     return str(Path(sys.executable).resolve())
 
 
-def targets(python: str, hook_path: str, sock: str) -> dict[str, Target]:
+def targets(python: str, hook_path: str, sock: str, recorded: bool = True) -> dict[str, Target]:
+    """Every agent's config file. ``recorded=False`` ignores the dirs recorded by an earlier
+    install-local and takes each dir from this process's environment (or the default)."""
+
     def merge(spec: registry.AgentSpec) -> Callable[[dict[str, Any]], dict[str, Any]]:
         return lambda d: spec.merge(d, spec.events(), python, hook_path, sock)
 
-    return {a.name: Target(a.name, a.config_path(), a.home(), merge(a)) for a in registry.AGENTS}
+    return {
+        a.name: Target(a.name, a.config_path(recorded), a.home(recorded), merge(a))
+        for a in registry.AGENTS
+    }
+
+
+def remember_dirs(agents: list[str]) -> None:
+    """Record, for the daemon, where ``agents`` keep their config according to this
+    process's environment: a dir set by the agent's variable is written, the default
+    removes the record (registry.DIRS_FILE)."""
+    saved = registry.recorded_dirs()
+    for spec in registry.AGENTS:
+        if spec.name not in agents or not spec.dir_env:
+            continue
+        env = spec.env_home()
+        if env is not None and env.resolve() != spec.default_home().resolve():
+            saved[spec.name] = str(env.resolve())
+        else:
+            saved.pop(spec.name, None)
+    path = paths.agentail_home() / registry.DIRS_FILE
+    if saved:
+        paths.ensure_private_dir(paths.agentail_home())
+        atomic_write(path, dump_json(saved).encode("utf-8"))
+    else:
+        path.unlink(missing_ok=True)
 
 
 def _manifest_path() -> Path:
@@ -184,9 +211,17 @@ class _InstallPlan:
         return self.old_text is None or load_json(self.target.path, self.new_text) != self.old_doc
 
 
-def install_local(agents: list[str] | None = None, dry_run: bool = False, out: Out = print) -> int:
+def install_local(
+    agents: list[str] | None = None,
+    dry_run: bool = False,
+    out: Out = print,
+    from_shell: bool = False,
+) -> int:
+    """``from_shell``: run by the user (the CLI), whose environment says where each agent
+    keeps its config; the dirs used are recorded for the daemon. The daemon's own setup
+    passes False and uses the recorded dirs instead."""
     hook_path = str(hook_dest())
-    all_targets = targets(local_python(), hook_path, str(paths.local_sock()))
+    all_targets = targets(local_python(), hook_path, str(paths.local_sock()), not from_shell)
     if agents:
         selected = [all_targets[a] for a in agents]
     else:
@@ -251,6 +286,8 @@ def install_local(agents: list[str] | None = None, dry_run: bool = False, out: O
         files[str(t.path)] = entry
         out(f"{t.agent}: updated {t.path}" + (f" (backup: {backup})" if backup else " (created)"))
     _save_manifest(manifest)
+    if from_shell:
+        remember_dirs([p.target.agent for p in plans])
 
     for p in plans:
         spec = registry.get(p.target.agent)
@@ -386,6 +423,7 @@ def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
 
     dest.unlink(missing_ok=True)
     _manifest_path().unlink(missing_ok=True)
+    (paths.agentail_home() / registry.DIRS_FILE).unlink(missing_ok=True)
     try:
         paths.agentail_home().rmdir()
     except OSError:

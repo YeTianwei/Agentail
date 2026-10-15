@@ -206,6 +206,53 @@ def test_codex_home_env(isolated_home, monkeypatch):
     assert not (codex_home / "hooks.json").exists()
 
 
+def test_dirs_from_the_shell_are_recorded_for_the_daemon(isolated_home, monkeypatch):
+    from agentail import agents
+
+    work = isolated_home / "claude-work"
+    work.mkdir()
+    (isolated_home / ".claude").mkdir()
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(work))
+    assert _run(install_local, agents=["claude"], from_shell=True)[0] == 0
+    assert "agentail-hook" in (work / "settings.json").read_text()
+    assert not (isolated_home / ".claude" / "settings.json").exists()
+    assert agents.recorded_dirs() == {"claude": str(work)}
+
+    # the daemon (systemd: no CLAUDE_CONFIG_DIR) and its first-start setup follow the record
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+    claude = agents.get("claude")
+    assert claude.home() == work and claude.home(recorded=False) == isolated_home / ".claude"
+    from agentail.daemon import usage_claude_api
+
+    assert usage_claude_api.credentials_path() == work / ".credentials.json"
+    assert _run(install_local, agents=["claude"])[0] == 0
+    assert not (isolated_home / ".claude" / "settings.json").exists()
+
+    # install-local from a shell without the variable: back to the default dir
+    assert _run(install_local, agents=["claude"], from_shell=True)[0] == 0
+    assert "agentail-hook" in (isolated_home / ".claude" / "settings.json").read_text()
+    assert agents.recorded_dirs() == {}
+    assert not (paths.agentail_home() / agents.DIRS_FILE).exists()
+
+    # uninstall restores both dirs and forgets the record
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(work))
+    assert _run(install_local, agents=["claude"], from_shell=True)[0] == 0
+    assert _run(uninstall_local)[0] == 0
+    assert not (work / "settings.json").exists()
+    assert not (paths.agentail_home() / agents.DIRS_FILE).exists()
+
+
+def test_a_broken_dirs_record_is_ignored(isolated_home):
+    from agentail import agents
+
+    paths.agentail_home().mkdir()
+    f = paths.agentail_home() / agents.DIRS_FILE
+    for text in ("not json", "[]", '{"codex": 5, "claude": "relative/dir"}'):
+        f.write_text(text)
+        assert agents.recorded_dirs() == {}
+        assert agents.get("codex").home() == isolated_home / ".codex"
+
+
 def test_codex_existing_hooks_json_is_merged(agents_home):
     hooks_json = agents_home / ".codex" / "hooks.json"
     user = {

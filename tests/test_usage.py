@@ -16,7 +16,9 @@ from agentail.usage import (
     UsageWindow,
     clean_label,
     clean_plan,
+    fill_in,
     make_window,
+    same_account,
     sorted_windows,
 )
 
@@ -84,6 +86,37 @@ def test_store_only_reports_changes_and_throttles_refresh():
     assert not st.update(UsageReading("local", "claude", w, ts=1.0))  # out of order
     assert st.update(UsageReading("gpu1", "claude", w, ts=1.0))  # other host: separate entry
     assert st.drop_host("gpu1") and ("gpu1", "claude") not in st.readings
+
+
+def _reading(host, week_reset, *extra, plan=None, ts=NOW, agent="claude"):
+    windows = (UsageWindow(20, 300, int(NOW) + 3600), UsageWindow(5, 10080, week_reset), *extra)
+    return UsageReading(host, agent, sorted_windows(list(windows)), ts, plan)
+
+
+def test_same_account_compares_the_weekly_reset():
+    week = int(NOW) + 86400
+    api = _reading("local", week, UsageWindow(3, 10080, week, "Fable"), plan="max_5x")
+    assert same_account(_reading("gpu1", week + 600), api)  # rounded differently
+    assert not same_account(_reading("gpu1", week + 601), api)  # another account
+    assert not same_account(_reading("gpu1", None), api)  # no fingerprint: assume nothing
+    assert not same_account(_reading("local", week, agent="codex"), api)
+    # a labelled weekly window is not the fingerprint
+    only_scoped = UsageReading("gpu1", "claude", (UsageWindow(1, 10080, week, "Fable"),), NOW)
+    assert not same_account(only_scoped, api)
+
+
+def test_fill_in_adds_the_plan_and_the_missing_labelled_windows():
+    week = int(NOW) + 86400
+    fable = UsageWindow(3, 10080, week, "Fable")
+    api = _reading("local", week, fable, plan="max_5x", ts=NOW - 300)
+    line = _reading("gpu1", week, ts=NOW)
+    r = fill_in(line, api)
+    assert (r.host, r.ts, r.plan) == ("gpu1", NOW, "max_5x")
+    assert r.windows == (*line.windows, fable)
+    # its own numbers and plan win; nothing to add gives the same object
+    own = _reading("gpu1", week, UsageWindow(9, 10080, week, "Fable"), plan="pro")
+    assert fill_in(own, api) is own
+    assert fill_in(api, line) is api
 
 
 def test_claude_statusline_usage():

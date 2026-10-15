@@ -130,9 +130,13 @@ async def _stop(proc: asyncio.subprocess.Process) -> None:
 
 
 async def read_codex_usage_live(
-    argv: list[str] | None, host: str = "local", timeout: float = TIMEOUT_S
+    argv: list[str] | None,
+    host: str = "local",
+    timeout: float = TIMEOUT_S,
+    codex_home: Path | None = None,
 ) -> UsageReading | None:
-    """Ask a fresh ``codex app-server`` for the current limits; None on any failure."""
+    """Ask a fresh ``codex app-server`` for the current limits; None on any failure.
+    ``codex_home`` is passed as ``CODEX_HOME`` (the daemon may not have the user's)."""
     argv = argv or default_argv()
     if not argv:
         log.debug("codex not found; live usage is unavailable")
@@ -143,6 +147,7 @@ async def read_codex_usage_live(
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
+            env={**os.environ, "CODEX_HOME": str(codex_home)} if codex_home else None,
         )
     except OSError as exc:
         log.debug("cannot start %s: %s", argv[0], exc)

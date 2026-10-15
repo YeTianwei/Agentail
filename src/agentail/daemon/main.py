@@ -20,7 +20,7 @@ from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 from typing import Any
 
-from agentail import paths
+from agentail import agents, paths
 from agentail.adapters import get_adapter
 from agentail.adapters.base import EventKind
 from agentail.config import (
@@ -39,9 +39,8 @@ from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
 from agentail.daemon.usage_codex import read_codex_usage
-from agentail.install.codex_config import codex_home
 from agentail.protocol import HookMessage
-from agentail.usage import UsageReading, UsageStore
+from agentail.usage import UsageReading, UsageStore, fill_in, same_account
 
 log = logging.getLogger(__name__)
 
@@ -87,6 +86,7 @@ class Daemon:
             log.warning("%s; using the default", exc)
             self.ignore_cwd = default_ignore_cwd()
         self.usage = UsageStore()
+        self._full_usage: dict[str, UsageReading] = {}  # agent -> latest full reading
         self._codex_home = codex_usage_home
         self._codex_argv = codex_argv
         self._live_interval = live_usage_interval
@@ -183,10 +183,21 @@ class Daemon:
             "usage_api": {"claude": dict(self.claude_api_status)},
         }
 
-    def _on_usage(self, reading: UsageReading) -> None:
+    def _on_usage(self, reading: UsageReading, full: bool = False) -> None:
+        """Store and publish a reading. ``full`` marks a source that knows the plan and
+        every limit of the account (Claude's usage endpoint, Codex's app-server); readings
+        from partial sources (the statusLine, Codex's session files, any host) of the same
+        account are completed from the latest full one, so the panel does not lose the plan
+        or a per-model row whenever a partial reading is the newest."""
         if reading.agent == "claude" and reading.host == LOCAL_SOURCE and self._claude_plan:
             # The login file and the statusLine do not follow plan changes; the profile does.
             reading = replace(reading, plan=self._claude_plan)
+        if full:
+            self._full_usage[reading.agent] = reading
+        else:
+            known = self._full_usage.get(reading.agent)
+            if known is not None and same_account(reading, known):
+                reading = fill_in(reading, known)
         if not self.usage.update(reading):
             return
         self._usage_dirty = True
@@ -220,12 +231,16 @@ class Daemon:
 
     async def _live_usage(self) -> None:
         try:
-            reading = await read_codex_usage_live(self._codex_argv)
+            spec = agents.get("codex")
+            moved = spec is not None and spec.home() != spec.default_home()
+            reading = await read_codex_usage_live(
+                self._codex_argv, codex_home=self._codex_spec_home() if moved else None
+            )
         except Exception:  # a broken app-server must never take the daemon down
             log.exception("live Codex usage failed")
             return
         if reading is not None:
-            self._on_usage(reading)
+            self._on_usage(reading, full=True)
 
     # -- Claude usage endpoint (daemon/usage_claude_api.py) --------------------------------
 
@@ -264,6 +279,7 @@ class Daemon:
                     self._set_claude_api_status(claude_api.PENDING)
                 else:
                     self._set_claude_api_status(claude_api.OFF)
+                    self._full_usage.pop("claude", None)
         if not self._claude_api_on:
             return
         try:
@@ -329,12 +345,19 @@ class Daemon:
         if not self._claude_api_on:  # switched off while the request was running
             return
         self._set_claude_api_status(claude_api.OK)
-        self._on_usage(reading)
+        self._on_usage(reading, full=True)
+
+    @staticmethod
+    def _codex_spec_home() -> Path:
+        """$CODEX_HOME of the daemon, else the one install-local recorded from a shell."""
+        spec = agents.get("codex")
+        assert spec is not None
+        return spec.home()
 
     async def _read_codex_usage(self) -> None:
         """Local Codex only: its hooks carry no usage, but its session files do."""
         self._codex_usage_due = time.monotonic() + CODEX_USAGE_POLL_S
-        home = self._codex_home or codex_home()
+        home = self._codex_home or self._codex_spec_home()
         try:
             reading = await asyncio.to_thread(read_codex_usage, home, LOCAL_SOURCE)
         except Exception:  # an unexpected file must never take the daemon down

@@ -24,6 +24,10 @@ MAX_RESET_AHEAD_S = 400 * 24 * 3600
 # A reading that changed only in its timestamp is re-sent at most this often, so the
 # panel can still tell "unchanged for a while" from "no data lately".
 REFRESH_S = 60.0
+# Two readings whose weekly windows reset within this of each other are taken to be of
+# the same account (reset times are rounded differently by different sources).
+SAME_ACCOUNT_S = 600
+WEEK_MINUTES = 10080
 
 _PLAN_RE = re.compile(r"^[a-z0-9_-]{1,16}$")
 # A model or limit name such as "Fable" or "GPT-5.3-Codex-Spark".
@@ -96,6 +100,41 @@ def sorted_windows(windows: list[UsageWindow | None]) -> tuple[UsageWindow, ...]
     ok = [w for w in windows if w is not None]
     ok.sort(key=lambda w: (w.window_minutes is None, w.window_minutes or 0, w.label or ""))
     return tuple(ok)
+
+
+def _week_reset(r: UsageReading) -> int | None:
+    for w in r.windows:
+        if w.window_minutes == WEEK_MINUTES and w.label is None and w.resets_at:
+            return w.resets_at
+    return None
+
+
+def same_account(a: UsageReading, b: UsageReading) -> bool:
+    """Whether two readings of one agent come from the same account. Limits belong to the
+    account, and its weekly window resets at a time of its own, so that time is the
+    fingerprint; without it on both sides nothing is assumed."""
+    ra, rb = _week_reset(a), _week_reset(b)
+    return (
+        a.agent == b.agent and ra is not None and rb is not None and abs(ra - rb) <= SAME_ACCOUNT_S
+    )
+
+
+def fill_in(partial: UsageReading, full: UsageReading) -> UsageReading:
+    """``partial`` (a source that only knows some windows, e.g. Claude's statusLine)
+    completed from ``full`` (one that knows the plan and every limit, e.g. the usage
+    endpoint) of the same account: ``partial``'s own numbers win, the plan and the labelled
+    windows it lacks come from ``full``. The caller checks ``same_account`` first."""
+    have = {(w.window_minutes, w.label) for w in partial.windows}
+    extra = [w for w in full.windows if w.label and (w.window_minutes, w.label) not in have]
+    if not extra and (partial.plan or not full.plan):
+        return partial
+    return UsageReading(
+        partial.host,
+        partial.agent,
+        sorted_windows([*partial.windows, *extra]),
+        partial.ts,
+        partial.plan or full.plan,
+    )
 
 
 class UsageStore:

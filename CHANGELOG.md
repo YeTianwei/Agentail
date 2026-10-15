@@ -10,6 +10,17 @@
   file changes (no polling), and the card shows e.g. "Claude Code · Max 5x". Only the plan fields
   are read from the profile; name and e-mail are never kept or logged.
 
+- **The Usage card no longer flickers between sources.** Claude's status line knows only the 5-hour
+  and weekly limits; whenever it reported last (here or on a server), the card lost the plan name
+  and the per-model row until the next query of the usage endpoint. Readings of the same account
+  (same weekly reset time) are now completed from the endpoint's; Codex's session files likewise
+  from its app-server.
+- **Config dirs moved by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`.** Claude's variable was not supported
+  at all (hooks, status line and login were looked for in `~/.claude`), and the daemon, started by
+  systemd, never saw either variable from your shell. `agentail install-local` now records the dirs
+  it used, the daemon and its first-start setup follow that record, `codex app-server` gets the
+  right `CODEX_HOME`, and `agentail doctor` warns when your shell and the daemon disagree.
+
 ### Added
 
 - **Per-model limits.** Max plans have a weekly limit for one model next to the overall one; it now

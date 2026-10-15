@@ -3,17 +3,19 @@
     python fakecodex.py MODE [COUNTER_FILE]
 
 Modes: ok | usage-error | garbage | silent (never answers) | exit (dies at once).
-Each start appends a line to COUNTER_FILE, so tests can count the processes.
+Each start appends a line ("start <$CODEX_HOME>") to COUNTER_FILE, so tests can count the
+processes and see the environment they got.
 """
 
 import json
+import os
 import sys
 import time
 
 mode = sys.argv[1]
 if len(sys.argv) > 2:
     with open(sys.argv[2], "a") as fh:
-        fh.write("start\n")
+        fh.write(f"start {os.environ.get('CODEX_HOME', '')}\n")
 if mode == "exit":
     sys.exit(3)
 

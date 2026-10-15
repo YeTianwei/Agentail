@@ -142,7 +142,8 @@ USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "...", "ok_t
 
 ## 7. 与 statusLine 读数的关系
 
-- 两种来源并存,不互斥。statusLine 读数仍按来源主机存放;API 读数存为 `host = "local"`,会覆盖本机 statusLine 那一份(两者数据相同)。
+- 两种来源并存,不互斥。statusLine 读数仍按来源主机存放;API 读数存为 `host = "local"`,和本机 statusLine 那一份共用一个位置。
+- statusLine 只知道 5h 和 Week,不知道套餐和单个模型的额度。为了不让它冲掉接口读数(2026-10-15 修正:以前本机 statusLine 一到,"Week · Fable" 那行就消失;服务器上的读数更新时,卡片会丢失套餐名),daemon 记住最近一次接口读数,把同一账号的 statusLine 读数(本机或任何服务器)补全:数字用 statusLine 自己的,套餐和它缺少的带标签窗口用接口的。"同一账号"的判据是总周额度的 `resets_at` 相差不超过 10 分钟(`usage.same_account`),对不上就原样保存。Codex 同理:app-server 读数是完整来源,会话文件读数用它补全。
 - 面板沿用"同一 agent 显示最新那条"的规则。开启后本机这一份总是最新,所以换账号后残留的旧账号读数(正是这次的问题)也会自然被盖住,不需要额外的账号识别。
 - 已知限制不变:如果服务器上用的是另一个账号,两边的读数会互相覆盖(usage-design.md §8)。
 

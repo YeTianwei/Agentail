@@ -5,7 +5,9 @@ unit starts the daemon at login (and the package starts it for users already log
 and the daemon then does the per-user part once:
 
 - merges the hooks into ~/.claude and ~/.codex (backups as with `install-local`), for each
-  agent whose config directory exists and that has not been handled before. An agent
+  agent whose config directory exists and that has not been handled before. A dir moved by
+  $CLAUDE_CONFIG_DIR / $CODEX_HOME is invisible here (systemd does not have the user's shell
+  environment) until `agentail install-local` from a shell records it (agents.DIRS_FILE). An agent
   installed later is picked up at the next start; `uninstall-local` is not undone, because
   handled agents are remembered in ``setup.json``.
 - enables the GNOME Shell extension. A shell that started before the package was installed

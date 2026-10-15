@@ -538,6 +538,66 @@ async def test_daemon_panel_open_refreshes_and_config_turns_it_off(
         await asyncio.wait_for(task, 5)
 
 
+def _status_line_msg(week_reset):
+    payload = {
+        "session_id": "s1",
+        "rate_limits": {
+            "five_hour": {"used_percentage": 50, "resets_at": week_reset - 86400},
+            "seven_day": {"used_percentage": 20, "resets_at": week_reset},
+        },
+    }
+    return HookMessage(
+        agent="claude",
+        event="StatusLine",
+        mode="fire",
+        ts=time.time(),
+        ppid=1,
+        cwd="/w",
+        stdin=json.dumps(payload),
+    )
+
+
+async def test_daemon_completes_status_line_readings_of_the_same_account(
+    runtime_env, api_on, fake_api, cred, tmp_path
+):
+    body = {**BODY, "limits": [*BODY["limits"][:2], SCOPED]}
+    fake_api.reply = (200, body, {})
+    week = int(datetime(2026, 10, 17, 4, 0, tzinfo=UTC).timestamp())
+    d = Daemon(
+        codex_usage_home=tmp_path / "none",
+        hosts_poll=0.05,
+        claude_credentials=cred,
+        claude_usage_url=fake_api.url,
+        claude_schedule=api.Schedule(debounce=60, throttle=60),
+    )
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        await _read(r)  # snapshot
+        msg = await _until(r, lambda m: m["type"] == "usage_update")
+        assert [x["label"] for x in msg["usage"]["windows"]] == [None, None, "Fable"]
+
+        for host in ("local", "gpu7"):  # the statusLine here and on a server
+            await d.handle(host, _status_line_msg(week))
+            msg = await _until(r, lambda m: m["type"] == "usage_update")
+            u = msg["usage"]
+            assert u["host"] == host and u["plan"] == "max_5x"
+            assert [(x["used_percent"], x["label"]) for x in u["windows"]] == [
+                (50.0, None),
+                (20.0, None),
+                (3.0, "Fable"),
+            ]
+
+        await d.handle("gpu8", _status_line_msg(week + 7 * 86400))  # another account
+        msg = await _until(r, lambda m: m["type"] == "usage_update")
+        assert msg["usage"]["plan"] is None and len(msg["usage"]["windows"]) == 2
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)
+
+
 def test_setting_round_trip_keeps_the_rest_of_the_file(runtime_env):
     path = paths.settings_file()
     assert config.load_claude_usage_api() is True  # default on

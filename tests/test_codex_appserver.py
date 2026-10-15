@@ -4,7 +4,7 @@ import sys
 import time
 from pathlib import Path
 
-from agentail import paths
+from agentail import agents, paths
 from agentail.daemon.codex_appserver import (
     CODEX_ARGS,
     default_argv,
@@ -25,6 +25,14 @@ async def test_live_usage_from_the_app_server():
     assert r.agent == "codex" and r.plan == "plus"
     assert [(w.window_minutes, w.used_percent) for w in r.windows] == [(300, 11.0), (10080, 4.0)]
     assert abs(r.ts - time.time()) < 30  # a fresh reading, stamped now
+
+
+async def test_live_usage_passes_the_codex_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("CODEX_HOME", "/from/the/daemon")
+    counter = tmp_path / "count"
+    await read_codex_usage_live(fake("ok", counter), timeout=10, codex_home=tmp_path / "c")
+    await read_codex_usage_live(fake("ok", counter), timeout=10)
+    assert counter.read_text().splitlines() == [f"start {tmp_path / 'c'}", "start /from/the/daemon"]
 
 
 async def test_every_failure_gives_none_and_leaves_no_process():
@@ -107,6 +115,9 @@ async def _read(reader):
 
 async def test_opening_the_panel_triggers_one_live_query_per_interval(runtime_env, tmp_path):
     counter = tmp_path / "count"
+    # install-local ran from a shell with CODEX_HOME; the daemon does not have it
+    paths.agentail_home().mkdir()
+    (paths.agentail_home() / agents.DIRS_FILE).write_text(json.dumps({"codex": str(tmp_path)}))
     d = Daemon(
         codex_usage_home=tmp_path / "none", codex_argv=fake("ok", counter), live_usage_interval=0.5
     )
@@ -122,7 +133,7 @@ async def test_opening_the_panel_triggers_one_live_query_per_interval(runtime_en
         await w.drain()
         msg = await _read(r)
         assert msg["type"] == "usage_update" and msg["usage"]["plan"] == "plus"
-        assert counter.read_text().count("start") == 1
+        assert counter.read_text().splitlines() == [f"start {tmp_path}"]
 
         await asyncio.sleep(0.7)
         w.write(request)
