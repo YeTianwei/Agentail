@@ -198,7 +198,9 @@ last of them. On each server, run `codex` once to trust its hooks.
 - 🚇 **Tunnel.** One `ssh -N -R` per server. It counts as connected only after an end-to-end ping,
   reconnects with backoff, and marks that server's sessions out of date while it is down.
 - 🧠 **Daemon.** Which machine an event came from is decided by the socket it arrived on, never by
-  its content. Sessions are kept across restarts.
+  its content. Sessions are kept across restarts. It runs under systemd without your shell's
+  environment, so `agentail install-local` from a terminal tells it what your shell knows (see
+  [Configuration](#-configuration)).
 - 🖥️ **Panel.** A GNOME Shell extension that reads the daemon's `ui.sock`. Payload text (prompts,
   commands, paths) is untrusted: it is shown as plain text and never put into a shell command.
 
@@ -266,14 +268,30 @@ writes or copies the token, and never reads `~/.codex/auth.json`.
 creates them and never deletes them: they are your files. `agentail doctor` lists them and names
 the one uninstalling still needs; delete the others when you no longer need them.
 
+**Your shell's environment.** The daemon is started by systemd and does not see what your shell
+sets up. `agentail install-local`, run from a terminal, therefore records for it, in private files
+in `~/.agentail`:
+
+- config dirs moved by `CLAUDE_CONFIG_DIR` or `CODEX_HOME`;
+- where `codex` is on your PATH, so live Codex usage works when it was installed through nvm,
+  volta, pnpm, asdf, fnm and the like;
+- the proxy variables `HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY` and `NO_PROXY` (upper and lower
+  case, nothing else), for the Claude usage query and `codex app-server`.
+
+The daemon uses a recorded value only where its own environment has none. Run `agentail
+install-local` again after changing any of them: `agentail doctor` warns when your shell and the
+record disagree (it never prints a proxy's user or password), and `agentail uninstall-local`
+removes the records.
+
 ## 🩺 Troubleshooting
 
 ```bash
 agentail doctor
 ```
 
-checks the daemon, autostart, the hooks (and whether Codex trusts them), every server's tunnel and
-the panel, and prints the command that fixes each problem.
+checks the daemon, autostart, the hooks (whether the Python they run still exists, and whether
+Codex trusts them), what the daemon knows of your shell, every server's tunnel and the panel, and
+prints the command that fixes each problem.
 
 | Command | What it does |
 |---|---|

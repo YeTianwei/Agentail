@@ -20,6 +20,9 @@ Credentials are handled read-only (docs/usage-api-design.md section 3):
   ``PROFILE_ENDPOINT``;
   redirects are refused and no cookies are kept; it is never logged, stored or put into
   an exception message.
+
+Proxies: the environment's, as urllib does by default; when the daemon (systemd) has none,
+the ones ``install-local`` recorded from the user's shell (``agentail.shellenv``).
 """
 
 from __future__ import annotations
@@ -34,6 +37,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from agentail import shellenv
 from agentail.usage import (
     SOURCE_API,
     SPENT,
@@ -274,10 +278,15 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def _opener() -> urllib.request.OpenerDirector:
+def _opener(url: str) -> urllib.request.OpenerDirector:
     # build_opener keeps the defaults (proxies from the environment, TLS verification) and
-    # adds no cookie processor; our handler replaces the redirect one.
-    return urllib.request.build_opener(_NoRedirect)
+    # adds no cookie processor; our handler replaces the redirect one. The proxies recorded
+    # from the shell, if they apply, replace the default ProxyHandler.
+    handlers: list[Any] = [_NoRedirect]
+    proxies = shellenv.urllib_proxies(url)
+    if proxies is not None:
+        handlers.append(urllib.request.ProxyHandler(proxies))
+    return urllib.request.build_opener(*handlers)
 
 
 def _retry_after(headers: Any) -> float | None:
@@ -305,7 +314,7 @@ def _get_json(cred_path: Path, url: str) -> tuple[Credential, Any]:
         },
     )
     try:
-        with _opener().open(req, timeout=TIMEOUT_S) as resp:
+        with _opener(url).open(req, timeout=TIMEOUT_S) as resp:
             raw = resp.read(MAX_BODY + 1)
     except urllib.error.HTTPError as exc:
         exc.close()

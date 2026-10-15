@@ -365,3 +365,73 @@ def test_hook_argv_finds_the_command_inside_the_wrapper():
     assert doctor._hook_argv(cmd) == ("/v env/bin/python3", "/h/.agentail/agentail-hook.py")
     assert doctor._hook_argv("echo 'unterminated") is None
     assert doctor._hook_argv("my-own-statusline --agent x") is None
+
+
+def _fake_codex(path):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("#!/bin/sh\n")
+    path.chmod(0o755)
+    return path
+
+
+def test_doctor_shows_the_recorded_shell_env_and_redacts_proxies(
+    isolated_home, runtime_env, tmp_path, monkeypatch
+):
+    import os
+
+    from agentail import shellenv
+
+    secret = "hunter2"
+    codex = _fake_codex(tmp_path / "nvm" / "bin" / "codex")
+    (isolated_home / ".codex").mkdir()
+    monkeypatch.setenv("PATH", os.pathsep.join([str(codex.parent), os.environ["PATH"]]))
+    monkeypatch.setenv("HTTPS_PROXY", f"http://bob:{secret}@proxy.corp:3128")
+    monkeypatch.setattr(doctor, "fetch_snapshot", lambda: None)
+
+    def checks():
+        lines = []
+        doctor.doctor(out=lines.append, run=fake_run())
+        assert not any(secret in line for line in lines), lines
+        return by_name(doctor.shell_env_checks())
+
+    c = checks()  # nothing recorded yet: the daemon finds neither codex nor the proxy
+    assert c["codex path"].status == WARN and str(codex) in c["codex path"].detail
+    assert c["proxy"].status == WARN and "http://***@proxy.corp:3128" in c["proxy"].detail
+    assert c["proxy"].hint == "agentail install-local"
+
+    assert install_local(out=lambda _: None, from_shell=True) == 0
+    c = checks()
+    assert c["codex path"].status == INFO and str(codex) in c["codex path"].detail
+    assert c["proxy"].status == INFO
+    assert "HTTPS_PROXY=http://***@proxy.corp:3128" in c["proxy"].detail
+
+    # Another shell: another codex and proxy than the daemon was told about.
+    other = _fake_codex(tmp_path / "volta" / "bin" / "codex")
+    monkeypatch.setenv("PATH", os.pathsep.join([str(other.parent), os.environ["PATH"]]))
+    monkeypatch.setenv("HTTPS_PROXY", f"http://bob:{secret}@proxy2.corp:3128")
+    c = checks()
+    assert c["codex path"].status == WARN
+    assert str(other) in c["codex path"].detail and str(codex) in c["codex path"].detail
+    assert c["proxy"].status == WARN and "proxy2.corp" in c["proxy"].detail
+
+    monkeypatch.delenv("HTTPS_PROXY")
+    codex.unlink()
+    c = checks()
+    assert c["codex path"].status == WARN and "gone" in c["codex path"].detail
+    assert c["proxy"].status == WARN and "no proxy variables" in c["proxy"].detail
+
+    assert shellenv.remember() == {"codex": str(other)}
+    c = by_name(doctor.shell_env_checks())
+    assert c["codex path"].status == INFO and "proxy" not in c
+
+
+def test_doctor_is_quiet_about_a_codex_the_daemon_finds_anyway(
+    isolated_home, runtime_env, monkeypatch
+):
+    from agentail import shellenv
+
+    (isolated_home / ".codex").mkdir()
+    codex = _fake_codex(isolated_home / ".local" / "bin" / "codex")
+    monkeypatch.setenv("PATH", str(codex.parent))
+    assert shellenv.shell_codex() == str(codex)
+    assert doctor.shell_env_checks() == []

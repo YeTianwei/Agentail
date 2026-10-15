@@ -22,6 +22,11 @@ when nobody has edited the file since; otherwise it removes our entries structur
 (identified by ``paths.HOOK_MARKER``) and keeps everything else. Uninstall keeps the
 backups directory (and so ``~/.agentail``) and says so.
 
+Run from a shell (the CLI), it also records for the daemon, which runs under systemd
+without the shell's environment, the agent config dirs moved by an environment variable
+(``agents.DIRS_FILE``) and the shell's ``codex`` and proxy variables (``shellenv``).
+``uninstall-local`` removes both records.
+
 Nothing is written before every config file has been read and merged
 successfully. ``--dry-run`` prints unified diffs and writes nothing.
 """
@@ -41,7 +46,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agentail import agents as registry
-from agentail import paths
+from agentail import paths, shellenv
 from agentail.install import hookjson
 
 MANIFEST_NAME = "install.json"
@@ -267,6 +272,16 @@ def remember_dirs(agents: list[str]) -> None:
         path.unlink(missing_ok=True)
 
 
+def _remember_shell_env(out: Out) -> None:
+    """Record this shell's ``codex`` and proxy variables for the daemon (shellenv). Only the
+    names of the variables are printed: a proxy URL may hold a password."""
+    record = shellenv.remember()
+    if "codex" in record:
+        out(f"codex for the daemon: {record['codex']}")
+    if "proxy" in record:
+        out(f"proxy variables for the daemon: {', '.join(record['proxy'])}")
+
+
 def _manifest_path() -> Path:
     return paths.agentail_home() / MANIFEST_NAME
 
@@ -317,8 +332,9 @@ def install_local(
     from_shell: bool = False,
 ) -> int:
     """``from_shell``: run by the user (the CLI), whose environment says where each agent
-    keeps its config; the dirs used are recorded for the daemon. The daemon's own setup
-    passes False and uses the recorded dirs instead."""
+    keeps its config; the dirs used are recorded for the daemon, and so are the shell's
+    ``codex`` and proxy variables (``agentail.shellenv``). The daemon's own setup passes
+    False and uses the records instead."""
     hook_path = str(hook_dest())
     all_targets = targets(local_python(), hook_path, str(paths.local_sock()), not from_shell)
     if agents:
@@ -388,6 +404,7 @@ def install_local(
     prune_backups(manifest)
     if from_shell:
         remember_dirs([p.target.agent for p in plans])
+        _remember_shell_env(out)
 
     for p in plans:
         spec = registry.get(p.target.agent)
@@ -534,6 +551,7 @@ def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
     dest.unlink(missing_ok=True)
     _manifest_path().unlink(missing_ok=True)
     (paths.agentail_home() / registry.DIRS_FILE).unlink(missing_ok=True)
+    shellenv.env_file().unlink(missing_ok=True)
     # Nothing needs an original any more: keep only the newest few of each file. The rest
     # stays, the user's last way back; ~/.agentail is then not removed.
     left = prune_backups({"files": {}})

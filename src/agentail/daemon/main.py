@@ -35,7 +35,12 @@ from agentail.config import (
 )
 from agentail.daemon import usage_claude_api as claude_api
 from agentail.daemon import usage_claude_remote as claude_remote
-from agentail.daemon.codex_appserver import read_codex_usage_live, remote_argv
+from agentail.daemon.codex_appserver import (
+    default_argv,
+    local_env,
+    read_codex_usage_live,
+    remote_argv,
+)
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.schedule import RemoteSchedule
 from agentail.daemon.state import Change, Retention, Store
@@ -335,8 +340,11 @@ class Daemon:
         try:
             spec = agents.get("codex")
             moved = spec is not None and spec.home() != spec.default_home()
+            argv = self._codex_argv or default_argv()
             reading = await read_codex_usage_live(
-                self._codex_argv, codex_home=self._codex_spec_home() if moved else None
+                argv,
+                codex_home=self._codex_spec_home() if moved else None,
+                extra_env=local_env(argv[0]) if argv else None,
             )
         except Exception:  # a broken app-server must never take the daemon down
             log.exception("live Codex usage failed")

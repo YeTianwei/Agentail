@@ -4,8 +4,9 @@ Checks, in order: the daemon (ui.sock), the systemd user service, the local hook
 script and each agent's hook entries (including whether the interpreter and script in their
 commands still exist; plus agent-specific checks: Claude's status line, whether Codex
 trusts the hooks; backups that versions before 0.0.4 left next to the configs, as
-information only),
-each remote host's tunnel as the daemon reports it, and the GNOME Shell extension.
+information only), whether this shell's ``codex`` and proxy variables are what the daemon
+was told (shellenv; proxy credentials are never printed), each remote host's tunnel as the
+daemon reports it, and the GNOME Shell extension.
 
 Remote hosts are judged by their tunnel: "connected" already means a ping from
 the server's hook script reached this daemon. Everything external (systemctl,
@@ -27,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail import agents as registry
-from agentail import paths
+from agentail import paths, shellenv
 from agentail.client import clean
 from agentail.config import UsageSwitches, load_hosts, load_usage_switches
 from agentail.install import gnome, service, statusline
@@ -282,6 +283,68 @@ def legacy_backup_checks() -> list[Check]:
     return checks
 
 
+# Where the daemon finds codex without a record: the usual system dirs (systemd's PATH)
+# and codex_appserver.EXTRA_BIN_DIRS.
+_SYSTEM_BIN_DIRS = ("/usr/local/bin", "/usr/bin", "/bin", "/snap/bin")
+
+
+def _daemon_finds(codex: str) -> bool:
+    from agentail.daemon.codex_appserver import EXTRA_BIN_DIRS
+
+    dirs = {*_SYSTEM_BIN_DIRS, *(str(Path.home() / d) for d in EXTRA_BIN_DIRS)}
+    return os.path.dirname(codex) in dirs
+
+
+def _codex_path_check(saved: str | None) -> list[Check]:
+    spec = registry.get("codex")
+    here = shellenv.shell_codex()
+    if spec is None or not (saved or (here and spec.home().is_dir())):
+        return []
+    name, hint = "codex path", "agentail install-local"
+    if saved and not shellenv.executable(saved):
+        return [Check(name, WARN, f"the recorded {saved} is gone: no live Codex usage", hint)]
+    if here and saved and here != saved:
+        return [Check(name, WARN, f"codex here is {here}, but the daemon uses {saved}", hint)]
+    if here and not saved and not _daemon_finds(here):
+        return [
+            Check(name, WARN, f"codex here is {here}; the daemon (systemd) may not find it", hint)
+        ]
+    if saved:
+        return [Check(name, INFO, f"{saved} (recorded by install-local)")]
+    return []
+
+
+def _proxy_check(saved: dict[str, str]) -> list[Check]:
+    here = shellenv.proxies_in()
+    if here != saved:
+        return [
+            Check(
+                "proxy",
+                WARN,
+                f"this shell has {shellenv.describe_proxies(here) or 'no proxy variables'}, "
+                f"recorded for the daemon: {shellenv.describe_proxies(saved) or 'none'}",
+                "agentail install-local",
+            )
+        ]
+    if saved:
+        return [
+            Check(
+                "proxy",
+                INFO,
+                f"{shellenv.describe_proxies(saved)} (recorded for the daemon by install-local)",
+            )
+        ]
+    return []
+
+
+def shell_env_checks() -> list[Check]:
+    """Whether this shell and the daemon agree on ``codex`` and the proxy variables: the
+    daemon runs under systemd without the shell's environment (agentail.shellenv). Proxy
+    URLs are printed without their user and password."""
+    record = shellenv.recorded()
+    return _codex_path_check(record.get("codex")) + _proxy_check(record.get("proxy", {}))
+
+
 def local_checks() -> list[Check]:
     checks = []
     used = any(a.home().is_dir() for a in registry.AGENTS)
@@ -314,7 +377,7 @@ def local_checks() -> list[Check]:
             checks += extras(spec)
         for warning in spec.warnings(spec.home()) if spec.warnings else []:
             checks.append(Check(f"{spec.name} config", WARN, warning))
-    return checks + legacy_backup_checks()
+    return checks + legacy_backup_checks() + shell_env_checks()
 
 
 def _ago(ts: Any, now: float) -> str:

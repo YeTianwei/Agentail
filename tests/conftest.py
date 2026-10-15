@@ -58,3 +58,22 @@ def _no_packaged_files(monkeypatch, tmp_path_factory):
     from agentail import firstrun
 
     monkeypatch.setattr(firstrun, "INSTALL_ID_FILE", nothing / "install-id")
+
+
+@pytest.fixture(autouse=True)
+def _no_shell_codex_or_proxy(monkeypatch):
+    """Tests never see the developer's codex or proxy: the proxy variables are unset, and
+    shellenv looks for codex only in temporary dirs on PATH (tests put their fakes there)."""
+    from agentail import shellenv
+
+    for name in shellenv.PROXY_VARS:
+        monkeypatch.delenv(name, raising=False)
+    real = shellenv.shell_codex
+    tmp = tempfile.gettempdir() + os.sep
+
+    def shell_codex(env=None):
+        env = os.environ if env is None else env
+        dirs = [d for d in env.get("PATH", "").split(os.pathsep) if d.startswith(tmp)]
+        return real({**env, "PATH": os.pathsep.join(dirs)})
+
+    monkeypatch.setattr(shellenv, "shell_codex", shell_codex)

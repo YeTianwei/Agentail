@@ -21,9 +21,11 @@ import logging
 import os
 import shutil
 import time
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from agentail import shellenv
 from agentail.daemon.schedule import RemoteSchedule  # noqa: F401  (re-exported)
 from agentail.daemon.usage_codex import credits_extra
 from agentail.sshexec import sh_script, ssh_argv
@@ -45,6 +47,11 @@ EXTRA_BIN_DIRS = (".local/bin", ".npm-global/bin", ".cargo/bin", "bin")
 
 
 def find_codex() -> str | None:
+    """The path install-local recorded from the user's shell (shellenv), if it is still
+    executable, else ``codex`` on PATH or in ``EXTRA_BIN_DIRS``."""
+    recorded = shellenv.recorded_codex()
+    if recorded:
+        return recorded
     path = os.pathsep.join(
         [os.environ.get("PATH", ""), *(str(Path.home() / d) for d in EXTRA_BIN_DIRS)]
     )
@@ -54,6 +61,19 @@ def find_codex() -> str | None:
 def default_argv() -> list[str] | None:
     codex = find_codex()
     return [codex, *CODEX_ARGS] if codex else None
+
+
+def local_env(codex: str) -> dict[str, str]:
+    """What to add to the daemon's environment for a local ``codex app-server``: the proxy
+    variables recorded from the shell when the daemon has none (shellenv), and the dir of
+    ``codex`` in front of PATH, so a ``#!/usr/bin/env node`` launcher finds the ``node``
+    that a version manager installed next to it."""
+    extra = shellenv.daemon_proxies()
+    path = os.environ.get("PATH", "")
+    bindir = os.path.dirname(codex)
+    if os.path.isabs(bindir) and bindir not in path.split(os.pathsep):
+        extra["PATH"] = os.pathsep.join(d for d in (bindir, path) if d)
+    return extra
 
 
 # Finds codex on a server, where a non-interactive ssh shell often lacks the PATH entries of
@@ -184,20 +204,23 @@ async def read_codex_usage_live(
     host: str = "local",
     timeout: float = TIMEOUT_S,
     codex_home: Path | None = None,
+    extra_env: Mapping[str, str] | None = None,
 ) -> UsageReading | None:
     """Ask a fresh ``codex app-server`` for the current limits; None on any failure.
-    ``codex_home`` is passed as ``CODEX_HOME`` (the daemon may not have the user's)."""
+    ``codex_home`` is passed as ``CODEX_HOME`` (the daemon may not have the user's);
+    ``extra_env`` (``local_env``) is added to the daemon's environment."""
     argv = argv or default_argv()
     if not argv:
         log.debug("codex not found; live usage is unavailable")
         return None
+    extra = {**(extra_env or {}), **({"CODEX_HOME": str(codex_home)} if codex_home else {})}
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
             stdin=asyncio.subprocess.PIPE,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.DEVNULL,
-            env={**os.environ, "CODEX_HOME": str(codex_home)} if codex_home else None,
+            env={**os.environ, **extra} if extra else None,
         )
     except OSError as exc:
         log.debug("cannot start %s: %s", argv[0], exc)

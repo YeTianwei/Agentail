@@ -68,6 +68,14 @@
   `install-local`; after deleting or moving that virtualenv, or a Python upgrade, the hooks failed
   silently. Doctor now reports a failure when the interpreter or the hook script in the hook
   commands (or in the Claude status line wrapper) is gone, and suggests `agentail install-local`.
+- **Live Codex usage with nvm, volta, pnpm, asdf or fnm, and usage behind a proxy.** The daemon,
+  started by systemd, has neither your shell's PATH nor its proxy variables: it did not find a
+  `codex` installed through a version manager, and behind a proxy the Claude usage query and
+  `codex app-server` could not get out. `agentail install-local` from a terminal now also records
+  where `codex` is and the proxy variables (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`,
+  upper and lower case) in `~/.agentail/shell-env.json` (readable only by you). The daemon uses
+  them when its own environment has none; `agentail doctor` shows the record and warns when your
+  shell disagrees, without printing proxy passwords; `uninstall-local` removes it.
 - **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
   keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
   now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login
