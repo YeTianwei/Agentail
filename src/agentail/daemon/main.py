@@ -33,8 +33,10 @@ from agentail.config import (
     load_retention,
 )
 from agentail.daemon import usage_claude_api as claude_api
-from agentail.daemon.codex_appserver import RemoteSchedule, read_codex_usage_live, remote_argv
+from agentail.daemon import usage_claude_remote as claude_remote
+from agentail.daemon.codex_appserver import read_codex_usage_live, remote_argv
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
+from agentail.daemon.schedule import RemoteSchedule
 from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
@@ -50,6 +52,10 @@ CODEX_USAGE_POLL_S = 60.0
 LIVE_USAGE_MIN_INTERVAL_S = 60.0  # at most one live Codex query per this long
 CODEX_USAGE_DEBOUNCE_S = 5.0  # after a local Codex event, before re-reading its files
 REMOTE_CODEX_TIMEOUT_S = 30.0  # one query of a server's codex app-server, ssh included
+# A server whose Claude account turned out to be this computer's is not asked itself for this
+# long; its plan (profile endpoint) is asked again after this long.
+REMOTE_CLAUDE_SAME_TTL_S = 24 * 3600.0
+REMOTE_CLAUDE_PLAN_TTL_S = 24 * 3600.0
 
 
 @dataclass
@@ -57,6 +63,16 @@ class _RemoteHost:
     host: Host
     listener: Listener
     tunnel: TunnelSupervisor | None
+
+
+@dataclass
+class _RemoteClaude:
+    """A server's own Claude query (usage_claude_remote)."""
+
+    sched: RemoteSchedule
+    same_until: float = 0.0  # monotonic: until then the local query covers this server
+    plan: str | None = None
+    plan_at: float | None = None  # monotonic time of the last profile answer
 
 
 class Daemon:
@@ -93,6 +109,11 @@ class Daemon:
         self._remote_codex: dict[str, RemoteSchedule] = {}
         self._remote_codex_tasks: dict[str, asyncio.Task[None]] = {}
         self._remote_codex_timeout = REMOTE_CODEX_TIMEOUT_S
+        # Claude on the servers, per alias: only for a server whose account the local query
+        # does not cover (usage_claude_remote).
+        self._remote_claude: dict[str, _RemoteClaude] = {}
+        self._remote_claude_tasks: dict[str, asyncio.Task[None]] = {}
+        self._remote_claude_timeout = claude_remote.TIMEOUT_S
         self._codex_home = codex_usage_home
         self._codex_argv = codex_argv
         self._live_interval = live_usage_interval
@@ -164,6 +185,14 @@ class Daemon:
                 sched.seen = True
                 if event is not None and event.kind is EventKind.STOP:
                     sched.record_stop(time.monotonic())
+        if source != LOCAL_SOURCE and msg.agent == "claude":
+            st = self._remote_claude_state(source)
+            if st is not None:
+                st.sched.seen = True
+                now = time.monotonic()
+                if event is not None and event.kind is EventKind.STOP:
+                    if self._remote_claude_needed(st, now):
+                        st.sched.record_stop(now)
         if event is not None and event.kind is EventKind.STOP and msg.agent == "claude":
             # Any host counts: the servers are assumed to use the same account.
             self._claude_schedule.record_stop(time.monotonic())
@@ -214,6 +243,7 @@ class Daemon:
             ]
             if known:
                 reading = fill_in(reading, max(known, key=lambda r: r.ts))
+        self._check_remote_claude_account(reading)
         if not self.usage.update(reading):
             return
         self._usage_dirty = True
@@ -240,6 +270,12 @@ class Daemon:
         if self._claude_api_on and self._claude_schedule.panel_opened(now):
             self._start_claude_query(now)
         for alias in list(self.remotes):
+            st = self._remote_claude_state(alias)
+            if st is not None:
+                if UsageKey(alias, "claude") in self.usage.readings:
+                    st.sched.seen = True
+                if self._remote_claude_needed(st, now) and st.sched.panel_opened(now):
+                    self._start_remote_claude(alias, now)
             sched = self._remote_codex_schedule(alias)
             if sched is None:
                 continue
@@ -309,6 +345,91 @@ class Daemon:
         if reading is None:
             log.info("Codex usage on %s: no answer from codex app-server", alias)
         elif alias in self.remotes:  # the host may have been removed meanwhile
+            self._on_usage(reading, full=True)
+
+    # -- Claude on the servers (daemon/usage_claude_remote.py) ------------------------------
+
+    def _remote_claude_state(self, alias: str) -> _RemoteClaude | None:
+        """The state of a server set up for Claude, None for any other source."""
+        remote = self.remotes.get(alias)
+        if remote is None or "claude" not in remote.host.agents:
+            return None
+        if alias not in self._remote_claude:
+            self._remote_claude[alias] = _RemoteClaude(RemoteSchedule())
+        return self._remote_claude[alias]
+
+    def _remote_claude_needed(self, st: _RemoteClaude, now: float) -> bool:
+        """Whether a server must be asked itself: the local query is switched on (the same
+        switch covers both) but cannot speak for the server, because this computer has no
+        working login or the server has not been seen to share its account lately."""
+        if not self._claude_api_on:
+            return False
+        return self.claude_api_status.get("state") != claude_api.OK or st.same_until <= now
+
+    def _check_remote_claude_account(self, reading: UsageReading) -> None:
+        """Servers seen with this computer's account are covered by the local query: check a
+        new server reading against the local one, or a new local reading against the
+        servers' latest."""
+        if reading.agent != "claude":
+            return
+        local = self._full_usage.get(UsageKey(LOCAL_SOURCE, "claude"))
+        if local is None:
+            return
+        if reading.host == LOCAL_SOURCE:
+            servers = [r for k, r in self.usage.readings.items() if k.agent == "claude"]
+        else:
+            servers = [reading]
+        for r in servers:
+            st = self._remote_claude.get(r.host)
+            if st is not None and same_account(r, local):
+                st.same_until = time.monotonic() + REMOTE_CLAUDE_SAME_TTL_S
+
+    def _sync_remote_claude(self) -> None:
+        now = time.monotonic()
+        for alias, st in list(self._remote_claude.items()):
+            due = st.sched.next_due()
+            if due is not None and now >= due:
+                if self._remote_claude_needed(st, now):
+                    self._start_remote_claude(alias, now)
+                else:
+                    st.sched.due = None  # covered by the local query meanwhile
+
+    def _start_remote_claude(self, alias: str, now: float) -> None:
+        if self.hosts.get(alias, {}).get("state") != "connected":
+            return
+        task = self._remote_claude_tasks.get(alias)
+        if task is not None and not task.done():
+            return
+        self._remote_claude[alias].sched.record_start(now)
+        self._remote_claude_tasks[alias] = asyncio.get_running_loop().create_task(
+            self._remote_claude_query(alias)
+        )
+
+    async def _remote_claude_query(self, alias: str) -> None:
+        st, remote = self._remote_claude.get(alias), self.remotes.get(alias)
+        if st is None or remote is None:
+            return
+        now = time.monotonic()
+        want_plan = st.plan_at is None or now - st.plan_at >= REMOTE_CLAUDE_PLAN_TTL_S
+        argv = claude_remote.remote_argv(self.ssh, alias, remote.host.python, want_plan)
+        try:
+            reading, plan = await claude_remote.fetch_remote(
+                argv, alias, self._remote_claude_timeout
+            )
+        except claude_api.FetchError as exc:
+            st.sched.record_result(False)
+            log.info("Claude usage on %s: %s", alias, exc.detail)
+            return
+        except Exception:  # a broken server must never take the daemon down
+            st.sched.record_result(False)
+            log.exception("Claude usage on %s failed", alias)
+            return
+        st.sched.record_result(True)
+        if want_plan:
+            st.plan, st.plan_at = plan, time.monotonic()
+        if st.plan:
+            reading = replace(reading, plan=st.plan)
+        if alias in self.remotes and self._claude_api_on:
             self._on_usage(reading, full=True)
 
     # -- Claude usage endpoint (daemon/usage_claude_api.py) --------------------------------
@@ -509,9 +630,11 @@ class Daemon:
     async def _stop_host(self, alias: str) -> None:
         remote = self.remotes.pop(alias)
         self._remote_codex.pop(alias, None)
-        task = self._remote_codex_tasks.pop(alias, None)
-        if task is not None:
-            task.cancel()
+        self._remote_claude.pop(alias, None)
+        for tasks in (self._remote_codex_tasks, self._remote_claude_tasks):
+            task = tasks.pop(alias, None)
+            if task is not None:
+                task.cancel()
         if remote.tunnel is not None:
             await remote.tunnel.stop()
         await remote.listener.stop()
@@ -665,6 +788,7 @@ class Daemon:
                     await self.sync_hosts()
                     self._sync_claude_api()
                     self._sync_remote_codex()
+                    self._sync_remote_claude()
                     if time.monotonic() >= self._codex_usage_due:
                         await self._read_codex_usage()
                     if time.monotonic() >= next_sweep:
@@ -674,7 +798,12 @@ class Daemon:
                         self._save_sessions()
                         self._save_usage()
         finally:
-            for task in (self._live_task, self._claude_task, *self._remote_codex_tasks.values()):
+            for task in (
+                self._live_task,
+                self._claude_task,
+                *self._remote_codex_tasks.values(),
+                *self._remote_claude_tasks.values(),
+            ):
                 if task is not None:
                     task.cancel()
             self._save_sessions()

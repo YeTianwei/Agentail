@@ -173,3 +173,13 @@ USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "...", "ok_t
 4. 远程服务器不查询,默认本机与服务器使用同一个账号。
 
 其他项目对 Codex 和其他 agent 的额度做法见 [usage-notes.md](usage-notes.md) §6。
+
+## 11. 服务器上的 Claude 登录(2026-10-15,owner 同意读取服务器上的凭据)
+
+本机的查询能覆盖所有用同一账号的服务器。覆盖不到的两种情况:服务器登录的是另一个账号;本机根本没有可用的 Claude 登录(只在服务器上通过 VS Code Remote 用 Claude,而 VS Code 里 statusLine 不运行)。这时 daemon 在那台服务器上查询(`daemon/usage_claude_remote.py`):
+
+- **不在服务器上安装任何东西。** 通过 ssh 用 add-host 记录的 `python3` 运行一段固定的 Python 3.6 脚本(`python3 -c SCRIPT usage [profile]`,参数只有这两个常量)。脚本在服务器上读 `$CLAUDE_CONFIG_DIR/.credentials.json`(默认 `~/.claude`),规则和本机相同:只读 `accessToken`、`expiresAt`、`subscriptionType`,不刷新,拒绝重定向。
+- **token 不离开服务器。** 输出只有接口的回答;profile 在服务器上就裁剪成套餐字段(没有姓名、邮箱、uuid);错误只保留 HTTP 状态码或异常类名。解析在本机用现有的 `parse_usage` / `parse_plan` 完成。
+- **何时查询**(`daemon/schedule.RemoteSchedule`,和服务器上的 Codex 共用):那台服务器上的 Claude Stop 之后 15 秒,或打开面板时;每台服务器每分钟最多一次;失败后 5 分钟起退避;只查装了 Claude hook、隧道已连接、Claude 出现过的服务器。前提是"需要":`[usage] claude_api` 开着(同一个开关),并且本机查询的状态不是 ok,或者这台服务器最近 24 小时没被确认和本机同一账号。确认的方式:服务器的任何 Claude 读数(statusLine 或它自己的查询)和本机接口读数的周重置时间一致(`same_account`)。所以同一账号的服务器最多被单独查一次,之后由本机查询代表。
+- 套餐:每台服务器首次查询时连 profile 一起问,之后每 24 小时一次。
+- 实测(2026-10-15,gpu6、gpu8,Max 5x):一次约 1.2 秒,两台都和本机同一账号。

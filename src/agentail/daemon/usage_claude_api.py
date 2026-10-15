@@ -48,7 +48,9 @@ NOTE = (
     "Claude usage: the daemon reads the access token of Claude Code's login "
     "(~/.claude/.credentials.json, read only, never refreshed or stored) and asks "
     "api.anthropic.com for your 5-hour and weekly limits when a Claude turn ends or the "
-    "panel opens. Turn it off with `agentail usage-api off`."
+    "panel opens. A server whose Claude account this login does not cover is asked the "
+    "same way, with the server's own login, over ssh. Turn it off with "
+    "`agentail usage-api off`."
 )
 
 # limits[].kind -> window length in minutes. "weekly_scoped" is one model's own weekly

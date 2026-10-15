@@ -21,10 +21,10 @@ import logging
 import os
 import shutil
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentail.daemon.schedule import RemoteSchedule  # noqa: F401  (re-exported)
 from agentail.sshexec import sh_script, ssh_argv
 from agentail.usage import UsageReading, clean_label, clean_plan, make_window, sorted_windows
 
@@ -75,54 +75,6 @@ exec "$p" -s read-only -a never app-server
 def remote_argv(ssh: str, alias: str) -> list[str]:
     """``codex app-server`` on ``alias``, speaking JSON-RPC over the ssh connection."""
     return ssh_argv(ssh, alias, sh_script(REMOTE_SCRIPT))
-
-
-@dataclass
-class RemoteSchedule:
-    """When to ask one server's Codex for its limits, as a pure function of what happened
-    (monotonic seconds; the daemon owns the clock). Like Claude's (usage_claude_api.Schedule):
-
-    - a Codex Stop on that server schedules a query ``debounce`` after the last one, never
-      sooner than ``interval`` after the previous query;
-    - opening the panel queries a server whose Codex has been seen (an event, or a reading)
-      when the last query is ``interval`` old;
-    - nothing else: no polling;
-    - a failure (codex missing, not logged in, ssh down) backs off exponentially.
-    """
-
-    debounce: float = 15.0
-    interval: float = 60.0
-    backoff_base: float = 300.0
-    backoff_max: float = 3600.0
-    seen: bool = False
-    last: float | None = None
-    due: float | None = None
-    failures: int = 0
-
-    def record_stop(self, now: float) -> None:
-        self.seen = True
-        self.due = now + self.debounce
-
-    def _not_before(self) -> float:
-        if self.last is None:
-            return -float("inf")
-        wait = self.interval
-        if self.failures:
-            wait = max(wait, min(self.backoff_base * 2 ** (self.failures - 1), self.backoff_max))
-        return self.last + wait
-
-    def next_due(self) -> float | None:
-        return None if self.due is None else max(self.due, self._not_before())
-
-    def panel_opened(self, now: float) -> bool:
-        return self.seen and now >= self._not_before()
-
-    def record_start(self, now: float) -> None:
-        self.last = now
-        self.due = None
-
-    def record_result(self, ok: bool) -> None:
-        self.failures = 0 if ok else min(self.failures + 1, 10)
 
 
 MAIN_LIMIT_ID = "codex"

@@ -23,6 +23,13 @@
 
 ### Added
 
+- **Claude usage from servers with another account, or without a login here.** The usage endpoint
+  was asked only with this computer's Claude login. A server logged in to another account, or
+  Claude used only on servers (VS Code Remote, where the status line never runs), showed nothing
+  or the wrong account. The daemon now asks the endpoint on such a server over ssh, with the
+  server's own login: a short Python script runs there, nothing is installed, the token stays on
+  the server. A server seen with this computer's account is not asked itself. `agentail usage-api
+  off` turns this off too.
 - **Codex usage from your servers.** Codex limits were read only on this computer, so Codex used
   only on a server (in a terminal or through VS Code Remote) showed none. The daemon now asks
   `codex app-server` on the server over ssh, with the server's own Codex login, a few seconds after
