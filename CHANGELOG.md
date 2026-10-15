@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.0.4 — 2026-10-15
+
+Usage limits are now something you switch on, and Agentail is ready for more than one desktop,
+more than one server on one home, and a few more kinds of machines. Every change below was
+checked on the owner's desktop and servers unless it says otherwise.
 
 ### Changed
 
@@ -50,6 +54,28 @@
 
 ### Fixed
 
+- **A big tool result no longer costs the whole event.** A hook payload over 256 KiB (a file
+  being written, a long command output) was cut, which broke its JSON, so the event was dropped
+  and the tool name stayed on the card until the turn ended. The hook now cuts the long strings
+  inside the payload (to 2 KiB each) and sends valid JSON, up to 8 MiB of input; `truncated`
+  marks such a message.
+- **Heavy Codex users: the session scan is bounded.** The daemon read the whole `sessions/`
+  tree every minute to find the newest limits; it now looks only at the three newest day
+  directories.
+- **A daemon started without `XDG_RUNTIME_DIR`** (cron, `su`, a bare tty) put its sockets in
+  `/tmp/agentail-<uid>`, where the panel did not look. It now uses `/run/user/<uid>` when that
+  exists, as the panel does, and refuses a `/tmp` fallback that is a symlink, someone else's or
+  open to other users instead of using it.
+- **Your status line command runs under bash.** The Claude status line wrapper ran your own
+  command with `sh -c`, dash on Debian and Ubuntu, so a one-liner written for bash broke. It
+  now runs it under `bash` when there is one. The upgrade refreshes the wrapper by itself.
+- **`agentail doctor` says when a SOCKS proxy cannot serve the Claude usage query** (Python's
+  `urllib` speaks only to http proxies; Codex can use the SOCKS one).
+- **A subagent's notification is no longer shown as the prompt.** Claude Code puts a block such as
+  `<task-notification>…</task-notification>` into the prompt when a subagent finishes, and the
+  card showed its raw tags. Such harness blocks (`<system-reminder>`, `<command-name>`,
+  `<ide_selection>`, …) are now left out of the preview; a prompt made of nothing else is shown
+  as "(task notification)".
 - **Uninstall restores a config with Windows line endings byte for byte.** It read the file
   with newline translation, so its hash never matched the manifest and the hooks were removed
   structurally instead of the original being put back.

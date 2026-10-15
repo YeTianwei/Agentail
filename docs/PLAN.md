@@ -323,7 +323,20 @@ git push origin main && git tag v0.0.3 && git push origin v0.0.3
 
 `.github/workflows/release.yml` 会构建并附上 `.deb`;失败时用 `gh release create v0.0.3 dist/agentail_0.0.3.deb -F .github/release-notes/v0.0.3.md` 手动发。
 
-### 0.0.4:Qwen Code、Gemini CLI
+### 0.0.4 发布 ☁️ + 👤
+
+☁️ 已完成(2026-10-15):推广前的通用性与安全评估(本次会话),六个分支按顺序叠加后全部合入 main,再加两轮补丁。内容:Claude 用量查询改为默认关闭、面板设置页(齿轮)、用量总开关、读数来源;ssh 登录失败慢速重试、单台主机出错隔离;扩展单条消息容错、GNOME 45–49;通知默认不带命令、备份集中到 `~/.agentail/backups`;hook 脚本随升级更新、doctor 检查解释器、记录 shell 的 codex 路径与代理;hook 多接收端与 `{uid}`(服务器需重新 `add-host` 并在 Codex 里重新信任);逐字节恢复 CRLF、hook 版本标记、超大载荷缩减、Codex 扫描限定最近三天、运行目录回退、状态栏命令用 bash、提示词里的 harness 标签过滤。`SETUP_VERSION = 3`(状态栏包装变了)。版本号 0.0.4、CHANGELOG、README、`.github/release-notes/v0.0.4.md`、`dist/agentail_0.0.4.deb`。扩展 `metadata.json` 的 version 升到 2。
+
+👤 你要做的:
+
+```bash
+sudo apt install ./dist/agentail_0.0.4.deb       # 覆盖开发安装前先删掉测试用的 .pth 和扩展链接
+# 注销再登录一次(X11:Alt+F2,r,回车);agentail doctor 全绿
+agentail add-host gpu7 && agentail add-host gpu8  # 切到新的 socket 名,然后在服务器上 codex 里重新信任
+git push origin main && git tag v0.0.4 && git push origin v0.0.4
+```
+
+### 0.0.5:Qwen Code、Gemini CLI
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
 
@@ -331,4 +344,4 @@ git push origin main && git tag v0.0.3 && git push origin v0.0.3
 
 ## 4. v1 之后(不在当前范围)
 
-Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,Qwen、Gemini CLI 见 0.0.4;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
+Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,Qwen、Gemini CLI 见 0.0.5;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
