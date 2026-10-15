@@ -4,6 +4,8 @@
 
 ### Changed
 
+- **The GNOME extension declares GNOME 49 too (45–49).** Only 46 is tested on a real desktop; 45,
+  47, 48 and 49 were checked against the upstream GNOME Shell sources, not run.
 - **The Claude usage query is off until you turn it on.** Asking Anthropic for Claude's limits
   uses Claude Code's login, sends requests that say they come from Agentail to an endpoint Anthropic
   does not document, and was on by default, so it happened without anyone agreeing to it. Now it
@@ -89,11 +91,6 @@
 - **Per-model limits.** Max plans have a weekly limit for one model next to the overall one; it now
   has its own row, "Week · Fable". Codex limits other than the main one (`rateLimitsByLimitId`,
   `limit_id` in the session files) are shown the same way. `agentail status` lists them too.
-
-### Changed
-
-- **The GNOME extension declares GNOME 49 too (45–49).** Only 46 is tested on a real desktop; 45,
-  47, 48 and 49 were checked against the upstream GNOME Shell sources, not run.
 
 ## 0.0.3 — 2026-10-12
 
