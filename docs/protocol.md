@@ -54,7 +54,7 @@ Then any number of:
 ```
 SESSION = {"key": {"host", "agent", "session_id"}, "status": "running|waiting_input|needs_attention|ended|stale",
            "cwd", "prompt_preview", "tool", "tool_detail", "message", "started_ts", "last_ts"}
-HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_failed|stopped", "detail"}
+HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_failed|error|stopped", "detail"}
 ```
 
 ```
@@ -104,7 +104,10 @@ when it changes.
 while a permission prompt is open. `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not
 sent). A host from `hosts.toml` without a `remote_sock` (never set up by `add-host`) is reported
 with `"state": "stopped"`. `connected` means an end-to-end ping from the server arrived through the
-tunnel. When a tunnel drops, that host's sessions become `stale`; when a host is removed from
+tunnel. `auth_failed` means ssh could not log in; since 0.0.4 it is retried after 1 minute,
+doubling up to 15 (the `detail` says when), and at once when a client sends `refresh_usage`.
+`error` (since 0.0.4) means the daemon could not set the host up (its socket could not be
+created); `detail` says why. When a tunnel drops, that host's sessions become `stale`; when a host is removed from
 `hosts.toml`, a `host_remove` is sent and its sessions are removed.
 All strings in `SESSION` come from hook payloads and are untrusted: render as plain text and strip
 control characters before writing to a terminal (`agentail tail` / `status` do).

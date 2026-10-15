@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 from pathlib import Path
 
 APP = "agentail"
+
+# AF_UNIX sun_path holds 108 bytes on Linux, the final NUL included; keep a margin.
+MAX_SOCK_PATH = 100
 
 # ---- local desktop -------------------------------------------------------
 
@@ -31,8 +35,15 @@ def host_sock_dir() -> Path:
 
 
 def host_sock(alias: str) -> Path:
+    """``hosts/<alias>.sock``. An alias with other characters (``user@host``), or one too long
+    for a Unix socket path, gets a short name with a hash instead, so two aliases never share
+    a socket (one listener would replace the other's) and the path always fits."""
     safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in alias)
-    return host_sock_dir() / f"{safe}.sock"
+    path = host_sock_dir() / f"{safe}.sock"
+    if safe == alias and len(os.fsencode(path)) <= MAX_SOCK_PATH:
+        return path
+    digest = hashlib.sha256(alias.encode("utf-8")).hexdigest()[:12]
+    return host_sock_dir() / f"{safe[:16]}-{digest}.sock"
 
 
 def config_dir() -> Path:

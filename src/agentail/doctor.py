@@ -355,6 +355,7 @@ _HOST_STATUS = {
     "connecting": WARN,
     "backoff": WARN,
     "auth_failed": FAIL,
+    "error": FAIL,
     "stopped": WARN,
 }
 
@@ -381,7 +382,12 @@ def host_checks(snapshot: dict[str, Any] | None) -> list[Check]:
         status = _HOST_STATUS.get(state, WARN)
         hint = ""
         if state == "auth_failed":
-            hint = f"make `ssh {host.alias} true` work without a prompt"
+            hint = (
+                f"make `ssh {host.alias} true` work without a prompt; the daemon retries "
+                "every few minutes, opening the panel retries at once"
+            )
+        elif state == "error":
+            hint = f"journalctl --user -u {service.UNIT}"
         elif state == "stopped":
             hint = f"agentail add-host {host.alias}"
         elif status != OK:

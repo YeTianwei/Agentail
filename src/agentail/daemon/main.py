@@ -261,6 +261,14 @@ class Daemon:
                 flush=True,
             )
 
+    def panel_opened(self) -> None:
+        """A client sent ``refresh_usage``: someone is looking. Retry the tunnels that wait
+        (a login failure the user may just have fixed), and refresh the usage."""
+        for remote in self.remotes.values():
+            if remote.tunnel is not None:
+                remote.tunnel.retry_now()
+        self.request_live_usage()
+
     def request_live_usage(self) -> None:
         """The panel was opened: ask Codex for its current limits, at most once a minute,
         here and on every connected server where Codex has been seen. Opening the panel is
@@ -607,8 +615,21 @@ class Daemon:
             self._publish(change)
 
     async def _start_host(self, host: Host) -> None:
-        listener = Listener(host.alias, paths.host_sock(host.alias), self.handle)
-        await listener.start()
+        """Listener and tunnel for one host. A host whose socket cannot be created is shown in
+        the "error" state and does not stop the daemon or the other hosts; editing hosts.toml
+        (or restarting the daemon) tries again."""
+        sock = paths.host_sock(host.alias)
+        listener = Listener(host.alias, sock, self.handle)
+        try:
+            await listener.start()
+        except Exception as exc:
+            log.exception("host %s: cannot listen on %s", host.alias, sock)
+            reason = exc.strerror if isinstance(exc, OSError) and exc.strerror else str(exc)
+            self.remotes[host.alias] = _RemoteHost(host, listener, None)
+            self._set_host(
+                host.alias, "error", f"cannot listen on {sock}: {reason}", host.display_name
+            )
+            return
         tunnel = None
         if host.remote_sock:
             tunnel = TunnelSupervisor(
@@ -635,9 +656,12 @@ class Daemon:
             task = tasks.pop(alias, None)
             if task is not None:
                 task.cancel()
-        if remote.tunnel is not None:
-            await remote.tunnel.stop()
-        await remote.listener.stop()
+        try:
+            if remote.tunnel is not None:
+                await remote.tunnel.stop()
+            await remote.listener.stop()
+        except Exception:  # one host must not keep the others from being updated
+            log.exception("host %s: error while stopping", alias)
 
     async def sync_hosts(self, force: bool = False) -> None:
         """Bring listeners and tunnels in line with hosts.toml (if it changed)."""
@@ -764,7 +788,7 @@ class Daemon:
         self._load_sessions()
         self._load_usage()
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
-        self.ui = UiServer(paths.ui_sock(), self.snapshot, on_refresh_usage=self.request_live_usage)
+        self.ui = UiServer(paths.ui_sock(), self.snapshot, on_refresh_usage=self.panel_opened)
         try:
             await self.ui.start()
             for listener in self.listeners:

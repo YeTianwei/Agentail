@@ -4,6 +4,19 @@
 
 ### Fixed
 
+- **A server whose ssh login failed once stayed red until the daemon restarted.** A login failure
+  is often temporary: the keyring or ssh-agent is unlocked after the desktop session starts the
+  daemon, a VPN is not up yet. It is now retried after 1 minute, then less often (up to every 15
+  minutes), and at once when you open the panel; the server's row says when the next try is. Only
+  ssh's own failures count as login failures now: a command on the server that prints "Permission
+  denied" no longer does.
+- **One server could take the daemon down.** A host whose socket could not be created (for
+  example an alias too long for a Unix socket path) stopped the whole daemon, and systemd
+  restarted it in a loop. Such a host is now shown in a new "error" state with the reason, and the
+  others work as usual. Aliases such as `me@gpu7` and `me_gpu7` no longer share one socket, and
+  `add-host` refuses a server where the socket path under `$HOME` would be too long, before
+  installing anything.
+
 - **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
   keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
   now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login

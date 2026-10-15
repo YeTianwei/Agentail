@@ -18,7 +18,9 @@ from agentail.daemon.tunnels import (
     ssh_cleanup_argv,
     ssh_forward_argv,
     ssh_ping_argv,
+    wait_text,
 )
+from agentail.sshexec import is_auth_failure
 
 FAST = dict(backoff_min=0.05, backoff_max=0.2, stable_reset=60.0, ping_first=0.05)
 
@@ -46,6 +48,16 @@ def test_argv_quotes_config_values():
         ssh_cleanup_argv("ssh", Host(alias="-oProxyCommand=x", remote_sock="/s"))
 
 
+def test_auth_failure_is_ssh_failing_to_log_in():
+    assert is_auth_failure(255, "gpu1: Permission denied (publickey).\n")
+    assert is_auth_failure(255, "Host key verification failed.\n")
+    assert is_auth_failure(255, "Received disconnect: Too many authentication failures\n")
+    # a remote command that may not touch a file is not a login failure
+    assert not is_auth_failure(1, "rm: cannot remove '/x': Permission denied\n")
+    assert not is_auth_failure(255, "ssh: connect to host gpu1 port 22: Connection refused\n")
+    assert [wait_text(s) for s in (5, 60, 900)] == ["5s", "1 min", "15 min"]
+
+
 def test_describe_exit():
     assert "AllowStreamLocalForwarding" in describe_exit(
         255, "Error: remote port forwarding failed for listen path /x\n"
@@ -56,7 +68,7 @@ def test_describe_exit():
 class Rig:
     """One host: fake remote home with the hook installed, a local listener, a supervisor."""
 
-    def __init__(self, fake_ssh, short_tmp, alias="gpu1", scenario="ok"):
+    def __init__(self, fake_ssh, short_tmp, alias="gpu1", scenario="ok", **opts):
         self.fake = fake_ssh
         home = fake_ssh.add_host(alias, scenario)
         (home / ".agentail").mkdir()
@@ -77,7 +89,7 @@ class Rig:
             on_status=lambda st: self.states.append((st.state, st.detail)),
             ssh=str(fake_ssh.path),
             on_offline=self.offline.append,
-            **FAST,
+            **{**FAST, **opts},
         )
         self.listener = Listener(alias, self.local, self._handle)
 
@@ -136,13 +148,31 @@ async def test_immediate_exit_backs_off_and_retries(fake_ssh, short_tmp):
         assert not rig.offline  # it never was connected
 
 
-async def test_auth_failure_is_not_retried(fake_ssh, short_tmp):
-    async with Rig(fake_ssh, short_tmp, scenario="auth_fail") as rig:
+async def test_auth_failure_is_retried_slowly(fake_ssh, short_tmp):
+    """A login failure is often temporary (keyring still locked at login): retried, slowly."""
+    slow = dict(auth_retry_min=0.3, auth_retry_max=0.6)
+    async with Rig(fake_ssh, short_tmp, scenario="auth_fail", **slow) as rig:
         await rig.wait_for(lambda: rig.sup.status.state is TunnelState.AUTH_FAILED)
         assert "Permission denied" in rig.sup.status.detail
-        await asyncio.sleep(0.3)
-        assert len(fake_ssh.calls("gpu1")) == 1
+        assert "retrying in" in rig.sup.status.detail
+        await asyncio.sleep(0.1)
+        assert len(fake_ssh.calls("gpu1")) == 1  # not at the fast pace of a backoff
+        await rig.wait_for(lambda: len(fake_ssh.calls("gpu1")) >= 2, timeout=3)
         assert rig.count(TunnelState.BACKOFF) == 0
+        fake_ssh.set_scenario("gpu1", "ok")  # the key is loaded now
+        await rig.wait_for(lambda: rig.sup.status.state is TunnelState.CONNECTED)
+
+
+async def test_retry_now_cuts_a_login_failure_wait_short(fake_ssh, short_tmp):
+    async with Rig(fake_ssh, short_tmp, scenario="auth_fail", auth_retry_min=60) as rig:
+        await rig.wait_for(lambda: rig.sup.status.state is TunnelState.AUTH_FAILED)
+        assert "retrying in 1 min" in rig.sup.status.detail
+        fake_ssh.set_scenario("gpu1", "ok")
+        rig.sup.retry_now()
+        await rig.wait_for(lambda: rig.sup.status.state is TunnelState.CONNECTED, timeout=5)
+        rig.sup.retry_now()  # connected: nothing to cut short
+        await asyncio.sleep(0.1)
+        assert rig.count(TunnelState.CONNECTED) == 1
 
 
 async def test_disconnect_marks_offline_and_reconnects(fake_ssh, short_tmp):

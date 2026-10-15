@@ -9,8 +9,11 @@ Contract (design doc section 7.2):
   -R <remote_sock>:<local host socket> <alias>``.
 * Uses the alias from ~/.ssh/config; never duplicates keys/ports/ProxyJump.
 * States: CONNECTING -> CONNECTED (after an end-to-end ping arrives) ->
-  BACKOFF (exponential 1s..60s, reset after 60s stable) ; AUTH_FAILED when
-  stderr contains "Permission denied" (no retry until the user acts).
+  BACKOFF (exponential 1s..60s, reset after 60s stable) ; AUTH_FAILED when ssh
+  itself fails to log in (exit 255, "Permission denied" ...). That is often
+  temporary (the keyring or ssh-agent is unlocked after the daemon starts, a VPN is
+  not up yet), so it is retried too, slowly: 1 min, doubling up to 15 min.
+  ``retry_now`` (the panel was opened) cuts any wait short.
 * On disconnect call ``on_offline(alias)`` so the state store marks the
   host's sessions stale.
 * Must be testable without a real server: the ssh executable is injectable
@@ -50,6 +53,8 @@ class TunnelState(enum.StrEnum):
 
 BACKOFF_MIN_S = 1.0
 BACKOFF_MAX_S = 60.0
+AUTH_RETRY_MIN_S = 60.0
+AUTH_RETRY_MAX_S = 900.0
 STABLE_RESET_S = 60.0
 PING_FIRST_S = 0.5  # delay before the first end-to-end ping
 PING_MAX_INTERVAL_S = 30.0
@@ -88,6 +93,10 @@ def ssh_cleanup_argv(ssh: str, host: Host) -> list[str]:
 def ssh_ping_argv(ssh: str, host: Host) -> list[str]:
     python = host.python or "python3"
     return ssh_argv(ssh, host.alias, [python, REMOTE_HOOK, "--ping", "--sock", host.remote_sock])
+
+
+def wait_text(seconds: float) -> str:
+    return f"{seconds:.0f}s" if seconds < 60 else f"{seconds / 60:.0f} min"
 
 
 def describe_exit(returncode: int | None, stderr: str) -> str:
@@ -168,6 +177,8 @@ class TunnelSupervisor:
         backoff_max: float = BACKOFF_MAX_S,
         stable_reset: float = STABLE_RESET_S,
         ping_first: float = PING_FIRST_S,
+        auth_retry_min: float = AUTH_RETRY_MIN_S,
+        auth_retry_max: float = AUTH_RETRY_MAX_S,
     ) -> None:
         self.host = host
         self.local_sock = local_sock
@@ -178,8 +189,11 @@ class TunnelSupervisor:
         self.backoff_max = backoff_max
         self.stable_reset = stable_reset
         self.ping_first = ping_first
+        self.auth_retry_min = auth_retry_min
+        self.auth_retry_max = auth_retry_max
         self.status = TunnelStatus(host.alias, TunnelState.STOPPED)
         self._ping = asyncio.Event()
+        self._wake = asyncio.Event()
         self._proc: asyncio.subprocess.Process | None = None
         self._task: asyncio.Task[None] | None = None
         self._stopping = False
@@ -194,19 +208,38 @@ class TunnelSupervisor:
         """Called by the daemon when a ping arrives on this host's listener."""
         self._ping.set()
 
+    def retry_now(self) -> None:
+        """Cut a backoff or login-failure wait short (the user opened the panel: they may
+        have just fixed ssh)."""
+        if self.status.state in (TunnelState.BACKOFF, TunnelState.AUTH_FAILED):
+            self._wake.set()
+
+    async def _sleep(self, seconds: float) -> None:
+        self._wake.clear()
+        with contextlib.suppress(TimeoutError):
+            await asyncio.wait_for(self._wake.wait(), seconds)
+
     async def run(self) -> None:
         delay = 0.0
+        auth_delay = 0.0
         try:
             while not self._stopping:
                 started = time.monotonic()
                 try:
                     connected, detail = await self._connect_once()
                 except _AuthFailed as exc:
-                    self._set(TunnelState.AUTH_FAILED, str(exc))
-                    return
+                    if self._stopping:
+                        break
+                    auth_delay = next_backoff(auth_delay, self.auth_retry_min, self.auth_retry_max)
+                    self._set(
+                        TunnelState.AUTH_FAILED, f"{exc}; retrying in {wait_text(auth_delay)}"
+                    )
+                    await self._sleep(auth_delay)
+                    continue
                 except Exception as exc:  # never let one host's supervisor die silently
                     log.exception("tunnel %s: unexpected error", self.host.alias)
                     connected, detail = False, f"internal error: {exc}"
+                auth_delay = 0.0  # ssh got in
                 if self._stopping:
                     break
                 if connected and self.on_offline is not None:
@@ -216,7 +249,7 @@ class TunnelSupervisor:
                 else:
                     delay = next_backoff(delay, self.backoff_min, self.backoff_max)
                 self._set(TunnelState.BACKOFF, f"{detail}; retry in {delay:.0f}s")
-                await asyncio.sleep(delay)
+                await self._sleep(delay)
         finally:
             await self._kill()
             if self._stopping:
@@ -258,7 +291,7 @@ class TunnelSupervisor:
         # The remote socket survives unclean disconnects (docs/m0-verification.md) and
         # sshd will not bind over it, so remove it before every -R.
         res = await _run(ssh_cleanup_argv(self.ssh, self.host))
-        if is_auth_failure(res.stderr):
+        if is_auth_failure(res.returncode, res.stderr):
             raise _AuthFailed(describe_exit(res.returncode, res.stderr))
         if not res.ok:
             return False, "cleanup " + describe_exit(res.returncode, res.stderr)
@@ -301,7 +334,7 @@ class TunnelSupervisor:
             if self._proc is proc:
                 self._proc = None
         err = await stderr
-        if is_auth_failure(err):
+        if is_auth_failure(proc.returncode, err):
             raise _AuthFailed(describe_exit(proc.returncode, err))
         return connected, describe_exit(proc.returncode, err)
 

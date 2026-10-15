@@ -23,6 +23,7 @@ const HOST_LEVEL = {
     connecting: 'pending',
     backoff: 'pending',
     auth_failed: 'error',
+    error: 'error',
     stopped: 'off',
 };
 
@@ -32,6 +33,7 @@ const HOST_STATE_TEXT = {
     connecting: 'connecting',
     backoff: 'reconnecting',
     auth_failed: 'login failed',
+    error: 'error',
     stopped: 'not set up',
 };
 

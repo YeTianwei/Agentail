@@ -203,3 +203,23 @@ def test_doctor_compares_the_shell_dir_with_the_daemon_dir(isolated_home, runtim
     c = by_name(run_checks(fake_run(), snapshot=None))
     assert c["codex config dir"].status == INFO
     assert c["codex hooks"].status == OK  # checked in the recorded dir
+
+
+def test_host_states_in_doctor(runtime_env):
+    from agentail.config import Host, save_host
+
+    save_host(Host(alias="gpu1", remote_sock="/s"))
+    save_host(Host(alias="gpu2", remote_sock="/s"))
+    snap = {
+        "hosts": [
+            {
+                "alias": "gpu1",
+                "state": "auth_failed",
+                "detail": "Permission denied; retrying in 1 min",
+            },
+            {"alias": "gpu2", "state": "error", "detail": "cannot listen on /x: Permission denied"},
+        ]
+    }
+    c = {x.name: x for x in doctor.host_checks(snap)}
+    assert c["host gpu1"].status == FAIL and "retries" in c["host gpu1"].hint
+    assert c["host gpu2"].status == FAIL and "journalctl" in c["host gpu2"].hint

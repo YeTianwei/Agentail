@@ -75,6 +75,7 @@ def test_hosts_down_follow_tunnel_state():
         ("connecting", True),
         ("backoff", True),
         ("auth_failed", True),
+        ("error", True),
         ("stopped", False),  # never set up: not an outage
         ("weird\x1b[31m", False),
     ]:

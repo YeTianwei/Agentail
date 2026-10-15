@@ -59,7 +59,7 @@ test('summary counts and levels', () => {
 test('hosts down', () => {
     const st = make([]);
     for (const [state, down] of [['connected', false], ['connecting', true], ['backoff', true],
-        ['auth_failed', true], ['stopped', false], ['weird\x1b[31m', false]]) {
+        ['auth_failed', true], ['error', true], ['stopped', false], ['weird\x1b[31m', false]]) {
         st.apply({type: 'host_status', host: host('gpu1', state, '', 'why')});
         eq(M.summary(st).hostsDown.length, down ? 1 : 0, state);
     }

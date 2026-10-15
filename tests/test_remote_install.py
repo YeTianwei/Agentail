@@ -12,6 +12,7 @@ from agentail import cli, paths
 from agentail.config import load_hosts
 from agentail.install.remote import (
     Probe,
+    RemoteError,
     add_host,
     choose_remote_sock,
     parse_probe,
@@ -70,6 +71,11 @@ def test_choose_remote_sock():
     sock, warns = choose_remote_sock(_probe(run_user=False, home_fs="nfs"))
     assert sock == "/home/u/.agentail/run/agentail.sock"
     assert len(warns) == 2 and "NFS" in warns[1].upper()
+    # a $HOME so deep that the socket path cannot work: said before anything is installed
+    deep = "/" + "/".join(["very-long-directory-name"] * 4)
+    with pytest.raises(RemoteError, match="longer than Unix sockets allow"):
+        choose_remote_sock(_probe(run_user=False, home=deep))
+    assert choose_remote_sock(_probe(home=deep))[0] == "/run/user/1000/agentail.sock"
 
 
 @pytest.fixture

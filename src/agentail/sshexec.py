@@ -21,7 +21,13 @@ from dataclasses import dataclass
 SSH_BASE_OPTS = ("-o", "BatchMode=yes", "-o", "ConnectTimeout=10")
 DEFAULT_TIMEOUT_S = 60.0
 
-AUTH_FAILED_MARKERS = ("Permission denied", "Host key verification failed")
+AUTH_FAILED_MARKERS = (
+    "Permission denied",
+    "Host key verification failed",
+    "Too many authentication failures",
+)
+# ssh exits with 255 for its own failures; a remote command's status is passed through.
+SSH_ERROR = 255
 
 
 def remote_command(argv: Sequence[str]) -> str:
@@ -42,8 +48,10 @@ def ssh_argv(ssh: str, alias: str, remote_argv: Sequence[str]) -> list[str]:
     return [ssh, *SSH_BASE_OPTS, alias, remote_command(remote_argv)]
 
 
-def is_auth_failure(stderr: str) -> bool:
-    return any(m in stderr for m in AUTH_FAILED_MARKERS)
+def is_auth_failure(returncode: int | None, stderr: str) -> bool:
+    """ssh itself could not log in. A remote command that fails with "Permission denied"
+    (``rm`` of a file it may not touch) exits with its own status, not 255."""
+    return returncode == SSH_ERROR and any(m in stderr for m in AUTH_FAILED_MARKERS)
 
 
 @dataclass(frozen=True)

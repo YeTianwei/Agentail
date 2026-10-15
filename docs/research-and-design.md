@@ -227,7 +227,7 @@ ssh -N -o BatchMode=yes -o ExitOnForwardFailure=yes \
 ```
 
 - 直接用 `~/.ssh/config` 里的别名(密钥、端口、ProxyJump 不重复配置)。
-- 状态:`connecting` / `connected` / `backoff` / `auth_failed`。stderr 出现 `Permission denied` 时进入 `auth_failed`,不再重试刷屏。
+- 状态:`connecting` / `connected` / `backoff` / `auth_failed`。stderr 出现 `Permission denied` 时进入 `auth_failed`,不再重试刷屏。(0.0.4 起:只认 ssh 自身的失败,即退出码 255;改为慢速重试,1 分钟起翻倍到 15 分钟,打开面板立即重试。另有 `error` 状态,表示本机为该主机建 socket 失败。)
 - 断线后指数退避(1s → 60s),连上稳定 60 秒后重置。
 - 连上后做一次端到端检查:远程执行 `island-hook.py --ping`,本地收到才算 `connected ✓`。
 - 需要交互输入密码或二次验证的服务器无法自动连(BatchMode)。

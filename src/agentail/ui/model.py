@@ -44,6 +44,7 @@ _HOST_LEVEL = {
     "connecting": "pending",
     "backoff": "pending",
     "auth_failed": "error",
+    "error": "error",
     "stopped": "off",
 }
 

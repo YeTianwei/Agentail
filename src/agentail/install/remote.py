@@ -198,16 +198,24 @@ def parse_probe(stdout: str) -> Probe:
 
 
 def choose_remote_sock(probe: Probe) -> tuple[str, list[str]]:
-    """Socket path on the server and warnings (design doc 7.1)."""
+    """Socket path on the server and warnings (design doc 7.1). Raises RemoteError when the
+    path under $HOME is too long for a Unix socket (sshd could never create it)."""
     if probe.run_user:
         return paths.remote_sock_preferred(probe.uid), []
+    sock = paths.remote_sock_fallback(probe.home)
+    if len(sock.encode("utf-8")) > paths.MAX_SOCK_PATH:
+        raise RemoteError(
+            f"/run/user/{probe.uid} does not exist on this server, and the socket path under "
+            f"$HOME ({sock}) is longer than Unix sockets allow ({paths.MAX_SOCK_PATH} bytes). "
+            f"Ask the server's admin to enable /run/user (systemd-logind / pam_systemd)."
+        )
     warnings = [f"/run/user/{probe.uid} does not exist; using a socket under $HOME"]
     if probe.home_on_nfs:
         warnings.append(
             f"$HOME is on {probe.home_fs}: run agents only on this node; a socket on NFS "
             "does not work from other nodes"
         )
-    return paths.remote_sock_fallback(probe.home), warnings
+    return sock, warnings
 
 
 def probe_args() -> list[str]:
@@ -279,7 +287,7 @@ def _backup_name(path: str) -> str:
 
 def _probe(remote: Remote) -> Probe:
     res = remote.script(PROBE_SCRIPT, *probe_args())
-    if is_auth_failure(res.stderr):
+    if is_auth_failure(res.returncode, res.stderr):
         raise RemoteError(
             f"ssh {remote.alias}: authentication failed. agentail runs ssh with BatchMode=yes: "
             "set up key login (ssh-agent) so `ssh "

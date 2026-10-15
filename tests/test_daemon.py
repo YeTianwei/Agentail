@@ -182,6 +182,29 @@ async def test_multi_host_end_to_end(runtime_env, fake_ssh, monkeypatch):
     assert not daemon.remotes
 
 
+async def test_a_host_that_cannot_start_does_not_stop_the_others(runtime_env):
+    from agentail.config import Host, save_host
+
+    save_host(Host(alias="bad"))
+    save_host(Host(alias="good"))
+    blocker = paths.host_sock("bad")
+    blocker.mkdir(parents=True)  # a directory where the socket should go: cannot listen
+    daemon = Daemon(hosts_poll=0.05)
+    task = await _start(daemon)
+    try:
+        assert daemon.hosts["bad"]["state"] == "error"
+        assert "cannot listen on" in daemon.hosts["bad"]["detail"]
+        assert daemon.hosts["good"]["state"] == "stopped"  # set up as usual
+        assert not task.done()
+        # fixed and hosts.toml edited: tried again
+        blocker.rmdir()
+        save_host(Host(alias="bad", name="Bad box"))
+        await _wait(lambda: daemon.hosts["bad"]["state"] == "stopped")
+    finally:
+        daemon.stop()
+        await asyncio.wait_for(task, 10)
+
+
 async def test_host_without_remote_sock_is_stopped(runtime_env):
     from agentail.config import Host, save_host
 
