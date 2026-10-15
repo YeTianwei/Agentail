@@ -18,8 +18,8 @@ followed by `\n`. The client half-closes after sending; in v1 the daemon never r
 | `agent`, `event` | From the command line written by the installer (`--agent`, `--event`). |
 | `mode` | v1: only `fire`. `wait` (blocking approvals) is reserved for v2. |
 | `env` | Whitelist only: `TERM TERM_PROGRAM COLORTERM TMUX TMUX_PANE STY SSH_TTY`. The daemon drops anything else. |
-| `stdin` | The agent's hook payload, verbatim, decoded with `errors="replace"`. |
-| `truncated` | `true` if stdin exceeded 256 KiB. |
+| `stdin` | The agent's hook payload, verbatim, decoded with `errors="replace"`; see `truncated`. |
+| `truncated` | `true` if the payload exceeded 256 KiB and was changed to fit: since 0.0.4 a JSON payload of up to 8 MiB is sent with every string cut to 2 KiB (still valid JSON, with its small fields intact); anything else is cut to its first 256 KiB. |
 
 Ping (used by `add-host` and tunnel health checks): same envelope with `"event": "__ping__"`
 and empty stdin. `agentail-hook.py --ping --sock PATH` exits 0 if the send succeeded (with

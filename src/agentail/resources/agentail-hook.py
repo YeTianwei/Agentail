@@ -42,6 +42,11 @@ PROTOCOL_VERSION = 1
 # --sock and {uid}. add-host and the daemon's first start never replace a newer script.
 HOOK_VERSION = 2
 MAX_STDIN_BYTES = 256 * 1024
+# An oversized payload (a tool's output, a file being written) is read up to this much and
+# its long strings are cut, so the JSON stays valid and the small fields (session id, event,
+# tool name) still arrive; beyond it, or when it is not JSON, the head is sent as is.
+SHRINK_MAX_BYTES = 8 * 1024 * 1024
+SHRINK_STRING_CHARS = 2048
 DEFAULT_TIMEOUT = 1.0
 PING_EVENT = "__ping__"
 UID_PLACEHOLDER = "{uid}"
@@ -69,19 +74,45 @@ def _parse_args(argv):
     return p.parse_args(argv)
 
 
+def _shrink(value):
+    """``value`` (parsed JSON) with every string cut to SHRINK_STRING_CHARS."""
+    if isinstance(value, str):
+        if len(value) > SHRINK_STRING_CHARS:
+            return value[:SHRINK_STRING_CHARS] + "…"
+        return value
+    if isinstance(value, list):
+        return [_shrink(v) for v in value]
+    if isinstance(value, dict):
+        return dict((k, _shrink(v)) for k, v in value.items())
+    return value
+
+
+def _shrunk(data):
+    """``data`` (bytes over the limit) as JSON with its strings cut, or None."""
+    try:
+        text = json.dumps(_shrink(json.loads(data.decode("utf-8", "replace"))), ensure_ascii=False)
+    except Exception:
+        return None
+    return text if len(text.encode("utf-8")) <= MAX_STDIN_BYTES else None
+
+
 def _read_stdin():
-    """Read the hook payload. Always drain stdin so the agent never gets EPIPE."""
+    """Read the hook payload. Always drain stdin so the agent never gets EPIPE. Returns
+    (text, truncated): truncated means the agent's payload was changed to fit."""
     try:
         if sys.stdin is None or sys.stdin.isatty():
             return "", False
         data = sys.stdin.buffer.read(MAX_STDIN_BYTES + 1)
-        truncated = len(data) > MAX_STDIN_BYTES
-        if truncated:
-            data = data[:MAX_STDIN_BYTES]
-            # Drain the rest without keeping it.
-            while sys.stdin.buffer.read(65536):
-                pass
-        return data.decode("utf-8", "replace"), truncated
+        if len(data) <= MAX_STDIN_BYTES:
+            return data.decode("utf-8", "replace"), False
+        data += sys.stdin.buffer.read(SHRINK_MAX_BYTES - len(data))
+        # Drain the rest without keeping it.
+        while sys.stdin.buffer.read(65536):
+            pass
+        shrunk = _shrunk(data) if len(data) < SHRINK_MAX_BYTES else None
+        if shrunk is not None:
+            return shrunk, True
+        return data[:MAX_STDIN_BYTES].decode("utf-8", "replace"), True
     except Exception:
         return "", False
 

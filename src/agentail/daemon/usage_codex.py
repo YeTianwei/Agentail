@@ -32,16 +32,41 @@ TAIL_BYTES = 256 * 1024
 MAX_FILES = 5  # newest rollout files to look through
 
 
-def _newest_files(sessions: Path) -> list[Path]:
-    found: list[tuple[float, Path]] = []
+MAX_DAYS = 3  # newest day directories looked at (sessions/YYYY/MM/DD/)
+
+
+def _subdirs_newest_first(d: Path) -> list[Path]:
     try:
-        for p in sessions.glob("*/*/*/*.jsonl"):
-            try:
-                found.append((p.stat().st_mtime, p))
-            except OSError:
-                continue
+        return sorted((p for p in d.iterdir() if p.is_dir()), key=lambda p: p.name, reverse=True)
     except OSError:
         return []
+
+
+def _day_dirs(sessions: Path) -> list[Path]:
+    """``sessions/YYYY/MM/DD`` directories, newest first by name, at most ``MAX_DAYS`` of them:
+    a heavy user's ``sessions/`` holds thousands of files, and a scan of them all every
+    minute is not worth it for the newest reading."""
+    out: list[Path] = []
+    for year in _subdirs_newest_first(sessions):
+        for month in _subdirs_newest_first(year):
+            for day in _subdirs_newest_first(month):
+                out.append(day)
+                if len(out) >= MAX_DAYS:
+                    return out
+    return out
+
+
+def _newest_files(sessions: Path) -> list[Path]:
+    found: list[tuple[float, Path]] = []
+    for day in _day_dirs(sessions):
+        try:
+            for p in day.glob("*.jsonl"):
+                try:
+                    found.append((p.stat().st_mtime, p))
+                except OSError:
+                    continue
+        except OSError:
+            continue
     found.sort(key=lambda t: t[0], reverse=True)
     return [p for _, p in found[:MAX_FILES]]
 

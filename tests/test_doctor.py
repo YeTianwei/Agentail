@@ -467,3 +467,18 @@ def test_hooks_with_several_receivers_and_the_uid_placeholder(
     settings.write_text(json.dumps(hookjson.drop_socks(doc, paths.is_local_sock)))
     c = by_name(run_checks(fake_run(), snapshot=None))["claude hooks"]
     assert c.status == WARN and "agentail-0123abcd.sock" in c.detail and "install-local" in c.hint
+
+
+def test_doctor_says_a_socks_proxy_does_not_reach_claude(isolated_home, runtime_env, monkeypatch):
+    from agentail import shellenv
+
+    (isolated_home / ".claude").mkdir()
+    monkeypatch.setenv("ALL_PROXY", "socks5://127.0.0.1:1080")
+    shellenv.remember()
+    c = by_name(doctor.shell_env_checks())
+    assert (
+        c["socks proxy"].status == WARN and "Claude usage query cannot" in c["socks proxy"].detail
+    )
+    monkeypatch.setenv("HTTPS_PROXY", "http://proxy:3128")
+    shellenv.remember()
+    assert "socks proxy" not in by_name(doctor.shell_env_checks())

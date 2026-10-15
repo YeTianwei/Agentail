@@ -17,6 +17,7 @@ from agentail.adapters.base import (
     Capabilities,
     EventKind,
     preview,
+    prompt_preview,
     str_field,
     tool_preview,
 )
@@ -100,7 +101,7 @@ def decode_claude_style(msg: HookMessage, host: str, agent: str) -> AgentEvent |
         cwd=str_field(payload, "cwd") or msg.cwd,
         tool=str_field(payload, "tool_name"),
         tool_detail=detail,
-        prompt_preview=preview(payload.get("prompt")),
+        prompt_preview=prompt_preview(payload.get("prompt")),
         attention=attention,
         message=preview(payload.get("message"), 200),
         env=dict(msg.env),

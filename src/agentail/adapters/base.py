@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
 
@@ -62,6 +63,25 @@ def preview(text: Any, limit: int = PROMPT_PREVIEW_CHARS) -> str:
         return ""
     one_line = " ".join(text.split())
     return one_line if len(one_line) <= limit else one_line[: limit - 1] + "…"
+
+
+# Blocks the agents' harnesses put into a prompt around what the user typed: a subagent's
+# <task-notification>, a <system-reminder>, a slash command's <command-name> and output, an IDE's
+# <ide_selection>. Their names carry "-" or "_", which a tag the user types rarely does.
+_SYSTEM_TAG = re.compile(r"<([a-z]+[-_][a-z_-]+)(?:\s[^>]*)?>.*?</\1\s*>", re.S)
+_SYSTEM_TAG_OPEN = re.compile(r"<([a-z]+[-_][a-z_-]+)(?:\s[^>]*)?>")
+
+
+def prompt_preview(text: Any, limit: int = PROMPT_PREVIEW_CHARS) -> str:
+    """``preview`` of what the user typed: the harness's own blocks are left out, and a
+    prompt made of nothing else is shown as the block's name ("(task notification)")."""
+    if not isinstance(text, str):
+        return ""
+    stripped = _SYSTEM_TAG.sub(" ", text)
+    if stripped.strip():
+        return preview(stripped, limit)
+    m = _SYSTEM_TAG_OPEN.search(text)
+    return f"({m.group(1).replace('-', ' ').replace('_', ' ')})" if m else preview(text, limit)
 
 
 # Keys of a tool call's input that best describe it, most specific first. Shared by

@@ -194,3 +194,25 @@ def test_tool_preview():
     assert tool_preview({"command": ["bash", 3]}) == ""
     assert tool_preview("rm -rf /") == "" and tool_preview(None) == ""
     assert len(tool_preview({"command": "x" * 1000})) == 160
+
+
+@pytest.mark.parametrize(
+    "prompt, shown",
+    [
+        ("fix the bug", "fix the bug"),
+        (
+            "<task-notification>\n<task-id>b3ajt0gq6</task-id>\n<status>completed</status>\n"
+            "</task-notification>",
+            "(task notification)",
+        ),
+        ("<system-reminder>be brief</system-reminder>\nrun the tests", "run the tests"),
+        ("<command-name>/model</command-name><command-args>opus</command-args>", "(command name)"),
+        ("compare <b>bold</b> and <i>x</i> tags", "compare <b>bold</b> and <i>x</i> tags"),
+        ("<ide_selection>def f(): pass</ide_selection> explain this", "explain this"),
+        ("<unclosed-tag> just text", "<unclosed-tag> just text"),
+    ],
+)
+def test_prompt_preview_leaves_out_the_harness_blocks(prompt, shown):
+    from agentail.adapters.base import prompt_preview
+
+    assert prompt_preview(prompt) == shown

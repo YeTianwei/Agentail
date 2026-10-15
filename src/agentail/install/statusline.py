@@ -31,6 +31,10 @@ from agentail.paths import HOOK_MARKER
 
 EVENT = "StatusLine"
 _PREFIX = "agentail_orig="
+# The user's command ran in whatever Claude Code starts status lines with; a one-liner written
+# for bash must not break under the wrapper's sh (dash on Debian), so it runs under bash when
+# there is one. TODO(M0): which shell Claude Code itself uses for statusLine is not documented.
+_ORIG_SHELL = '"$(command -v bash || echo sh)"'
 
 
 def _wrapper(python: str, hook_path: str, socks: str | Iterable[str], original: str) -> str:
@@ -38,7 +42,7 @@ def _wrapper(python: str, hook_path: str, socks: str | Iterable[str], original: 
     return (
         f"{_PREFIX}{shlex.quote(original)} ; in=$(cat); "
         f"{{ printf '%s' \"$in\" | {hook} ; }} >/dev/null; "
-        f'[ -n "$agentail_orig" ] && printf \'%s\' "$in" | sh -c "$agentail_orig"; true'
+        f'[ -n "$agentail_orig" ] && printf \'%s\' "$in" | {_ORIG_SHELL} -c "$agentail_orig"; true'
     )
 
 

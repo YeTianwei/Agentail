@@ -168,3 +168,13 @@ def test_a_single_receiver_gives_the_earlier_command_exactly():
         hookjson.HookCommand(PY, HOOK, "codex", "Stop", (SOCK,))
     )
     assert hookjson.parse_command("echo agentail-hook") is None
+
+
+def test_the_users_command_runs_under_bash_when_there_is_one(tmp_path):
+    """A status line written for bash (here: [[ ]]) must not break under the wrapper's sh."""
+    import shutil
+
+    if shutil.which("bash") is None:
+        return
+    res, _ = _run(tmp_path, "[[ 1 == 1 ]] && echo bash-ok", '{"a": 1}')
+    assert res.returncode == 0 and res.stdout == "bash-ok\n"

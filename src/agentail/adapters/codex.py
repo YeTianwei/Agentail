@@ -25,7 +25,7 @@ from agentail.adapters.base import (
     Attention,
     Capabilities,
     EventKind,
-    preview,
+    prompt_preview,
     str_field,
     tool_preview,
 )
@@ -79,7 +79,7 @@ class CodexAdapter:
             cwd=str_field(payload, "cwd") or msg.cwd,
             tool=str_field(payload, "tool_name"),
             tool_detail=tool_preview(payload.get("tool_input")),
-            prompt_preview=preview(prompt),
+            prompt_preview=prompt_preview(prompt),
             attention=Attention.PERMISSION if kind is EventKind.ATTENTION else None,
             env=dict(msg.env),
             raw_event=event_name,

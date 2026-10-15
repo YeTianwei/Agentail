@@ -225,3 +225,34 @@ def test_ping_reports_every_socket(short_tmp):
     r = _run_hook(["--ping", "--sock", str(short_tmp / "c.sock"), "--sock", str(short_tmp / "x")])
     t.join(5)
     assert r.returncode == 1 and len(got) == 1  # one receiver missing: not a success
+
+
+def test_oversized_json_payload_is_shrunk_not_cut(short_tmp):
+    """A tool's big output must not cost the whole event: long strings are cut, the JSON
+    stays valid and the small fields arrive."""
+    sock = short_tmp / "h.sock"
+    got = []
+    t = _serve_once(sock, got)
+    big = {"session_id": "s1", "hook_event_name": "PostToolUse", "tool_response": "x" * 600_000}
+    r = _run_hook(
+        ["--agent", "claude", "--event", "PostToolUse", "--sock", str(sock)],
+        json.dumps(big).encode(),
+    )
+    t.join(5)
+    assert r.returncode == 0 and r.stdout == b"" and r.stderr == b""
+    msg = protocol.parse_line(got[0].rstrip(b"\n"))
+    assert msg.truncated is True
+    payload = msg.payload()
+    assert payload["session_id"] == "s1" and payload["hook_event_name"] == "PostToolUse"
+    assert len(payload["tool_response"]) == 2049 and payload["tool_response"].endswith("…")
+
+
+def test_oversized_non_json_payload_is_cut(short_tmp):
+    sock = short_tmp / "h.sock"
+    got = []
+    t = _serve_once(sock, got)
+    r = _run_hook(["--agent", "claude", "--event", "Stop", "--sock", str(sock)], b"y" * 600_000)
+    t.join(5)
+    assert r.returncode == 0
+    msg = protocol.parse_line(got[0].rstrip(b"\n"))
+    assert msg.truncated is True and len(msg.stdin) == protocol.MAX_STDIN_BYTES

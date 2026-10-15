@@ -47,8 +47,15 @@ function logFailure(what) {
     return e => console.error(`agentail: ${what}: ${e}\n${e?.stack ?? ''}`);
 }
 
+// $XDG_RUNTIME_DIR/agentail/ui.sock. Without the variable the daemon uses /run/user/<uid>
+// when logind made it (agentail.paths.runtime_dir); GLib would fall back to ~/.cache instead.
 function uiSocketPath() {
-    return GLib.build_filenamev([GLib.get_user_runtime_dir(), 'agentail', 'ui.sock']);
+    let base = GLib.getenv('XDG_RUNTIME_DIR');
+    if (!base) {
+        const runUser = `/run/user/${Gio.Credentials.new().get_unix_user()}`;
+        base = GLib.file_test(runUser, GLib.FileTest.IS_DIR) ? runUser : GLib.get_user_runtime_dir();
+    }
+    return GLib.build_filenamev([base, 'agentail', 'ui.sock']);
 }
 
 // Panel preferences (theme, Usage and Servers expanded), kept in ~/.config/agentail/panel.json.

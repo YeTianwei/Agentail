@@ -567,3 +567,24 @@ async def test_daemon_collects_no_usage_while_switched_off(runtime_env, tmp_path
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)
+
+
+def test_codex_scan_looks_only_at_the_newest_days(tmp_path):
+    """sessions/ holds a file per conversation; only the newest day dirs are read."""
+    from agentail.daemon.usage_codex import _day_dirs, _newest_files
+
+    home = tmp_path / "codex"
+    for rel in (
+        "2026/10/08/a.jsonl",
+        "2026/10/09/b.jsonl",
+        "2026/10/10/c.jsonl",
+        "2026/10/11/d.jsonl",
+        "2026/09/30/old.jsonl",
+        "2025/12/31/older.jsonl",
+    ):
+        _write(home, rel, [_token_count(1)])
+    days = [str(d.relative_to(home / "sessions")) for d in _day_dirs(home / "sessions")]
+    assert days == ["2026/10/11", "2026/10/10", "2026/10/09"]
+    names = {p.name for p in _newest_files(home / "sessions")}
+    assert names == {"b.jsonl", "c.jsonl", "d.jsonl"}
+    assert _newest_files(tmp_path / "none" / "sessions") == []

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 from pathlib import Path, PurePosixPath
 
 APP = "agentail"
@@ -16,11 +17,33 @@ MAX_SOCK_PATH = 100
 
 
 def runtime_dir() -> Path:
-    """$XDG_RUNTIME_DIR/agentail (mode 0700). Falls back to /tmp/agentail-<uid>."""
+    """$XDG_RUNTIME_DIR/agentail (mode 0700). Without the variable (a daemon started from
+    cron, su, a bare tty): /run/user/<uid>/agentail when logind made that dir, which is what
+    the variable would say and where the GNOME extension looks too; else /tmp/agentail-<uid>
+    (the extension cannot find that one; `agentail paths` shows it)."""
     base = os.environ.get("XDG_RUNTIME_DIR")
     if base:
         return Path(base) / APP
+    run_user = Path(f"{RUN_USER_DIR}/{os.getuid()}")
+    if run_user.is_dir():
+        return run_user / APP
     return Path(f"/tmp/{APP}-{os.getuid()}")
+
+
+class UnsafeDir(RuntimeError):
+    """A directory that is not the user's alone (see ``check_private_dir``)."""
+
+
+def check_private_dir(path: Path) -> None:
+    """Refuse a dir that is not ours alone: a symlink, another owner, or open to others.
+    For the runtime dir, whose /tmp fallback anyone could have created first."""
+    st = os.lstat(path)
+    if stat.S_ISLNK(st.st_mode):
+        raise UnsafeDir(f"{path} is a symbolic link; refusing to use it")
+    if st.st_uid != os.getuid():
+        raise UnsafeDir(f"{path} belongs to uid {st.st_uid}, not to you; refusing to use it")
+    if st.st_mode & 0o077:
+        raise UnsafeDir(f"{path} is open to other users (mode {stat.S_IMODE(st.st_mode):o})")
 
 
 LOCAL_SOCK_NAME = "local.sock"

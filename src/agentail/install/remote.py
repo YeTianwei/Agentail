@@ -26,7 +26,11 @@ add-host <alias>:
    for byte (same rules as uninstall-local, including originals backed up next to the
    config before 0.0.4; earlier versions wrote install.json, which is still read).
    Backup rotation keeps the originals named by either manifest. A config that already
-   holds identical entries (shared $HOME) is left untouched.
+   holds identical entries (shared $HOME) is left untouched. Several desktops write the one
+   install-remote.json in turn; that is safe because every write starts from a fresh read
+   and a record is only trusted (and its ``pristine`` kept) while the file still hashes to
+   what the record says was written, so the first desktop's original survives the others'
+   installs and removals, and comes back with the last removal.
 5. Save the host to hosts.toml (tomlkit, comments kept). A running daemon picks up
    the change, starts the tunnel and add-host waits for it to report "connected"
    (which requires an end-to-end ping).

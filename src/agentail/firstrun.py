@@ -47,8 +47,9 @@ log = logging.getLogger(__name__)
 
 SHELL_WAIT_S = 20.0
 INSTALL_ID_FILE = Path("/var/lib/agentail/install-id")
-# Bump when install_local writes something new into an agent config. 2: Claude statusLine.
-SETUP_VERSION = 2
+# Bump when install_local writes something new into an agent config. 2: Claude statusLine;
+# 3: the status line wrapper runs the user's command under bash when there is one.
+SETUP_VERSION = 3
 RELOGIN_TITLE = "Agentail is installed"
 RELOGIN_BODY = "Log out and back in once to show the Agentail panel in the top bar."
 

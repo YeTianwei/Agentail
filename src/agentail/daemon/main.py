@@ -904,7 +904,11 @@ class Daemon:
     # -- main loop ---------------------------------------------------------------
 
     async def run(self, handle_signals: bool = True) -> None:
-        paths.ensure_private_dir(paths.runtime_dir())
+        try:
+            paths.ensure_private_dir(paths.runtime_dir())
+        except OSError as exc:  # e.g. the /tmp fallback made by someone else
+            raise paths.UnsafeDir(f"cannot own {paths.runtime_dir()}: {exc}") from exc
+        paths.check_private_dir(paths.runtime_dir())
         if _socket_alive(paths.ui_sock()):
             raise DaemonAlreadyRunning(f"another agentail daemon is serving {paths.ui_sock()}")
         self._load_sessions()
@@ -1001,4 +1005,7 @@ def run_daemon(
         from agentail.install.service import EXIT_ALREADY_RUNNING
 
         return EXIT_ALREADY_RUNNING
+    except paths.UnsafeDir as exc:
+        log.error("%s (set XDG_RUNTIME_DIR, or remove that directory)", exc)
+        return 1
     return 0

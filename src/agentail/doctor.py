@@ -324,7 +324,30 @@ def _codex_path_check(saved: str | None) -> list[Check]:
     return []
 
 
+def _socks_only(proxy: dict[str, str]) -> bool:
+    """Only a SOCKS proxy is set: codex gets it, the Claude usage query (urllib) cannot."""
+    values = [v.lower() for v in proxy.values()]
+    return bool(values) and all(
+        v.startswith("socks") for k, v in zip(proxy, values, strict=True) if "no_proxy" != k.lower()
+    )
+
+
 def _proxy_check(saved: dict[str, str]) -> list[Check]:
+    checks = _proxy_record_check(saved)
+    if _socks_only(saved):
+        checks.append(
+            Check(
+                "socks proxy",
+                WARN,
+                "only a SOCKS proxy is recorded: Codex can use it, the Claude usage query cannot "
+                "(it needs an http:// or https:// proxy)",
+                "set HTTPS_PROXY to an http proxy, then agentail install-local",
+            )
+        )
+    return checks
+
+
+def _proxy_record_check(saved: dict[str, str]) -> list[Check]:
     here = shellenv.proxies_in()
     if here != saved:
         return [
