@@ -168,25 +168,31 @@ def load_auto_setup(path: Path | None = None) -> bool:
 
 @dataclass(frozen=True)
 class UsageSwitches:
-    """``[usage]`` in config.toml: may the daemon use Claude Code's login to ask Anthropic for
-    Claude's limits (docs/usage-api-design.md)? Both are off until the user turns them on;
-    None means the user has not chosen (install-local then mentions the switch).
+    """``[usage]`` in config.toml.
+
+    ``enabled`` (default on) is the whole feature: off, the daemon collects no usage at all and
+    the panel has no Usage section. ``claude_api`` / ``claude_api_servers``: may the daemon use
+    Claude Code's login to ask Anthropic for Claude's limits (docs/usage-api-design.md)? Both
+    are off until the user turns them on; None means the user has not chosen (install-local
+    then mentions the switch). They only count while ``enabled`` is on.
 
         [usage]
+        enabled = true             # false: no usage limits in Agentail
         claude_api = true          # this computer's login
         claude_api_servers = true  # each server's own login, over ssh
     """
 
     claude_api: bool | None = None
     claude_api_servers: bool | None = None
+    enabled: bool = True
 
     @property
     def local(self) -> bool:
-        return self.claude_api is True
+        return self.enabled and self.claude_api is True
 
     @property
     def servers(self) -> bool:
-        return self.claude_api_servers is True
+        return self.enabled and self.claude_api_servers is True
 
     @property
     def decided(self) -> bool:
@@ -209,7 +215,9 @@ def load_usage_switches(path: Path | None = None) -> UsageSwitches:
         value = usage.get(key)
         return value if isinstance(value, bool) else None
 
-    return UsageSwitches(choice("claude_api"), choice("claude_api_servers"))
+    return UsageSwitches(
+        choice("claude_api"), choice("claude_api_servers"), usage.get("enabled") is not False
+    )
 
 
 def load_claude_usage_api(path: Path | None = None) -> bool:
@@ -218,10 +226,14 @@ def load_claude_usage_api(path: Path | None = None) -> bool:
 
 
 def set_claude_usage_api(
-    on: bool | None = None, path: Path | None = None, *, servers: bool | None = None
+    on: bool | None = None,
+    path: Path | None = None,
+    *,
+    servers: bool | None = None,
+    enabled: bool | None = None,
 ) -> None:
-    """Write ``[usage] claude_api`` (``on``) and ``claude_api_servers`` (``servers``); None
-    leaves that key alone. The rest of config.toml is kept."""
+    """Write ``[usage] claude_api`` (``on``), ``claude_api_servers`` (``servers``) and
+    ``enabled``; None leaves that key alone. The rest of config.toml is kept."""
     path = path or paths.settings_file()
     doc = _load_doc(path)
     usage = doc.get("usage")
@@ -232,6 +244,8 @@ def set_claude_usage_api(
         usage["claude_api"] = on
     if servers is not None:
         usage["claude_api_servers"] = servers
+    if enabled is not None:
+        usage["enabled"] = enabled
     _write_doc(path, doc)
 
 

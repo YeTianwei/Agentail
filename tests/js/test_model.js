@@ -372,6 +372,31 @@ test('settings: the two switches of the Claude usage query', () => {
     eq(view(gone)[1], ['servers', true, true, false, '']);
 });
 
+test('settings: the Usage switch', () => {
+    const st = make([s('local', 'a', 'running')]);
+    st.apply({type: 'snapshot', sessions: [s('local', 'a', 'running')], hosts: [host('local', 'local')],
+        usage_api: {claude: {state: 'off', servers: false}}, settings: {usage: true}});
+    let v = M.usageSettings(st);
+    eq([v.available, v.usage.on, v.usage.enabled, v.showClaude], [true, true, true, true]);
+    ok(M.usageHint(st) !== null, 'hint while on');
+    // switched off: Claude's switches and the hint go away
+    st.apply({type: 'settings', settings: {usage: false}});
+    v = M.usageSettings(st);
+    eq([v.usage.on, v.showClaude], [false, false]);
+    eq(M.usageHint(st), null);
+    // flipped in the panel, not confirmed yet
+    v = M.usageSettings(st, {usage: true});
+    eq([v.usage.on, v.usage.saving, v.showClaude], [true, true, true]);
+    eq(M.settlePending(st, {usage: true}), {usage: true});
+    st.apply({type: 'settings', settings: {usage: true}});
+    eq(M.settlePending(st, {usage: true}), {});
+    // junk, or a daemon without settings: unknown, the switch is disabled
+    st.apply({type: 'settings', settings: {usage: 'yes'}});
+    eq([M.usageSettings(st).available, M.usageSettings(st).usage.enabled], [false, false]);
+    st.disconnect();
+    eq(st.settings, {usage: null});
+});
+
 test('usage: each card says where its numbers come from', () => {
     const rec = (h, source, ts) => ({...usage(h, 'claude', [win(10, 300, NOW + 86400)], {ts}), source});
     const st = withUsage([rec('local', 'api', NOW - 10)]);

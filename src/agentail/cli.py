@@ -75,6 +75,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     sub.add_parser("doctor", help="check the daemon, hooks, tunnels and panel")
 
+    us = sub.add_parser("usage", help="show usage limits in Agentail at all (default: on)")
+    us.add_argument("action", choices=["on", "off", "status"])
+
     ua = sub.add_parser(
         "usage-api",
         help="turn the Claude usage query (Claude Code's login, api.anthropic.com) on or off",
@@ -148,6 +151,17 @@ def main(argv: list[str] | None = None) -> int:
         from agentail.install.remote import remove_host
 
         return remove_host(args.alias, local_only=args.local_only, dry_run=args.dry_run)
+    if args.command == "usage":
+        from agentail import config
+
+        if args.action != "status":
+            config.set_claude_usage_api(enabled=args.action == "on")
+        on = config.load_usage_switches().enabled
+        print(
+            f"Usage limits: {'on' if on else 'off'} ({paths.settings_file()})."
+            + ("" if on else " Agentail collects none and the panel hides its Usage section.")
+        )
+        return 0
     if args.command == "usage-api":
         from agentail import config, doctor
         from agentail.daemon import usage_claude_api as claude_api

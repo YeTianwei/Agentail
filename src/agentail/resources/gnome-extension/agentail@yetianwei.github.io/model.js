@@ -104,6 +104,7 @@ export class UiState {
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
         this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
+        this.settings = {usage: null}; // the daemon's SETTINGS; null: not reported
     }
 
     disconnect() {
@@ -112,6 +113,7 @@ export class UiState {
         this.hosts.clear();
         this.usage.clear();
         this.usageApi.clear();
+        this.settings = {usage: null};
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -137,6 +139,10 @@ export class UiState {
                 for (const [agent, status] of Object.entries(msg.usage_api))
                     this._setUsageApi(agent, status);
             }
+            this._setSettings(msg.settings);
+            break;
+        case 'settings':
+            this._setSettings(msg.settings);
             break;
         case 'session_update':
             if (msg.session && typeof msg.session === 'object')
@@ -174,6 +180,11 @@ export class UiState {
     _setUsage(u) {
         if (u && typeof u === 'object')
             this.usage.set(keyString([clean(u.host), clean(u.agent)]), u);
+    }
+
+    _setSettings(settings) {
+        const usage = settings && typeof settings === 'object' ? settings.usage : null;
+        this.settings = {usage: typeof usage === 'boolean' ? usage : null};
     }
 
     _setUsageApi(agent, status) {
@@ -599,10 +610,16 @@ const claudeSeen = state =>
     [...state.sessions.values()].some(s => keyOf(s?.key)[1] === 'claude') ||
     [...state.usage.values()].some(u => clean(u?.agent) === 'claude');
 
-// The switches as the daemon reports them, or null (not connected, or a daemon without them).
-function usageSwitches(state) {
+// The switches as the daemon reports them; null for one it does not report (not connected,
+// or an older daemon).
+function switchValues(state) {
     const api = state.usageApi.get('claude');
-    return api ? {local: api.state !== 'off', servers: api.servers} : null;
+    const usage = state.settings.usage;
+    return {
+        usage: typeof usage === 'boolean' ? usage : null,
+        local: api ? api.state !== 'off' : null,
+        servers: api ? api.servers : null,
+    };
 }
 
 const LOCAL_STATUS = {
@@ -611,24 +628,28 @@ const LOCAL_STATUS = {
     error: 'The last query failed: see agentail doctor',
 };
 
-// The settings page. `pending`: {local, servers} the user just chose that the daemon has not
-// reported yet; they are shown (as "saving") instead of the daemon's values.
+// The settings page: the Usage switch, then (while it is on) Claude's two. `pending`: values
+// the user just chose that the daemon has not reported yet; they are shown (as "saving")
+// instead of the daemon's.
 export function usageSettings(state, pending = {}, now = 0) {
-    const actual = usageSwitches(state);
+    const actual = switchValues(state);
     const hasServers = [...state.hosts.keys()].some(alias => alias !== 'local');
     const row = (id, title, notes, enabled) => {
         const want = typeof pending[id] === 'boolean' ? pending[id] : null;
-        const on = want ?? actual?.[id] ?? false;
+        const known = actual[id] !== null;
         return {
-            id, title, notes, on,
-            enabled: actual !== null && enabled,
-            saving: actual !== null && want !== null && want !== actual[id],
+            id, title, notes,
+            on: want ?? actual[id] ?? false,
+            enabled: known && enabled,
+            saving: known && want !== null && want !== actual[id],
+            status: '',
         };
     };
+    const usage = row('usage', 'Show usage limits',
+        ["Claude's and Codex's limits in this panel. Off: Agentail collects none."], true);
     const api = state.usageApi.get('claude');
     const local = row('local', "Ask Anthropic with this computer's login",
         ['Checks after every Claude turn and when you open this panel.'], true);
-    local.status = '';
     if (local.on && api) {
         const ago = api.state === 'ok' ? ageText(api.okTs, now) : '';
         local.status = ago ? `Last checked ${ago} ago` : LOCAL_STATUS[api.state] ?? '';
@@ -637,10 +658,12 @@ export function usageSettings(state, pending = {}, now = 0) {
         [hasServers
             ? 'For servers with a different Claude account. The token stays on the server.'
             : 'For servers with a different Claude account. Add a server first.'],
-        hasServers || actual?.servers === true);
-    servers.status = '';
+        hasServers || actual.servers === true);
     return {
-        available: actual !== null,
+        available: actual.usage !== null,
+        usage,
+        // Claude's switches only matter while usage is shown at all.
+        showClaude: usage.on && actual.local !== null,
         intro: 'Claude reports its limits only in terminal sessions. Agentail can also ask ' +
             'Anthropic for them.',
         rows: [local, servers],
@@ -649,9 +672,7 @@ export function usageSettings(state, pending = {}, now = 0) {
 
 // Drops the pending choices the daemon now reports (or that no longer differ).
 export function settlePending(state, pending) {
-    const actual = usageSwitches(state);
-    if (!actual)
-        return pending;
+    const actual = switchValues(state);
     const out = {};
     for (const [id, want] of Object.entries(pending)) {
         if (typeof want === 'boolean' && actual[id] !== want)
@@ -664,7 +685,7 @@ export function settlePending(state, pending) {
 // its limits then come only from terminal sessions. Null otherwise.
 export function usageHint(state) {
     const api = state.usageApi.get('claude');
-    if (!api || api.state !== 'off' || !claudeSeen(state))
+    if (state.settings.usage === false || !api || api.state !== 'off' || !claudeSeen(state))
         return null;
     return 'Claude: terminal sessions only. More in Settings (⚙, top right).';
 }

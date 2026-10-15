@@ -519,28 +519,37 @@ class AgentailIndicator extends PanelMenu.Button {
         head.add_child(this._themeButton());
         page.add_child(head);
 
-        const group = vbox('agentail-group', {x_expand: true});
-        group.add_child(label('Claude usage limits', 'agentail-section'));
         const settings = M.usageSettings(this._state, this._usagePending, Date.now() / 1000);
-        const intro = label(settings.intro, 'agentail-add-note');
-        intro.clutter_text.line_wrap = true;
-        group.add_child(intro);
-        const card = vbox('agentail-card agentail-settings', {x_expand: true});
+        const usage = vbox('agentail-group', {x_expand: true});
+        usage.add_child(label('Usage limits', 'agentail-section'));
+        const usageCard = vbox('agentail-card agentail-settings', {x_expand: true});
         if (!settings.available) {
             const off = label('The agentail daemon is not running, or is too old for these settings.',
                 'agentail-add-note');
             off.clutter_text.line_wrap = true;
-            card.add_child(off);
+            usageCard.add_child(off);
         }
-        for (const r of settings.rows)
-            card.add_child(this._switchRow(r));
+        usageCard.add_child(this._switchRow(settings.usage));
+        usage.add_child(usageCard);
+        page.add_child(usage);
+
+        if (settings.showClaude) {
+            const claude = vbox('agentail-group', {x_expand: true});
+            claude.add_child(label('Claude', 'agentail-section'));
+            const intro = label(settings.intro, 'agentail-add-note');
+            intro.clutter_text.line_wrap = true;
+            claude.add_child(intro);
+            const card = vbox('agentail-card agentail-settings', {x_expand: true});
+            for (const r of settings.rows)
+                card.add_child(this._switchRow(r));
+            claude.add_child(card);
+            page.add_child(claude);
+        }
         if (this._settingsError) {
             const err = label(this._settingsError, 'agentail-add-result agentail-add-fail');
             err.clutter_text.line_wrap = true;
-            card.add_child(err);
+            page.add_child(err);
         }
-        group.add_child(card);
-        page.add_child(group);
         return page;
     }
 
@@ -572,7 +581,7 @@ class AgentailIndicator extends PanelMenu.Button {
         });
         if (!r.enabled)
             button.opacity = 128;
-        button.connect('clicked', () => this._setUsageApi(r.id, !r.on));
+        button.connect('clicked', () => this._setSwitch(r.id, !r.on));
         return button;
     }
 
@@ -714,13 +723,16 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    // Runs `agentail usage-api on|off [--servers]` (argv list, no shell). The switch shows the
-    // new value at once; the daemon confirms it within seconds (M.settlePending).
-    _setUsageApi(id, on) {
-        const args = [on ? 'on' : 'off', ...id === 'servers' ? ['--servers'] : []];
+    // Runs `agentail usage on|off` (id "usage") or `agentail usage-api on|off [--servers]`
+    // (argv list, no shell). The switch shows the new value at once; the daemon confirms it
+    // within seconds (M.settlePending).
+    _setSwitch(id, on) {
+        const value = on ? 'on' : 'off';
+        const argv = id === 'usage' ? ['usage', value]
+            : ['usage-api', value, ...id === 'servers' ? ['--servers'] : []];
         const fail = () => {
             delete this._usagePending[id];
-            this._settingsError = `Could not save that. Run agentail usage-api ${args.join(' ')} in a terminal.`;
+            this._settingsError = `Could not save that. Run agentail ${argv.join(' ')} in a terminal.`;
             this._renderPanel();
         };
         this._settingsError = '';
@@ -732,7 +744,7 @@ class AgentailIndicator extends PanelMenu.Button {
             return;
         }
         try {
-            const proc = Gio.Subprocess.new([bin, 'usage-api', ...args],
+            const proc = Gio.Subprocess.new([bin, ...argv],
                 Gio.SubprocessFlags.STDOUT_SILENCE | Gio.SubprocessFlags.STDERR_SILENCE);
             proc.wait_check_async(null, (p, res) => {
                 try {

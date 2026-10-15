@@ -35,7 +35,7 @@ On connect:
 
 ```json
 {"type": "snapshot", "sessions": [SESSION...], "hosts": [HOST...], "usage": [USAGE...],
- "usage_api": {"claude": USAGE_API}}
+ "usage_api": {"claude": USAGE_API}, "settings": SETTINGS}
 ```
 
 Then any number of:
@@ -48,6 +48,7 @@ Then any number of:
 {"type": "usage_update", "usage": USAGE}
 {"type": "usage_remove", "host": "gpu1", "agent": "claude"}
 {"type": "usage_api_status", "agent": "claude", "status": USAGE_API}
+{"type": "settings", "settings": SETTINGS}
 {"type": "notify", "kind": "turn_done|attention", "key": {...}}
 ```
 
@@ -114,6 +115,16 @@ up `config.toml` within seconds and sends a new `usage_api_status`.
 `needs_login` means Claude Code's login is missing, expired or rejected; running `claude` once
 refreshes it. `detail` is written by the daemon (no payload content); `usage_api_status` is sent
 when it changes.
+
+```
+SETTINGS = {"usage": true}   # since 0.0.4
+```
+
+`SETTINGS` holds switches that are not about one agent; `settings` is sent when it changes.
+`usage` is `[usage] enabled` in `config.toml` (default on; `agentail usage on|off`): while it is
+off the daemon collects no usage at all (no Codex files, no `codex app-server`, no usage endpoint,
+status line readings ignored), sends `usage_remove` for every reading it had, and clients hide
+their usage display. Claude's two usage switches keep their values but count as off.
 
 `tool_detail` is one line describing the current tool call (a shell command, a file path), kept
 while a permission prompt is open. `SESSION` fields are exactly those above (the daemon's internal `env` and tool counter are not

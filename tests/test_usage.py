@@ -516,3 +516,54 @@ def test_source_round_trips_counts_as_a_change_and_is_validated():
     assert reading_from_dict(reading_to_dict(api), 200.0).source == SOURCE_API
     assert reading_from_dict({**reading_to_dict(api), "source": "evil"}, 200.0).source is None
     assert store.drop(UsageKey("local", "claude")) and not store.readings
+
+
+def test_usage_switch_round_trip_and_cli(runtime_env, capsys):
+    from agentail import cli, config
+
+    assert config.load_usage_switches().enabled is True  # on by default
+    config.set_claude_usage_api(True, servers=True)
+    assert cli.main(["usage", "off"]) == 0
+    sw = config.load_usage_switches()
+    assert sw.enabled is False and (sw.local, sw.servers) == (False, False)  # off covers both
+    assert (sw.claude_api, sw.claude_api_servers) == (True, True)  # kept for later
+    assert "Usage limits: off" in capsys.readouterr().out
+    assert cli.main(["usage", "on"]) == 0
+    sw = config.load_usage_switches()
+    assert sw.enabled and sw.local and sw.servers
+
+
+async def test_daemon_collects_no_usage_while_switched_off(runtime_env, tmp_path):
+    from agentail import config
+
+    _write(tmp_path / "codex", "2026/10/08/a.jsonl", [_token_count(10, ts="2026-10-08T05:41:59Z")])
+    config.set_claude_usage_api(enabled=False)
+    d = Daemon(codex_usage_home=tmp_path / "codex", hosts_poll=0.05)
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        snap = await _read(r)
+        assert snap["usage"] == [] and snap["settings"] == {"usage": False}
+        now = time.time()
+        payload = {"rate_limits": {"five_hour": {"used_percentage": 41, "resets_at": now + 600}}}
+        await d.handle("gpu1", _statusline(payload))
+        assert d.usage.readings == {}  # a status line is ignored too
+
+        config.set_claude_usage_api(enabled=True)
+        msg = await _read(r)
+        assert msg == {"type": "settings", "settings": {"usage": True}}
+        while msg["type"] != "usage_update":  # Codex's files are read again at once
+            msg = await _read(r)
+        assert msg["usage"]["agent"] == "codex"
+
+        config.set_claude_usage_api(enabled=False)
+        seen = []
+        while not any(m["type"] == "settings" for m in seen):
+            seen.append(await _read(r))
+        assert {"type": "usage_remove", "host": "local", "agent": "codex"} in seen
+        assert d.usage.readings == {}
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)

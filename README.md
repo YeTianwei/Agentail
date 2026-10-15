@@ -64,7 +64,8 @@ You also get a desktop notification when a turn finishes or an agent asks for pe
 
 The panel's **Usage** section shows how much of your subscription is left: one card per agent, a
 bar per window (5 hours, week), the percentage and when it resets. The bar turns orange from 70 %
-and red from 90 %.
+and red from 90 %. Don't need it? Turn off "Show usage limits" in the panel's settings (the gear,
+top right) or run `agentail usage off`: Agentail then collects no usage at all.
 
 | Agent | Where the numbers come from | When they refresh |
 |---|---|---|
@@ -214,6 +215,7 @@ ignore_cwd = ["~/.local/share/CodexBar"]
 auto = true                 # false: do not set up hooks and the panel automatically
 
 [usage]
+enabled = true              # false: no usage limits in Agentail at all (`agentail usage off`)
 claude_api = false          # true: ask Anthropic for Claude's limits with this computer's login
 claude_api_servers = false  # true: also with each server's own login, over ssh
 ```
@@ -234,6 +236,7 @@ the panel, and prints the command that fixes each problem.
 |---|---|
 | `agentail status` | machines, usage limits and sessions in the terminal |
 | `agentail tail` | live session changes |
+| `agentail usage on\|off\|status` | usage limits in Agentail at all (on by default; also in the panel's settings) |
 | `agentail usage-api on\|off\|status [--servers\|--all]` | the Claude usage query with Claude Code's login, this computer's or the servers' switch (both off until turned on; also in the panel's settings) |
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |

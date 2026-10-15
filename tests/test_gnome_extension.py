@@ -177,7 +177,8 @@ def test_extension_spawns_only_argv_lists():
     code = re.sub(r"//.*", "", (EXT / "extension.js").read_text())
     for banned in ("spawn_command_line", "spawn_async", "sh -c", "bash", "/bin/sh"):
         assert banned not in code, banned
-    # list-ssh-hosts, add/remove-host, and usage-api (the question about Claude's login)
+    # list-ssh-hosts, add/remove-host, and the settings' switches (usage / usage-api)
     assert code.count("Gio.Subprocess.new([") == 3
-    assert "Gio.Subprocess.new([bin, 'usage-api', ...args]" in code
+    assert "Gio.Subprocess.new([bin, ...argv]" in code
+    assert "['usage', value]" in code and "['usage-api', value," in code
     assert "M.validAlias(alias)" in code  # checked before the alias reaches the tool

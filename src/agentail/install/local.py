@@ -303,7 +303,7 @@ def install_local(
         switches = load_usage_switches()
         if switches.local:
             out(NOTE)
-        elif not switches.decided:
+        elif switches.enabled and not switches.decided:
             out(OFFER)
     out(f"Events go to {paths.local_sock()}; start `agentail daemon` to receive them.")
     return 0

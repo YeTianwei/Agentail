@@ -52,6 +52,11 @@
 
 ### Added
 
+- **Settings in the panel, and a switch for usage limits.** A gear next to the light/dark
+  button opens the panel's settings. "Show usage limits" (on by default; `agentail usage
+  on|off`, `[usage] enabled`) turns the whole feature off for those who do not need it: the daemon
+  then reads no Codex files, starts no `codex app-server`, asks no endpoint, ignores status line
+  numbers and forgets the readings it had, and the panel has no Usage section.
 - **Claude usage from servers with another account, or without a login here.** The usage endpoint
   was asked only with this computer's Claude login. A server logged in to another account, or
   Claude used only on servers (VS Code Remote, where the status line never runs), showed nothing

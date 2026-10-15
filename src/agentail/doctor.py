@@ -135,6 +135,8 @@ def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
 def _check_status_line(path: Path) -> list[Check]:
     """Claude's usage numbers arrive through the wrapped statusLine (install/statusline.py)."""
     name = "claude usage"
+    if not load_usage_switches().enabled:
+        return []  # usage_api_checks says it is off
     try:
         doc = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -264,10 +266,12 @@ def _ago(ts: Any, now: float) -> str:
 def usage_api_checks(snapshot: dict[str, Any] | None, now: float | None = None) -> list[Check]:
     """How the daemon's query of Claude's usage endpoint is doing (daemon/usage_claude_api.py),
     and whether the servers' own logins may be used for it. Both are off until turned on."""
+    switches = load_usage_switches()
+    if not switches.enabled:
+        return [Check("usage limits", INFO, "off ([usage] enabled = false)", "agentail usage on")]
     spec = registry.get("claude")
     if spec is None or not spec.home().is_dir():
         return []
-    switches = load_usage_switches()
     checks = []
     local = _usage_api_check(switches, snapshot, time.time() if now is None else now)
     if local is not None:

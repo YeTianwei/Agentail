@@ -142,6 +142,8 @@ class Daemon:
         # [usage] in config.toml (config.UsageSwitches): both off until the user turns them on.
         self._claude_api_on = False
         self._claude_servers_on = False
+        # [usage] enabled: off, no usage is collected at all (and none is kept).
+        self._usage_on = True
         # The usage_api record of the UI protocol: how the Claude query is doing ("off" when
         # this computer's switch is off), and the servers' switch (the panel's settings show both).
         self.claude_api_status: dict[str, Any] = {
@@ -186,7 +188,7 @@ class Daemon:
         if self.record_dir is not None:
             self._record(source, msg)
         adapter = get_adapter(msg.agent)
-        reading = adapter.usage(msg, host=source) if adapter else None
+        reading = adapter.usage(msg, host=source) if adapter and self._usage_on else None
         if reading is not None:
             self._on_usage(reading)
         if source == LOCAL_SOURCE and msg.agent == "codex":
@@ -237,6 +239,7 @@ class Daemon:
             "hosts": list(self.hosts.values()),
             "usage": [usage_to_dict(r) for r in self.usage.readings.values()],
             "usage_api": {"claude": dict(self.claude_api_status)},
+            "settings": self.settings(),
         }
 
     def _on_usage(self, reading: UsageReading, full: bool = False) -> None:
@@ -284,11 +287,17 @@ class Daemon:
                 remote.tunnel.retry_now()
         self.request_live_usage()
 
+    def settings(self) -> dict[str, Any]:
+        """The SETTINGS record of the UI protocol: switches that are not about one agent."""
+        return {"usage": self._usage_on}
+
     def request_live_usage(self) -> None:
         """The panel was opened: ask Codex for its current limits, at most once a minute,
         here and on every connected server where Codex has been seen. Opening the panel is
         the only trigger, so nothing is queried while nobody looks. Claude's usage endpoint
         is asked too when its reading is over a minute old."""
+        if not self._usage_on:
+            return
         now = time.monotonic()
         if self._claude_api_on and self._claude_schedule.panel_opened(now):
             self._start_claude_query(now)
@@ -323,7 +332,7 @@ class Daemon:
         except Exception:  # a broken app-server must never take the daemon down
             log.exception("live Codex usage failed")
             return
-        if reading is not None:
+        if reading is not None and self._usage_on:
             self._on_usage(reading, full=True)
 
     # -- Codex on the servers (codex_appserver.remote_argv) ------------------------------------
@@ -337,6 +346,8 @@ class Daemon:
 
     def _sync_remote_codex(self) -> None:
         """Start the queries that are due. Called from the main loop every few seconds."""
+        if not self._usage_on:
+            return
         now = time.monotonic()
         for alias, sched in list(self._remote_codex.items()):
             due = sched.next_due()
@@ -367,7 +378,7 @@ class Daemon:
             sched.record_result(reading is not None)
         if reading is None:
             log.info("Codex usage on %s: no answer from codex app-server", alias)
-        elif alias in self.remotes:  # the host may have been removed meanwhile
+        elif alias in self.remotes and self._usage_on:  # removed or switched off meanwhile
             self._on_usage(reading, full=True)
 
     # -- Claude on the servers (daemon/usage_claude_remote.py) ------------------------------
@@ -487,6 +498,8 @@ class Daemon:
         if mtime != self._settings_mtime:
             self._settings_mtime = mtime
             switches = load_usage_switches(path)
+            if switches.enabled != self._usage_on:
+                self._set_usage_on(switches.enabled)
             if switches.servers != self._claude_servers_on:
                 self._claude_servers_on = switches.servers
                 log.info("Claude usage on the servers %s", "on" if switches.servers else "off")
@@ -574,6 +587,32 @@ class Daemon:
         self._set_claude_api_status(claude_api.OK)
         self._on_usage(reading, full=True)
 
+    def _set_usage_on(self, on: bool) -> None:
+        """``[usage] enabled`` changed. Off: stop every query and forget every reading, so the
+        panel drops its Usage section. On: read Codex's files again at once; the rest comes
+        with the next turn or panel opening."""
+        self._usage_on = on
+        log.info("usage limits %s", "on" if on else "off")
+        if on:
+            self._codex_usage_due = 0.0
+        else:
+            for task in (
+                self._live_task,
+                *self._remote_codex_tasks.values(),
+            ):
+                if task is not None:
+                    task.cancel()
+            for key in list(self.usage.readings):
+                self.usage.drop(key)
+                self._usage_dirty = True
+                if self.ui is not None:
+                    self.ui.broadcast(
+                        {"type": "usage_remove", "host": key.host, "agent": key.agent}
+                    )
+            self._full_usage.clear()
+        if self.ui is not None:
+            self.ui.broadcast({"type": "settings", "settings": self.settings()})
+
     def _drop_usage_from(self, source: str) -> None:
         """Forget what a switch that was just turned off had fetched, so the panel shows at once
         what is left (a terminal session's numbers, or nothing)."""
@@ -598,13 +637,15 @@ class Daemon:
     async def _read_codex_usage(self) -> None:
         """Local Codex only: its hooks carry no usage, but its session files do."""
         self._codex_usage_due = time.monotonic() + CODEX_USAGE_POLL_S
+        if not self._usage_on:
+            return
         home = self._codex_home or self._codex_spec_home()
         try:
             reading = await asyncio.to_thread(read_codex_usage, home, LOCAL_SOURCE)
         except Exception:  # an unexpected file must never take the daemon down
             log.exception("reading Codex usage failed")
             return
-        if reading is not None:
+        if reading is not None and self._usage_on:
             self._on_usage(reading)
 
     def _publish(self, change: Change) -> None:

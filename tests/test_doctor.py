@@ -194,6 +194,20 @@ def test_claude_usage_api_check_servers(runtime_env, isolated_home):
     assert checks()["claude usage servers"].detail.startswith("on")
 
 
+def test_usage_switched_off(runtime_env, isolated_home):
+    from agentail.config import set_claude_usage_api
+    from agentail.daemon.usage_claude_api import NOTE, OFFER
+
+    (isolated_home / ".claude").mkdir()
+    set_claude_usage_api(True, enabled=False)
+    checks = {c.name: c for c in doctor.usage_api_checks(None, now=1000.0)}
+    assert set(checks) == {"usage limits"} and checks["usage limits"].hint == "agentail usage on"
+    lines = []
+    assert install_local(out=lines.append) == 0
+    assert NOTE not in lines and OFFER not in lines
+    assert "claude usage" not in by_name(run_checks(fake_run(), snapshot=None))
+
+
 def test_install_local_tells_about_the_usage_query(runtime_env, isolated_home):
     from agentail.config import set_claude_usage_api
     from agentail.daemon.usage_claude_api import NOTE, OFFER
