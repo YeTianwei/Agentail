@@ -331,3 +331,33 @@ async def _until(reader, pred):
         msg = await _read(reader)
         if pred(msg):
             return msg
+
+
+async def test_turning_usage_back_on_asks_codex_at_once(runtime_env, tmp_path):
+    """The Usage switch is in the panel: switching it on must not wait for the next panel
+    opening to show current Codex numbers (only Codex's old session files)."""
+    from agentail import config
+
+    counter = tmp_path / "count"
+    config.set_claude_usage_api(enabled=False)
+    d = Daemon(
+        codex_usage_home=tmp_path / "none",
+        codex_argv=fake("ok", counter),
+        hosts_poll=0.05,
+        live_usage_interval=60,
+    )
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        assert (await _read(r))["usage"] == []
+        config.set_claude_usage_api(enabled=True)
+        msg = await _read(r)
+        while msg["type"] != "usage_update":
+            msg = await _read(r)
+        assert msg["usage"]["source"] == "app_server" and msg["usage"]["plan"] == "plus"
+        assert counter.read_text().count("start") == 1
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)

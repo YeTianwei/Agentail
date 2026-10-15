@@ -771,3 +771,43 @@ async def test_daemon_reports_the_switches_and_starts_off(runtime_env, tmp_path,
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)
+
+
+async def test_turning_the_query_off_falls_back_to_the_status_line(
+    runtime_env, fake_api, cred, tmp_path
+):
+    """The endpoint's reading replaces a terminal session's for the same host; turning the
+    query off brings the terminal session's numbers back instead of losing the card."""
+    week = int(datetime(2026, 10, 17, 4, 0, tzinfo=UTC).timestamp())
+    d = Daemon(
+        codex_usage_home=tmp_path / "none",
+        hosts_poll=0.05,
+        claude_credentials=cred,
+        claude_usage_url=fake_api.url,
+    )
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        await _read(r)  # snapshot
+        await d.handle("local", _status_line_msg(week))
+        msg = await _until(r, lambda m: m["type"] == "usage_update")
+        assert msg["usage"]["source"] == "status_line"
+        terminal = msg["usage"]
+
+        config.set_claude_usage_api(True)
+        msg = await _until(r, lambda m: m["type"] == "usage_update")
+        assert msg["usage"]["source"] == "api" and msg["usage"]["plan"] == "max_5x"
+
+        config.set_claude_usage_api(False)
+        msg = await _until(r, lambda m: m["type"] in ("usage_update", "usage_remove"))
+        assert msg["type"] == "usage_update", msg
+        back = msg["usage"]
+        assert back["source"] == "status_line" and back["plan"] is None  # as it reported
+        assert back["windows"] == terminal["windows"]
+        assert back["updated_ts"] == terminal["updated_ts"]  # with its own age
+        assert d.usage.readings[UsageKey("local", "claude")].source == "status_line"
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)

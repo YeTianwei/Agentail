@@ -71,7 +71,10 @@ USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts", "source": SOURC
 this computer's Claude login), `server_api` (the same with the server's own login), `status_line`
 (Claude's status line in a terminal), `app_server` (`codex app-server`) or `session_files` (Codex's
 rollout files); null when unknown (a reading saved by an older daemon). When a usage switch is
-turned off, the daemon sends `usage_remove` for every reading that switch had fetched.
+turned off, every reading that switch had fetched is replaced by the latest reading of another
+source for the same host and agent (`usage_update`, with that reading's own `updated_ts`), or
+removed (`usage_remove`) when there is none. Switching `usage` back on asks `codex app-server` at
+once.
 
 `extras` (since 0.0.4) are amounts next to the windows: money spent beyond the plan
 (`spent`, with `limit` when capped; Claude's extra usage) or a balance left (`balance`, or

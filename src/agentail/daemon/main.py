@@ -113,6 +113,10 @@ class Daemon:
         self.usage = UsageStore()
         # Latest full reading per (host, agent): see _on_usage.
         self._full_usage: dict[UsageKey, UsageReading] = {}
+        # The latest reading of each source per (host, agent), as the source reported it: when
+        # a switch is turned off, the panel falls back to what another source last said (a
+        # terminal session's status line) instead of losing the card.
+        self._by_source: dict[tuple[str, str, str], UsageReading] = {}
         # Codex on the servers (codex_appserver.RemoteSchedule), per alias.
         self._remote_codex: dict[str, RemoteSchedule] = {}
         self._remote_codex_tasks: dict[str, asyncio.Task[None]] = {}
@@ -248,6 +252,8 @@ class Daemon:
         from partial sources (the statusLine, Codex's session files, any host) of the same
         account are completed from the latest full one, so the panel does not lose the plan
         or a per-model row whenever a partial reading is the newest."""
+        if reading.source:
+            self._by_source[(reading.host, reading.agent, reading.source)] = reading
         if reading.agent == "claude" and reading.host == LOCAL_SOURCE and self._claude_plan:
             # The login file and the statusLine do not follow plan changes; the profile does.
             reading = replace(reading, plan=self._claude_plan)
@@ -589,12 +595,15 @@ class Daemon:
 
     def _set_usage_on(self, on: bool) -> None:
         """``[usage] enabled`` changed. Off: stop every query and forget every reading, so the
-        panel drops its Usage section. On: read Codex's files again at once; the rest comes
-        with the next turn or panel opening."""
+        panel drops its Usage section. On: ask for current numbers at once (the switch is in
+        the panel, so someone is looking): Codex's app-server here and on the servers, and
+        Codex's files as a fallback; Claude comes with its own switch or the next turn."""
         self._usage_on = on
         log.info("usage limits %s", "on" if on else "off")
         if on:
             self._codex_usage_due = 0.0
+            self._live_last = -float("inf")
+            self.request_live_usage()
         else:
             for task in (
                 self._live_task,
@@ -610,17 +619,28 @@ class Daemon:
                         {"type": "usage_remove", "host": key.host, "agent": key.agent}
                     )
             self._full_usage.clear()
+            self._by_source.clear()
         if self.ui is not None:
             self.ui.broadcast({"type": "settings", "settings": self.settings()})
 
     def _drop_usage_from(self, source: str) -> None:
         """Forget what a switch that was just turned off had fetched, so the panel shows at once
-        what is left (a terminal session's numbers, or nothing)."""
+        what is left: the latest reading of another source for the same host and agent (a
+        terminal session's numbers, shown with their own age), or nothing."""
+        for k in [k for k in self._by_source if k[2] == source]:
+            del self._by_source[k]
         for key, reading in list(self.usage.readings.items()):
             if reading.source != source:
                 continue
-            self.usage.drop(key)
+            others = [r for (h, a, _), r in self._by_source.items() if (h, a) == key]
             self._usage_dirty = True
+            if others:
+                fallback = max(others, key=lambda r: r.ts)
+                self.usage.put(fallback)
+                if self.ui is not None:
+                    self.ui.broadcast({"type": "usage_update", "usage": usage_to_dict(fallback)})
+                continue
+            self.usage.drop(key)
             if self.ui is not None:
                 self.ui.broadcast({"type": "usage_remove", "host": key.host, "agent": key.agent})
         for key, reading in list(self._full_usage.items()):
@@ -770,6 +790,8 @@ class Daemon:
                 await self._stop_host(alias)
                 if alias not in wanted:
                     del self.hosts[alias]
+                    for k in [k for k in self._by_source if k[0] == alias]:
+                        del self._by_source[k]
                     for key in self.usage.drop_host(alias):
                         self._usage_dirty = True
                         if self.ui is not None:

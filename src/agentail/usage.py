@@ -293,6 +293,10 @@ class UsageStore:
         self.readings[key] = reading
         return True
 
+    def put(self, reading: UsageReading) -> None:
+        """Store ``reading`` even if it is older than the current one (a fallback)."""
+        self.readings[UsageKey(reading.host, reading.agent)] = reading
+
     def drop(self, key: UsageKey) -> bool:
         return self.readings.pop(key, None) is not None
 
