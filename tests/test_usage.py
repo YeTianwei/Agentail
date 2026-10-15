@@ -133,7 +133,7 @@ def _hosts(groups):
 
 def test_group_by_account():
     week = int(NOW) + 86400
-    other = week + 61 * 3600  # gpu7's account in the owner's setup (2026-10-15)
+    other = week + 61 * 3600  # a second account
     records = [
         _rec("local", NOW - 10, week),
         _rec("gpu8", NOW - 5, week + 300),  # same account, rounded differently
