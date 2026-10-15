@@ -1,9 +1,10 @@
 """`agentail doctor`: check every link of the chain and say how to fix what is broken.
 
 Checks, in order: the daemon (ui.sock), the systemd user service, the local hook
-script and each agent's hook entries (plus agent-specific checks: Claude's status line,
-whether Codex trusts the hooks; backups that versions before 0.0.4 left next to the
-configs, as information only),
+script and each agent's hook entries (including whether the interpreter and script in their
+commands still exist; plus agent-specific checks: Claude's status line, whether Codex
+trusts the hooks; backups that versions before 0.0.4 left next to the configs, as
+information only),
 each remote host's tunnel as the daemon reports it, and the GNOME Shell extension.
 
 Remote hosts are judged by their tunnel: "connected" already means a ping from
@@ -14,11 +15,13 @@ gsettings, gnome-extensions) goes through an injectable runner.
 from __future__ import annotations
 
 import json
+import os
 import shlex
+import shutil
 import socket
 import time
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -92,6 +95,31 @@ def _sock_of(command: str) -> str:
     return argv[argv.index("--sock") + 1] if "--sock" in argv[:-1] else ""
 
 
+def _hook_argv(command: str) -> tuple[str, str] | None:
+    """(interpreter, hook script) of our hook command, also when it sits inside the Claude
+    statusLine wrapper (install/statusline.py): the words around ``<script> --agent``."""
+    try:
+        argv = shlex.split(command)
+    except ValueError:
+        return None
+    for i in range(1, len(argv) - 1):
+        if paths.HOOK_MARKER in argv[i] and argv[i + 1] == "--agent":
+            return argv[i - 1], argv[i]
+    return None
+
+
+def _command_problem(commands: Iterable[str], where: str = "hook commands") -> str:
+    """Why our hook commands cannot run, "" if they can. The commands end in
+    ``2>/dev/null || true``, so a missing interpreter or script fails silently."""
+    for python, script in sorted({a for c in commands if (a := _hook_argv(c)) is not None}):
+        exe = python if os.path.isabs(python) else shutil.which(python)
+        if not exe or not os.path.isfile(exe) or not os.access(exe, os.X_OK):
+            return f"the interpreter {python} in the {where} is missing or not executable"
+        if not Path(script).expanduser().is_file():
+            return f"the hook script {script} in the {where} does not exist"
+    return ""
+
+
 def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
     name = f"{agent} hooks"
     if not home.is_dir():
@@ -115,6 +143,9 @@ def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
     wanted = spec.events()
     if not ours:
         return [Check(name, WARN, f"not installed in {path}", "agentail install-local")]
+    problem = _command_problem(ours.values())
+    if problem:
+        return [Check(name, FAIL, problem, "agentail install-local")]
     missing = [e for e in wanted if e not in ours]
     socks = {_sock_of(c) for c in ours.values()}
     if missing:
@@ -146,6 +177,9 @@ def _check_status_line(path: Path) -> list[Check]:
     line = doc.get("statusLine") if isinstance(doc, dict) else None
     command = line.get("command") if isinstance(line, dict) else None
     if isinstance(command, str) and statusline.original_command(command) is not None:
+        problem = _command_problem([command], "statusLine command")
+        if problem:
+            return [Check(name, FAIL, problem, "agentail install-local")]
         return [Check(name, OK, "statusLine forwards rate limits to agentail")]
     if line is not None and not (isinstance(line, dict) and line.get("type") == "command"):
         return [Check(name, INFO, "your statusLine is not a command, so usage is not collected")]

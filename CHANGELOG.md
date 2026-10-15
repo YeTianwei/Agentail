@@ -64,6 +64,10 @@
   when an upgrade also changed the agent configs, so `agentail doctor` kept saying the hook script was
   "from another agentail version". The daemon now replaces it with the packaged copy at start when
   they differ (unless `[setup] auto = false`); the agent configs are not touched.
+- **`agentail doctor` notices hooks that cannot run.** Every hook command names the Python that ran
+  `install-local`; after deleting or moving that virtualenv, or a Python upgrade, the hooks failed
+  silently. Doctor now reports a failure when the interpreter or the hook script in the hook
+  commands (or in the Claude status line wrapper) is gone, and suggests `agentail install-local`.
 - **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
   keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
   now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login

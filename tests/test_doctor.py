@@ -289,3 +289,79 @@ def test_old_style_backups_are_mentioned(isolated_home, runtime_env):
     assert c.status == INFO and "2 old backup(s)" in c.detail and str(settings) in c.detail
     assert "2 readable by others" in c.detail and old[0].name in c.hint
     assert all(p.exists() for p in old)
+
+
+def _replace_in(path, old, new):
+    text = path.read_text()
+    assert old in text
+    path.write_text(text.replace(old, new))
+
+
+def _hook_checks():
+    return by_name(doctor.local_checks())
+
+
+def test_a_missing_interpreter_or_script_in_the_hook_commands_fails(
+    isolated_home, runtime_env, tmp_path
+):
+    from agentail.install.local import hook_dest, local_python
+
+    (isolated_home / ".claude").mkdir()
+    (isolated_home / ".codex").mkdir()
+    assert install_local(out=lambda _: None) == 0
+    c = _hook_checks()
+    assert c["claude hooks"].status == OK and c["claude usage"].status == OK
+    assert c["codex hooks"].status == OK
+
+    # A deleted virtualenv: the hooks still name its python, and fail silently.
+    settings = isolated_home / ".claude" / "settings.json"
+    _replace_in(settings, local_python(), "/gone/venv/bin/python3")
+    c = _hook_checks()
+    assert c["claude hooks"].status == FAIL
+    assert "/gone/venv/bin/python3" in c["claude hooks"].detail
+    assert c["claude hooks"].hint == "agentail install-local"
+    assert c["codex hooks"].status == OK
+
+    # Not executable is as bad as missing.
+    plain = tmp_path / "python3"
+    plain.write_text("")
+    plain.chmod(0o644)
+    _replace_in(settings, "/gone/venv/bin/python3", str(plain))
+    assert _hook_checks()["claude hooks"].status == FAIL
+
+    hooks_json = codex_config.codex_home() / "hooks.json"
+    _replace_in(hooks_json, str(hook_dest()), "/moved/agentail-hook.py")
+    c = _hook_checks()
+    assert c["codex hooks"].status == FAIL
+    assert "/moved/agentail-hook.py" in c["codex hooks"].detail
+    assert c["codex hooks"].hint == "agentail install-local"
+
+
+def test_the_status_line_wrapper_is_checked_too(isolated_home, runtime_env):
+    import json
+
+    from agentail.install.local import local_python
+
+    (isolated_home / ".claude").mkdir()
+    assert install_local(out=lambda _: None) == 0
+    settings = isolated_home / ".claude" / "settings.json"
+    doc = json.loads(settings.read_text())
+    doc["statusLine"]["command"] = doc["statusLine"]["command"].replace(
+        local_python(), "/old/python3"
+    )
+    settings.write_text(json.dumps(doc))
+    c = _hook_checks()
+    assert c["claude hooks"].status == OK
+    assert c["claude usage"].status == FAIL
+    assert "/old/python3" in c["claude usage"].detail and "statusLine" in c["claude usage"].detail
+    assert c["claude usage"].hint == "agentail install-local"
+
+
+def test_hook_argv_finds_the_command_inside_the_wrapper():
+    from agentail.install import statusline
+
+    doc = statusline.wrap({}, "/v env/bin/python3", "/h/.agentail/agentail-hook.py", "/run/s")
+    cmd = doc["statusLine"]["command"]
+    assert doctor._hook_argv(cmd) == ("/v env/bin/python3", "/h/.agentail/agentail-hook.py")
+    assert doctor._hook_argv("echo 'unterminated") is None
+    assert doctor._hook_argv("my-own-statusline --agent x") is None
