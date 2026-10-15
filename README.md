@@ -164,7 +164,7 @@ with the package on one machine: a unit from `install-service` overrides the pac
 
 The server needs key-based login (`ssh <alias> true` works without a prompt) and Python 3.6+.
 
-To remove one, click the **✕** on its row: Agentail takes this desktop out of the server's Claude
+To remove one, click the trash can on its row: Agentail takes this desktop out of the server's Claude
 and Codex settings, and puts them back exactly as they were once no desktop is left in them. Their
 backups stay in the server's `~/.agentail/backups/` (readable only by you); delete that directory
 when you no longer need them. Removing needs the server reachable, also when it shares its home

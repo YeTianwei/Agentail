@@ -30,7 +30,7 @@
 | README / CHANGELOG / 版本 | ✅ 版本号 0.0.1(早先的 1.0.0 作废:功能齐了但没人能一键安装) |
 | 顶栏灵动岛胶囊 + 按 agent 分组的面板 | ✅ 0.0.1:`extension.js` / `stylesheet.css` 重写;`model.js` 新增 `agentGroups` / `hostRows`;嵌套 GNOME Shell 46 截图核对 |
 | `.deb` 打包 | ✅ 0.0.1:`packaging/build-deb.sh`(只依赖 dpkg-deb);装上就用:daemon 首次启动自动装 hook、启用扩展(`firstrun.py`,`--auto-setup`),只需重新登录一次;`agentail setup` 作手动版本 |
-| 面板「Servers → ＋ Add server」 | ✅ 0.0.1:从 `~/.ssh/config` 选或手输别名,扩展用 argv 列表调 `agentail add-host`,结果显示在面板里(`list-ssh-hosts`、`sshconfig.py`);每台服务器一行有 ✕(先确认,连不上时可「Forget it anyway」= `--local-only`) |
+| 面板「Servers → ＋ Add server」 | ✅ 0.0.1:从 `~/.ssh/config` 选或手输别名,扩展用 argv 列表调 `agentail add-host`,结果显示在面板里(`list-ssh-hosts`、`sshconfig.py`);每台服务器一行有删除按钮(0.0.5 起是垃圾桶图标;先确认,连不上时可「Forget it anyway」= `--local-only`) |
 
 本地验证:`pip install -e '.[dev]' && python -m pytest && ruff check . && ruff format --check .`
 

@@ -214,6 +214,12 @@ class Store:
             changes.append(Change(key=key, session=None))
         return changes
 
+    def remove(self, key: SessionKey) -> Change | None:
+        """The user removed a session from the panel. Its next event brings it back."""
+        if self.sessions.pop(key, None) is None:
+            return None
+        return Change(key=key, session=None)
+
     def sweep(self, now: float) -> list[Change]:
         """Periodic housekeeping, by how long a session has been silent.
 

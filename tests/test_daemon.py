@@ -254,6 +254,27 @@ async def test_sessions_survive_a_restart(runtime_env):
         await task
 
 
+async def test_dismissed_session_is_removed_and_forgotten(runtime_env):
+    daemon = Daemon()
+    task = await _start(daemon)
+    try:
+        await _hook("Stop", b'{"session_id": "s1", "cwd": "/w", "hook_event_name": "Stop"}')
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        snap = json.loads(await asyncio.wait_for(r.readline(), 2))
+        assert [s["key"]["session_id"] for s in snap["sessions"]] == ["s1"]
+        key = snap["sessions"][0]["key"]
+        w.write(json.dumps({"type": "dismiss_session", "key": key}).encode() + b"\n")
+        await w.drain()
+        msg = json.loads(await asyncio.wait_for(r.readline(), 2))
+        assert msg == {"type": "session_remove", "key": key}
+        assert not daemon.store.sessions
+        w.close()
+    finally:
+        daemon.stop()
+        await task
+    assert json.loads(paths.sessions_file().read_text()) == []
+
+
 async def test_restored_remote_sessions_are_stale(runtime_env):
     paths.ensure_private_dir(paths.state_dir())
     item = {"host": "gpu1", "agent": "claude", "session_id": "r", "status": "running"}

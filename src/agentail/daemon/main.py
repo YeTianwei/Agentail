@@ -43,7 +43,7 @@ from agentail.daemon.codex_appserver import (
 )
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.schedule import RemoteSchedule
-from agentail.daemon.state import Change, Retention, Store
+from agentail.daemon.state import Change, Retention, SessionKey, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
 from agentail.daemon.usage_codex import read_codex_usage
@@ -300,6 +300,12 @@ class Daemon:
             if remote.tunnel is not None:
                 remote.tunnel.retry_now()
         self.request_live_usage()
+
+    def dismiss_session(self, key: SessionKey) -> None:
+        """A client sent ``dismiss_session``: the user removed a card from the panel."""
+        change = self.store.remove(key)
+        if change is not None:
+            self._publish(change)
 
     def settings(self) -> dict[str, Any]:
         """The SETTINGS record of the UI protocol: switches that are not about one agent."""
@@ -914,7 +920,12 @@ class Daemon:
         self._load_sessions()
         self._load_usage()
         self.listeners.append(Listener(LOCAL_SOURCE, paths.local_sock(), self.handle))
-        self.ui = UiServer(paths.ui_sock(), self.snapshot, on_refresh_usage=self.panel_opened)
+        self.ui = UiServer(
+            paths.ui_sock(),
+            self.snapshot,
+            on_refresh_usage=self.panel_opened,
+            on_dismiss_session=self.dismiss_session,
+        )
         try:
             self._sync_claude_api()  # the switches, before the first snapshot
             await self.ui.start()

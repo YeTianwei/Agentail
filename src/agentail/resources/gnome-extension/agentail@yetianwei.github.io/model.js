@@ -79,6 +79,17 @@ export function keyOf(key) {
 
 const keyString = k => JSON.stringify(k);
 
+// The key exactly as the daemon sent it, to send back in a request (dismiss_session);
+// null unless its three fields are strings. Never displayed: keyOf() is for that.
+export function wireKey(key) {
+    if (!key || typeof key !== 'object')
+        return null;
+    const {host, agent, session_id: sid} = key;
+    if (typeof host !== 'string' || typeof agent !== 'string' || typeof sid !== 'string')
+        return null;
+    return {host, agent, session_id: sid};
+}
+
 export function ageText(ts, now) {
     if (typeof ts !== 'number' || !(ts > 0))
         return '';
@@ -279,6 +290,7 @@ export function card(s, now) {
         subtitle = prompt || 'Last seen running';
     return {
         id: sid,
+        key: wireKey(s.key),
         agent,
         agentName: AGENT_NAME[agent] ?? agent,
         host: keyOf(s.key)[0] === 'local' ? 'This computer' : keyOf(s.key)[0],

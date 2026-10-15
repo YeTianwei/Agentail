@@ -205,8 +205,6 @@
   border: 1px solid rgba(255, 107, 107, 0.30);
   color: #f2c9c9;
 }
-.agentail-btn-x { padding: 2px 7px; border-radius: 8px; background-color: transparent; color: #8e8e94; font-size: 11px; }
-.agentail-btn-x:hover, .agentail-btn-x:focus { background-color: rgba(255, 107, 107, 0.18); color: #ffa8a8; }
 .agentail-btn-danger { background-color: rgba(255, 107, 107, 0.18); color: #ffb4b4; font-weight: bold; }
 .agentail-btn-danger:hover, .agentail-btn-danger:focus { background-color: rgba(255, 107, 107, 0.30); }
 
@@ -247,6 +245,8 @@
 .agentail-btn-pick { padding: 4px 10px; border-radius: 8px; font-size: 12px; }
 .agentail-btn-icon { padding: 5px 7px; border-radius: 8px; background-color: transparent; color: #9a9aa0; }
 .agentail-btn-icon:hover, .agentail-btn-icon:focus { background-color: rgba(255, 255, 255, 0.10); color: #ffffff; }
+.agentail-btn-trash { padding: 1px 3px; border-radius: 6px; background-color: transparent; color: #8e8e94; }
+.agentail-btn-trash:hover, .agentail-btn-trash:focus { background-color: rgba(255, 107, 107, 0.18); color: #ffa8a8; }
 
 /* ---- light colours (the footer's sun/moon button) ---- */
 .agentail-light .popup-menu-content { background-color: #f2f2f4; border: 1px solid rgba(0, 0, 0, 0.08); }
@@ -288,10 +288,10 @@
 .agentail-light .agentail-btn:hover, .agentail-light .agentail-btn:focus { background-color: rgba(0, 0, 0, 0.10); }
 .agentail-light .agentail-btn-add { color: #1c71d8; }
 .agentail-light .agentail-btn-quiet,
-.agentail-light .agentail-btn-icon,
-.agentail-light .agentail-btn-x { background-color: transparent; color: #77767b; }
+.agentail-light .agentail-btn-icon { background-color: transparent; color: #77767b; }
 .agentail-light .agentail-btn-icon:hover, .agentail-light .agentail-btn-icon:focus { background-color: rgba(0, 0, 0, 0.08); color: #1d1d1f; }
-.agentail-light .agentail-btn-x:hover { background-color: rgba(224, 27, 36, 0.12); color: #c01c28; }
+.agentail-light .agentail-btn-trash { color: #9a9996; }
+.agentail-light .agentail-btn-trash:hover, .agentail-light .agentail-btn-trash:focus { background-color: rgba(224, 27, 36, 0.12); color: #c01c28; }
 .agentail-light .agentail-btn-danger { background-color: rgba(224, 27, 36, 0.12); color: #c01c28; }
 .agentail-light .agentail-entry { background-color: #ffffff; border: 1px solid rgba(0, 0, 0, 0.14); color: #1d1d1f; caret-color: #1d1d1f; }
 .agentail-light .agentail-add-ok { background-color: rgba(38, 162, 105, 0.12); color: #1b6e47; }

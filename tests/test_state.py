@@ -98,6 +98,17 @@ def test_sweep_retention_tiers():
     assert list(st.sessions) == [SessionKey("local", "claude", "asking")]
 
 
+def test_removed_session_comes_back_with_its_next_event():
+    st = Store()
+    st.apply(ev(EventKind.STOP, 1, host="gpu1"))
+    key = SessionKey("gpu1", "claude", "s1")
+    c = st.remove(key)
+    assert c.key == key and c.session is None and key not in st.sessions
+    assert st.remove(key) is None  # already gone: nothing to tell the UI
+    c = st.apply(ev(EventKind.PROMPT_SUBMIT, 5, host="gpu1"))
+    assert c.session.status is Status.RUNNING and c.session.started_ts == 5
+
+
 def test_dump_and_load_round_trip():
     st = Store()
     st.apply(ev(EventKind.PROMPT_SUBMIT, 1, prompt_preview="fix bug", cwd="/w"))

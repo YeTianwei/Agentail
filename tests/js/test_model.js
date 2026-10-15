@@ -90,6 +90,7 @@ test('agent groups, cards and ended count', () => {
     const r = gs[1].cards[0];
     eq([r.project, r.agent, r.agentName, r.style], ['openpi', 'codex', 'Codex', 'running']);
     eq(gs[0].cards[3].subtitle, 'Last seen running');
+    eq(gs[0].cards[3].key, {host: 'gpu9', agent: 'claude', session_id: 'x'});
     eq(M.footer(st), {ended: '1 ended recently'});
     eq(M.footer(make([])), {ended: ''});
 });
@@ -110,6 +111,11 @@ test('untrusted strings are cleaned and bounded', () => {
     ok(Array.from(c.subtitle).length <= M.LIMITS.subtitle, 'subtitle bounded');
     ok(Array.from(c.project).length <= M.LIMITS.project, 'project bounded');
     eq(M.card(s('local', 'q', '</style>'), NOW).status, 'stale');
+    // The key goes back to the daemon as sent (it names the session), never displayed.
+    eq(M.card(s('gpu1', 'a\x1bb', 'running'), NOW).key, {host: 'gpu1', agent: 'claude', session_id: 'a\x1bb'});
+    eq(M.wireKey({host: 'gpu1', agent: 'claude'}), null);
+    eq(M.wireKey({host: 'gpu1', agent: 'claude', session_id: 3}), null);
+    eq(M.wireKey(null), null);
 });
 
 test('notices', () => {

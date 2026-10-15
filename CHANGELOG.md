@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Remove a session from the panel.** Each session card has a small trash can under its age. It
+  removes the card at once instead of waiting for it to time out (2 hours for one that is out of
+  date or waiting for you). Nothing happens to the session itself: if it was still alive, its next
+  event brings it back. The panel sends `dismiss_session` to the daemon
+  (`docs/protocol.md`); a 0.0.4 daemon ignores it, so the button does nothing until the daemon is
+  upgraded too.
+
+### Changed
+
+- **Removing a server is a trash can too**, in place of the ✕ at the end of its row.
+
 ## 0.0.4 — 2026-10-15
 
 Usage limits are now something you switch on, and Agentail is ready for more than one desktop,

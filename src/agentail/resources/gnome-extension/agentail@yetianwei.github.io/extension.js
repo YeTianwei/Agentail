@@ -160,7 +160,8 @@ class UiClient {
         });
     }
 
-    // Tell the daemon something (today only {type: 'refresh_usage'}: the panel was opened).
+    // Tell the daemon something: {type: 'refresh_usage'} (the panel was opened) or
+    // {type: 'dismiss_session', key} (the user removed a card).
     send(obj) {
         try {
             this._conn?.get_output_stream().write_all(`${JSON.stringify(obj)}\n`, null);
@@ -646,6 +647,12 @@ class AgentailIndicator extends PanelMenu.Button {
         second.add_child(label(line, 'agentail-subtitle', {ellipsize: true, xExpand: true}));
         if (c.tool && (c.style === 'running' || c.style === 'attention'))
             second.add_child(label(c.tool, 'agentail-tool'));
+        // The daemon forgets the session until its next event.
+        if (c.key) {
+            const key = c.key;
+            second.add_child(this._trashButton('Remove from the list',
+                () => this._client.send({type: 'dismiss_session', key})));
+        }
         box.add_child(second);
 
         if (c.style === 'attention') {
@@ -655,6 +662,22 @@ class AgentailIndicator extends PanelMenu.Button {
             box.add_child(label(where, 'agentail-hint', {ellipsize: true}));
         }
         return box;
+    }
+
+    // A small trash can: removes a session card (under its age) or a server (end of its row).
+    _trashButton(accessibleName, onClick) {
+        const b = new St.Button({
+            style_class: 'agentail-btn-trash',
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            y_align: Clutter.ActorAlign.CENTER,
+            accessible_name: accessibleName,
+            // Our own: themes' trash cans are drawn with 1px lines and blur at this size.
+            child: new St.Icon({gicon: this._gicon('trash-symbolic.svg'), icon_size: 14}),
+        });
+        b.connect('clicked', onClick);
+        return b;
     }
 
     _usage(cards, hint) {
@@ -817,9 +840,8 @@ class AgentailIndicator extends PanelMenu.Button {
                 ? `${h.stateText} · ${h.sessions} active` : h.stateText;
             row.add_child(label(detail, `agentail-host-state agentail-host-text-${h.level}`));
             if (this._add.mode === 'idle') {
-                const x = this._button('✕', 'agentail-btn-x', () => this._setAdd({mode: 'confirm', alias: h.alias}));
-                x.accessible_name = `Remove ${h.alias}`;
-                row.add_child(x);
+                row.add_child(this._trashButton(`Remove ${h.alias}`,
+                    () => this._setAdd({mode: 'confirm', alias: h.alias})));
             }
             card.add_child(row);
             if (h.problem) {

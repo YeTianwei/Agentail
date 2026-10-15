@@ -4,7 +4,7 @@ import json
 from agentail import paths
 from agentail.adapters.base import AgentEvent, EventKind
 from agentail.daemon.state import Change, SessionKey, Store
-from agentail.daemon.uiapi import UiServer, change_messages, session_to_dict
+from agentail.daemon.uiapi import UiServer, change_messages, key_from_dict, session_to_dict
 
 
 def _store_with_session():
@@ -68,6 +68,50 @@ def test_change_messages():
     assert change_messages(Change(key, None)) == [
         {"type": "session_remove", "key": {"host": "local", "agent": "claude", "session_id": "s1"}}
     ]
+
+
+def test_key_from_dict():
+    d = {"host": "gpu1", "agent": "claude", "session_id": "s1"}
+    assert key_from_dict(d) == SessionKey("gpu1", "claude", "s1")
+    assert key_from_dict({**d, "extra": "x"}) is None
+    assert key_from_dict({**d, "session_id": 1}) is None
+    assert key_from_dict({"host": "gpu1", "agent": "claude"}) is None
+    assert key_from_dict(["gpu1", "claude", "s1"]) is None
+    assert key_from_dict(None) is None
+
+
+async def test_client_requests(runtime_env):
+    refreshed, dismissed = [], []
+    ui = UiServer(
+        paths.ui_sock(),
+        lambda: {"sessions": [], "hosts": []},
+        on_refresh_usage=lambda: refreshed.append(True),
+        on_dismiss_session=dismissed.append,
+    )
+    await ui.start()
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        await _read(r)
+        key = {"host": "gpu1", "agent": "claude", "session_id": "s1"}
+        for msg in (
+            "not json",
+            {"type": "dismiss_session"},
+            {"type": "dismiss_session", "key": {**key, "agent": None}},
+            {"type": "dismiss_session", "key": key},
+            {"type": "refresh_usage"},
+            {"type": "unknown"},
+        ):
+            w.write((msg if isinstance(msg, str) else json.dumps(msg)).encode() + b"\n")
+        await w.drain()
+        for _ in range(100):
+            if refreshed:
+                break
+            await asyncio.sleep(0.01)
+        assert refreshed == [True]
+        assert dismissed == [SessionKey("gpu1", "claude", "s1")]
+        w.close()
+    finally:
+        await ui.stop()
 
 
 async def test_snapshot_then_increments(runtime_env):

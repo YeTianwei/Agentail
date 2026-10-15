@@ -186,5 +186,8 @@ the daemon. A client may send one line, `{"type": "refresh_usage"}`, when the us
 then asks `codex app-server` for Codex's current limits (at most once a minute, here and on each
 connected server where Codex has been seen) and, when its
 reading is over a minute old, Anthropic's usage endpoint for Claude's; both answer with an
-ordinary `usage_update`. Nothing else a client sends is acted on; the daemon otherwise reads only
-to detect disconnects.
+ordinary `usage_update`. Since 0.0.5 a client may also send `{"type": "dismiss_session", "key": {"host", "agent",
+"session_id"}}` when the user removes a session from the panel; the key is the one the daemon sent,
+unchanged. The daemon forgets the session (`session_remove`) until its next event, which
+brings it back as a new session. A key that is not exactly three strings is ignored. Nothing else a
+client sends is acted on; the daemon otherwise reads only to detect disconnects.

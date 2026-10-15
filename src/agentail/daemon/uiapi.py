@@ -3,7 +3,8 @@
 Protocol (docs/protocol.md, "UI protocol"): on connect the daemon sends one
 ``{"type": "snapshot", "sessions": [...], "hosts": [...], "usage": [...], "usage_api": {...}}``
 line, then ``session_update`` / ``session_remove`` / ``host_status`` / ``usage_update`` /
-``usage_remove`` / ``usage_api_status`` / ``notify`` lines.
+``usage_remove`` / ``usage_api_status`` / ``notify`` lines. Clients may send
+``refresh_usage`` and ``dismiss_session`` lines.
 The UI holds no business state and rebuilds from a new snapshot after reconnecting.
 
 Each client has a bounded queue. ``broadcast`` never awaits: a client whose
@@ -34,6 +35,16 @@ Snapshot = Callable[[], dict[str, Any]]
 
 def key_to_dict(key: SessionKey) -> dict[str, str]:
     return {"host": key.host, "agent": key.agent, "session_id": key.session_id}
+
+
+def key_from_dict(d: Any) -> SessionKey | None:
+    """The key a client sent back, or None unless it has exactly the three string fields."""
+    fields = ("host", "agent", "session_id")
+    if not isinstance(d, dict) or set(d) != set(fields):
+        return None
+    if not all(isinstance(d[f], str) for f in fields):
+        return None
+    return SessionKey(d["host"], d["agent"], d["session_id"])
 
 
 def session_to_dict(s: Session) -> dict[str, Any]:
@@ -97,10 +108,12 @@ class UiServer:
         snapshot: Snapshot,
         queue_size: int = QUEUE_SIZE,
         on_refresh_usage: Callable[[], None] | None = None,
+        on_dismiss_session: Callable[[SessionKey], None] | None = None,
     ) -> None:
         self.path = path
         self.snapshot = snapshot
         self.on_refresh_usage = on_refresh_usage
+        self.on_dismiss_session = on_dismiss_session
         self.queue_size = queue_size
         self._clients: set[_Client] = set()
         self._server: asyncio.base_events.Server | None = None
@@ -176,8 +189,9 @@ class UiServer:
             pass
 
     async def _read_requests(self, reader: asyncio.StreamReader) -> None:
-        """The only thing a client may send is ``{"type": "refresh_usage"}`` (the panel was
-        opened); anything else is ignored. A client that sends junk lines is disconnected."""
+        """A client may send ``{"type": "refresh_usage"}`` (the panel was opened) and
+        ``{"type": "dismiss_session", "key": {...}}`` (the user removed a card); anything else
+        is ignored. A client that sends junk lines is disconnected."""
         try:
             while True:
                 line = await reader.readline()
@@ -187,11 +201,13 @@ class UiServer:
                     msg = json.loads(line)
                 except ValueError:
                     continue
-                if (
-                    isinstance(msg, dict)
-                    and msg.get("type") == "refresh_usage"
-                    and self.on_refresh_usage is not None
-                ):
+                if not isinstance(msg, dict):
+                    continue
+                if msg.get("type") == "refresh_usage" and self.on_refresh_usage is not None:
                     self.on_refresh_usage()
+                elif msg.get("type") == "dismiss_session" and self.on_dismiss_session is not None:
+                    key = key_from_dict(msg.get("key"))
+                    if key is not None:
+                        self.on_dismiss_session(key)
         except (ConnectionError, OSError, ValueError):  # ValueError: line over the stream limit
             pass
