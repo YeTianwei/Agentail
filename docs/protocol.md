@@ -98,14 +98,12 @@ server's alias). How that query is doing:
 ```
 USAGE_API = {"state": "off|pending|ok|needs_login|error", "detail": "HTTP 401: login rejected",
              "ok_ts": 1791772000.0,   # ok_ts: last success, absent if none
-             "decided": false,        # since 0.0.4: the user has answered (either switch is set)
              "servers": false}        # since 0.0.4: claude_api_servers is on
 ```
 
-While `decided` is false, a client may ask the user once whether to turn the query on (the GNOME
-panel does, after Claude has been seen) and write the answer with `agentail usage-api on|off
-[--servers]`; the daemon picks up `config.toml` within seconds and sends a new `usage_api_status`.
-A client treats a missing `decided` as true (a daemon that predates the question).
+`state` is `off` exactly when this computer's switch is off. A client that lets the user change the
+switches (the GNOME panel's settings) runs `agentail usage-api on|off [--servers]`; the daemon picks
+up `config.toml` within seconds and sends a new `usage_api_status`.
 
 `needs_login` means Claude Code's login is missing, expired or rejected; running `claude` once
 refreshes it. `detail` is written by the daemon (no payload content); `usage_api_status` is sent

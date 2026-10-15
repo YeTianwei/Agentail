@@ -334,29 +334,56 @@ test('usage: an expired Claude login is shown instead of the age', () => {
     eq(M.usageCards(snap, NOW)[0].updatedText, 'updated 2m ago');
 });
 
-test('usage: the question about Claude Code\'s login', () => {
-    const undecided = {type: 'usage_api_status', agent: 'claude',
-        status: {state: 'off', decided: false, servers: false}};
-    // nothing asked before Claude has been seen
+test('settings: the two switches of the Claude usage query', () => {
+    const status = (state, servers = false) =>
+        ({type: 'usage_api_status', agent: 'claude', status: {state, detail: '', servers}});
+    const view = st => M.usageSettings(st).rows.map(r => [r.id, r.on, r.enabled, r.saving, r.status]);
+    // not connected, or a daemon without the switches: shown off and disabled
+    eq(M.usageSettings(new M.UiState()).available, false);
+    eq(view(new M.UiState()), [['local', false, false, false, ''], ['servers', false, false, false, '']]);
+    // no server: the servers' switch cannot be turned on
+    const alone = make([], [host('local', 'local')]);
+    alone.apply(status('off'));
+    eq(view(alone), [['local', false, true, false, ''], ['servers', false, false, false, '']]);
+    ok(M.usageSettings(alone).rows[1].notes[0].includes('Add a server first'), 'no-server note');
+    // with a server; this computer's switch reports the query's state
+    const st = make([]);
+    st.apply(status('needs_login'));
+    eq(view(st), [['local', true, true, false, 'Sign-in expired: run claude once'],
+        ['servers', false, true, false, '']]);
+    st.apply(status('ok', true));
+    eq(view(st), [['local', true, true, false, ''], ['servers', true, true, false, '']]);
+    // every row says what it does, including that the endpoint is undocumented
+    ok(M.usageSettings(st).rows[0].notes.join(' ').includes('does not document'), 'local note');
+    // a choice the daemon has not reported yet shows as saving, until it does
+    let pending = {servers: false};
+    eq(M.usageSettings(st, pending).rows[1].on, false);
+    eq(M.usageSettings(st, pending).rows[1].saving, true);
+    eq(M.settlePending(st, pending), {servers: false});
+    st.apply(status('ok', false));
+    pending = M.settlePending(st, pending);
+    eq(pending, {});
+    eq(M.settlePending(new M.UiState(), {local: true}), {local: true});  // nothing to compare yet
+    // switched on with the servers removed meanwhile: can still be switched off
+    const gone = make([], [host('local', 'local')]);
+    gone.apply(status('off', true));
+    eq(view(gone)[1], ['servers', true, true, false, '']);
+});
+
+test('usage: a hint while the Claude query is off and Claude is used', () => {
+    const off = {type: 'usage_api_status', agent: 'claude', status: {state: 'off', servers: false}};
     const quiet = make([], [host('local', 'local')]);
-    quiet.apply(undecided);
-    eq(M.usageConsent(quiet), null);
-    // a Claude session here: asked, without the servers when there are none
+    quiet.apply(off);
+    eq(M.usageHint(quiet), null);  // Claude not seen
     const here = make([s('local', 'a', 'running')], [host('local', 'local')]);
-    here.apply(undecided);
-    eq(M.usageConsent(here), {servers: false});
-    // a server is configured: the servers are offered too; a reading counts as seen
-    const st = withUsage([usage('local', 'claude', [win(10, 300)])], [undecided]);
-    eq(M.usageConsent(st), {servers: true});
-    // answered (either way), or a daemon that predates the question: never asked
-    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'off', decided: true}});
-    eq(M.usageConsent(st), null);
-    st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok'}});
-    eq(M.usageConsent(st), null);
-    eq(st.usageApi.get('claude'), {state: 'ok', decided: true, servers: false});
-    // only Codex here: nothing to ask
-    const codex = withUsage([usage('local', 'codex', [win(10, 300)])], [undecided]);
-    eq(M.usageConsent(codex), null);
+    here.apply(off);
+    ok(M.usageHint(here).includes('terminal sessions only'), 'hint');
+    const reading = withUsage([usage('local', 'claude', [win(10, 300)])], [off]);
+    ok(M.usageHint(reading) !== null, 'a reading counts as seen');
+    reading.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok'}});
+    eq(M.usageHint(reading), null);
+    eq(M.usageHint(withUsage([usage('local', 'codex', [win(10, 300)])], [off])), null);
+    eq(M.usageHint(withUsage([usage('local', 'claude', [win(10, 300)])])), null);  // old daemon
 });
 
 test('usage updates, removal, and disconnect', () => {

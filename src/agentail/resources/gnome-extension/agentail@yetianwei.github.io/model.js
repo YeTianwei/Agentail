@@ -103,7 +103,7 @@ export class UiState {
         this.sessions = new Map(); // keyString -> session
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
-        this.usageApi = new Map(); // agent -> {state, decided, servers} of the daemon's usage query
+        this.usageApi = new Map(); // agent -> {state, servers} of the daemon's usage query
     }
 
     disconnect() {
@@ -180,8 +180,6 @@ export class UiState {
         if (status && typeof status === 'object') {
             this.usageApi.set(clean(agent), {
                 state: clean(status.state, 20),
-                // A daemon from before the question sends no "decided": never ask then.
-                decided: status.decided !== false,
                 servers: status.servers === true,
             });
         }
@@ -575,19 +573,80 @@ export function usageCards(state, now) {
     return cards;
 }
 
-// The one question the panel asks: may the daemon use Claude Code's login to ask Anthropic
-// for Claude's limits? Off until answered (docs/usage-api-design.md section 4). Asked once
-// Claude has been seen (a session or a reading) while the user has not chosen; null otherwise.
-// `servers`: offer the servers too, when there are any.
-export function usageConsent(state) {
+// ---- settings: the two switches of the Claude usage query ------------------------------
+//
+// Both are off until the user turns them on (docs/usage-api-design.md section 4). The panel
+// writes them with `agentail usage-api`; the daemon reports them back in usage_api_status.
+
+const claudeSeen = state =>
+    [...state.sessions.values()].some(s => keyOf(s?.key)[1] === 'claude') ||
+    [...state.usage.values()].some(u => clean(u?.agent) === 'claude');
+
+// The switches as the daemon reports them, or null (not connected, or a daemon without them).
+function usageSwitches(state) {
     const api = state.usageApi.get('claude');
-    if (!api || api.decided)
+    return api ? {local: api.state !== 'off', servers: api.servers} : null;
+}
+
+const LOCAL_STATUS = {
+    pending: 'Checking…',
+    needs_login: 'Sign-in expired: run claude once',
+    error: 'The last query failed: see agentail doctor',
+};
+
+// The settings page. `pending`: {local, servers} the user just chose that the daemon has not
+// reported yet; they are shown (as "saving") instead of the daemon's values.
+export function usageSettings(state, pending = {}) {
+    const actual = usageSwitches(state);
+    const hasServers = [...state.hosts.keys()].some(alias => alias !== 'local');
+    const row = (id, title, notes, enabled) => {
+        const want = typeof pending[id] === 'boolean' ? pending[id] : null;
+        const on = want ?? actual?.[id] ?? false;
+        return {
+            id, title, notes, on,
+            enabled: actual !== null && enabled,
+            saving: actual !== null && want !== null && want !== actual[id],
+        };
+    };
+    const api = state.usageApi.get('claude');
+    const local = row('local', "Use this computer's Claude login", [
+        "Asks api.anthropic.com for Claude's limits with the token of Claude Code's login, as " +
+        '/usage does, so sessions in VS Code and Claude Desktop count too. The token is read ' +
+        'for each request and never stored.',
+        'Anthropic does not document this endpoint, and the requests say they come from ' +
+        'Agentail, not Claude Code.',
+    ], true);
+    local.status = local.on && api ? LOCAL_STATUS[api.state] ?? '' : '';
+    const servers = row('servers', "Use each server's own login", [
+        hasServers
+            ? 'A server logged in to another account is asked the same way, over ssh, with ' +
+              'its own login. The token stays on the server.'
+            : 'For servers with another Claude account. Add a server first.',
+    ], hasServers || actual?.servers === true);
+    servers.status = '';
+    return {available: actual !== null, rows: [local, servers]};
+}
+
+// Drops the pending choices the daemon now reports (or that no longer differ).
+export function settlePending(state, pending) {
+    const actual = usageSwitches(state);
+    if (!actual)
+        return pending;
+    const out = {};
+    for (const [id, want] of Object.entries(pending)) {
+        if (typeof want === 'boolean' && actual[id] !== want)
+            out[id] = want;
+    }
+    return out;
+}
+
+// One line in the Usage section while this computer's switch is off and Claude is used here:
+// its limits then come only from terminal sessions. Null otherwise.
+export function usageHint(state) {
+    const api = state.usageApi.get('claude');
+    if (!api || api.state !== 'off' || !claudeSeen(state))
         return null;
-    const seen = [...state.sessions.values()].some(s => keyOf(s?.key)[1] === 'claude') ||
-        [...state.usage.values()].some(u => clean(u?.agent) === 'claude');
-    if (!seen)
-        return null;
-    return {servers: [...state.hosts.keys()].some(alias => alias !== 'local')};
+    return 'Claude: terminal sessions only. More in Settings (⚙, top right).';
 }
 
 // Host chips wrapped into rows that fit the panel. Clutter's FlowLayout under-reports its

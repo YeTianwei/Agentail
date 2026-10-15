@@ -6,14 +6,14 @@
 
 - **The Claude usage query is off until you turn it on.** Asking Anthropic for Claude's limits
   uses Claude Code's login, sends requests that say they come from Agentail to an endpoint Anthropic
-  does not document, and was on by default, so it happened without anyone agreeing to it. Now
-  the panel's Usage section asks once, after Claude has been seen ("Turn on", "Also on servers",
-  "No thanks"); `agentail usage-api on|off` does the same in a terminal. Servers have a switch of
-  their own (`agentail usage-api on --servers`, `[usage] claude_api_servers = true`): a server's
-  login is never read unless it is on. **After upgrading**, the query stays on only if you had
-  turned it on with `agentail usage-api on`; otherwise the panel asks. Without it, Claude's limits
-  still come from Claude in a terminal (its status line). `agentail doctor` and `install-local`
-  say which switch is on.
+  does not document, and was on by default, so it happened without anyone agreeing to it. Now it
+  has a switch in the panel's new settings (the gear next to the light/dark button), with what it
+  does written next to it, and `agentail usage-api on|off` in a terminal. Servers have a switch of
+  their own (`--servers`, `[usage] claude_api_servers = true`): a server's login is never read
+  unless it is on. `agentail usage-api off --all` turns both off. While the query is off, the Usage
+  section says that Claude's limits come from terminal sessions only. **After upgrading**, the
+  query stays on only if you had turned it on with `agentail usage-api on`; the servers' switch
+  starts off either way. `agentail doctor` and `install-local` say which switch is on.
 
 ### Fixed
 

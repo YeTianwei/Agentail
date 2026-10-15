@@ -213,7 +213,11 @@ class AgentailIndicator extends PanelMenu.Button {
         this._addProc = null;
         this._addCancel = null;
         this._addTimer = 0;
-        this._consentError = '';
+        // 'main' or 'settings' (the gear, top right); back to 'main' when the menu closes.
+        this._view = 'main';
+        this._settingsError = '';
+        // Switches just flipped in the settings that the daemon has not reported yet.
+        this._usagePending = {};
 
         // The "island": a dark capsule inside the panel button. Its content is rebuilt
         // by _renderTopBar() whenever the summary changes.
@@ -245,6 +249,8 @@ class AgentailIndicator extends PanelMenu.Button {
                     return GLib.SOURCE_CONTINUE;
                 });
             } else {
+                this._view = 'main';
+                this._settingsError = '';
                 if (this._add.mode === 'picking' || this._add.mode === 'result')
                     this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: ''};
                 if (this._ageTimer) {
@@ -271,6 +277,7 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _onMessage(msg) {
         const notify = this._state.apply(msg);
+        this._usagePending = M.settlePending(this._state, this._usagePending);
         if (notify) {
             const n = M.notice(notify, this._state);
             if (n && this._limiter.allow(n, GLib.get_monotonic_time() / 1e6))
@@ -396,6 +403,10 @@ class AgentailIndicator extends PanelMenu.Button {
 
         if (this._outdated())
             this._panel.add_child(this._updateBanner());
+        if (this._view === 'settings') {
+            this._panel.add_child(this._settingsPage());
+            return;
+        }
         if (!st.connected) {
             this._panel.add_child(this._titleRow());
             this._panel.add_child(this._offline());
@@ -407,12 +418,12 @@ class AgentailIndicator extends PanelMenu.Button {
             content.add_child(this._titleRow());
             content.add_child(this._empty());
         }
-        // The light/dark switch sits top right, on the first agent's row.
+        // Settings and the light/dark switch sit top right, on the first agent's row.
         groups.forEach((g, i) => content.add_child(this._agentGroup(g, i === 0)));
         const usage = M.usageCards(st, now);
-        const consent = M.usageConsent(st);
-        if (usage.length || consent)
-            content.add_child(this._usage(usage, consent));
+        const hint = M.usageHint(st);
+        if (usage.length || hint)
+            content.add_child(this._usage(usage, hint));
         content.add_child(this._hosts(M.hostRows(st)));
 
         const scroll = new St.ScrollView({
@@ -433,12 +444,36 @@ class AgentailIndicator extends PanelMenu.Button {
             this._panel.add_child(label(foot.ended, 'agentail-footer'));
     }
 
-    // A top row with the light/dark switch, for when there is no agent row to carry it.
+    // A top row with the buttons, for when there is no agent row to carry them.
     _titleRow() {
         const row = hbox('agentail-head', {x_expand: true});
         row.add_child(label('Agentail', 'agentail-section', {xExpand: true}));
-        row.add_child(this._themeButton());
+        row.add_child(this._headButtons());
         return row;
+    }
+
+    // Top right of the panel: settings, then the light/dark switch.
+    _headButtons() {
+        const box = hbox('agentail-head-buttons', {y_align: Clutter.ActorAlign.CENTER});
+        box.add_child(this._iconButton('emblem-system-symbolic', 'Settings', () => {
+            this._view = 'settings';
+            this._renderPanel();
+        }));
+        box.add_child(this._themeButton());
+        return box;
+    }
+
+    _iconButton(iconName, accessibleName, onClick) {
+        const b = new St.Button({
+            style_class: 'agentail-btn agentail-btn-icon',
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            accessible_name: accessibleName,
+            child: new St.Icon({icon_name: iconName, icon_size: 14}),
+        });
+        b.connect('clicked', onClick);
+        return b;
     }
 
     // -- theme -------------------------------------------------------------------------------
@@ -456,27 +491,89 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _themeButton() {
         const light = this._theme() === 'light';
-        const b = new St.Button({
-            style_class: 'agentail-btn agentail-btn-icon',
-            reactive: true,
-            can_focus: true,
-            track_hover: true,
-            accessible_name: light ? 'Use dark colours' : 'Use light colours',
-            child: new St.Icon({
-                icon_name: light ? 'weather-clear-night-symbolic' : 'weather-clear-symbolic',
-                icon_size: 14,
-            }),
-        });
-        b.connect('clicked', () => {
-            this._prefs.theme = light ? 'dark' : 'light';
-            savePrefs(this._prefs);
-            this._applyTheme();
-            this._renderPanel();
-        });
-        return b;
+        return this._iconButton(
+            light ? 'weather-clear-night-symbolic' : 'weather-clear-symbolic',
+            light ? 'Use dark colours' : 'Use light colours',
+            () => {
+                this._prefs.theme = light ? 'dark' : 'light';
+                savePrefs(this._prefs);
+                this._applyTheme();
+                this._renderPanel();
+            });
     }
 
-    _agentGroup(g, withThemeButton = false) {
+    // -- settings ------------------------------------------------------------------------------
+
+    _settingsPage() {
+        const page = vbox('agentail-groups', {x_expand: true});
+        const head = hbox('agentail-head', {x_expand: true});
+        head.add_child(this._iconButton('go-previous-symbolic', 'Back', () => {
+            this._view = 'main';
+            this._settingsError = '';
+            this._renderPanel();
+        }));
+        head.add_child(label('Settings', 'agentail-section', {xExpand: true}));
+        head.add_child(this._themeButton());
+        page.add_child(head);
+
+        const group = vbox('agentail-group', {x_expand: true});
+        group.add_child(label('Claude usage limits', 'agentail-section'));
+        const settings = M.usageSettings(this._state, this._usagePending);
+        const card = vbox('agentail-card agentail-settings', {x_expand: true});
+        if (!settings.available) {
+            const off = label('The agentail daemon is not running, or is too old for these settings.',
+                'agentail-add-note');
+            off.clutter_text.line_wrap = true;
+            card.add_child(off);
+        }
+        for (const r of settings.rows)
+            card.add_child(this._switchRow(r));
+        if (this._settingsError) {
+            const err = label(this._settingsError, 'agentail-add-result agentail-add-fail');
+            err.clutter_text.line_wrap = true;
+            card.add_child(err);
+        }
+        group.add_child(card);
+        const cli = label('Same as agentail usage-api on|off [--servers] in a terminal.', 'agentail-add-note');
+        cli.clutter_text.line_wrap = true;
+        group.add_child(cli);
+        page.add_child(group);
+        return page;
+    }
+
+    // One switch: a title and what it does, the switch on the right; the whole row toggles.
+    _switchRow(r) {
+        const row = hbox('agentail-switch-row', {x_expand: true});
+        const text = vbox('agentail-switch-text', {x_expand: true});
+        text.add_child(label(r.title, 'agentail-switch-title'));
+        for (const note of r.notes) {
+            const l = label(note, 'agentail-add-note');
+            l.clutter_text.line_wrap = true;
+            text.add_child(l);
+        }
+        const status = r.saving ? 'Saving…' : r.status;
+        if (status)
+            text.add_child(label(status, 'agentail-switch-status'));
+        row.add_child(text);
+        const sw = new PopupMenu.Switch(r.on);
+        sw.y_align = Clutter.ActorAlign.START;
+        row.add_child(sw);
+        const button = new St.Button({
+            style_class: 'agentail-switch-button',
+            reactive: r.enabled,
+            can_focus: r.enabled,
+            track_hover: r.enabled,
+            x_expand: true,
+            accessible_name: r.title,
+            child: row,
+        });
+        if (!r.enabled)
+            button.opacity = 128;
+        button.connect('clicked', () => this._setUsageApi(r.id, !r.on));
+        return button;
+    }
+
+    _agentGroup(g, withHeadButtons = false) {
         const box = vbox('agentail-group', {x_expand: true});
         const chip = hbox(`agentail-chip agentail-chip-${KNOWN_AGENTS.includes(g.agent) ? g.agent : 'other'}`,
             {x_align: Clutter.ActorAlign.START});
@@ -488,11 +585,11 @@ class AgentailIndicator extends PanelMenu.Button {
             }));
         }
         chip.add_child(label(`${g.name} · ${g.count}`, 'agentail-chip-text'));
-        if (withThemeButton) {
+        if (withHeadButtons) {
             const head = hbox('agentail-head', {x_expand: true});
             head.add_child(chip);
             head.add_child(new St.Widget({x_expand: true}));
-            head.add_child(this._themeButton());
+            head.add_child(this._headButtons());
             box.add_child(head);
         } else {
             box.add_child(chip);
@@ -533,7 +630,7 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    _usage(cards, consent) {
+    _usage(cards, hint) {
         const box = vbox('agentail-group', {x_expand: true});
         const open = this._prefs.usage_open;
         const head = hbox('agentail-servers-head', {x_expand: true});
@@ -558,58 +655,28 @@ class AgentailIndicator extends PanelMenu.Button {
             this._renderPanel();
         });
         box.add_child(toggle);
-        if (open && consent)
-            box.add_child(this._usageConsent(consent));
+        if (open && hint) {
+            const l = label(hint, 'agentail-usage-hint');
+            l.clutter_text.line_wrap = true;
+            box.add_child(l);
+        }
         if (open)
             cards.forEach(c => box.add_child(this._usageCard(c)));
         return box;
     }
 
-    // Asks once whether the daemon may use Claude Code's login (M.usageConsent). The answer is
-    // written by `agentail usage-api`, like the terminal would; the daemon then reports it.
-    _usageConsent(c) {
-        const box = vbox('agentail-card agentail-consent', {x_expand: true});
-        box.add_child(label("Show Claude's limits from every session?", 'agentail-add-title'));
-        const paragraphs = [
-            'Claude Code gives its limits only to the status line of a terminal session. ' +
-            "Agentail can ask Anthropic for them with Claude Code's login on this computer, the " +
-            'way /usage does: the token is read for each request, sent only to ' +
-            'api.anthropic.com and never stored.',
-            'Anthropic does not document this endpoint, and the requests say they come from ' +
-            'Agentail, not Claude Code.',
-        ];
-        if (c.servers) {
-            paragraphs.push("On servers, each server's own login is used, over ssh, when its " +
-                'account is not the one on this computer.');
-        }
-        for (const text of paragraphs) {
-            const l = label(text, 'agentail-add-note');
-            l.clutter_text.line_wrap = true;
-            box.add_child(l);
-        }
-        if (this._consentError) {
-            const err = label(this._consentError, 'agentail-add-result agentail-add-fail');
-            err.clutter_text.line_wrap = true;
-            box.add_child(err);
-        }
-        const row = hbox('agentail-add-row');
-        row.add_child(this._button('Turn on', 'agentail-btn-add', () => this._setUsageApi(['on'])));
-        if (c.servers) {
-            row.add_child(this._button('Also on servers', 'agentail-btn-add',
-                () => this._setUsageApi(['on', '--servers'])));
-        }
-        row.add_child(this._button('No thanks', 'agentail-btn-quiet', () => this._setUsageApi(['off'])));
-        box.add_child(row);
-        box.add_child(label('Change it later with agentail usage-api on|off.', 'agentail-add-note'));
-        return box;
-    }
-
-    // Runs `agentail usage-api <args>` (argv list, no shell).
-    _setUsageApi(args) {
+    // Runs `agentail usage-api on|off [--servers]` (argv list, no shell). The switch shows the
+    // new value at once; the daemon confirms it within seconds (M.settlePending).
+    _setUsageApi(id, on) {
+        const args = [on ? 'on' : 'off', ...id === 'servers' ? ['--servers'] : []];
         const fail = () => {
-            this._consentError = `Could not save that. Run agentail usage-api ${args.join(' ')} in a terminal.`;
+            delete this._usagePending[id];
+            this._settingsError = `Could not save that. Run agentail usage-api ${args.join(' ')} in a terminal.`;
             this._renderPanel();
         };
+        this._settingsError = '';
+        this._usagePending = {...this._usagePending, [id]: on};
+        this._renderPanel();
         const bin = this._agentailBinary();
         if (!bin) {
             fail();
@@ -621,7 +688,6 @@ class AgentailIndicator extends PanelMenu.Button {
             proc.wait_check_async(null, (p, res) => {
                 try {
                     p.wait_check_finish(res);
-                    this._consentError = '';
                 } catch {
                     fail();
                 }
@@ -629,50 +695,6 @@ class AgentailIndicator extends PanelMenu.Button {
         } catch {
             fail();
         }
-    }
-
-    _usageCard(c) {
-        const box = vbox(`agentail-card agentail-usage${c.stale ? ' agentail-card-stale' : ''}`,
-            {x_expand: true});
-        const top = hbox('agentail-card-top', {x_expand: true});
-        if (KNOWN_AGENTS.includes(c.agent)) {
-            top.add_child(new St.Icon({
-                gicon: this._gicon(`agent-${c.agent}.png`),
-                icon_size: 16,
-                y_align: Clutter.ActorAlign.CENTER,
-            }));
-        }
-        top.add_child(label(c.plan ? `${c.name} · ${c.plan}` : c.name, 'agentail-project',
-            {ellipsize: true, xExpand: true}));
-        const where = c.sources || (c.via ? `via ${c.via}` : '');
-        const when = [where, c.updatedText].filter(t => t).join(' · ');
-        if (when)
-            top.add_child(label(when, 'agentail-age'));
-        box.add_child(top);
-        for (const r of c.rows) {
-            const row = hbox('agentail-usage-row', {x_expand: true});
-            // A minimum, not a width: the estimate must never cut a label short.
-            const name = label(r.label, 'agentail-usage-label');
-            name.set_style(`min-width: ${c.labelWidth}px;`);
-            row.add_child(name);
-            if (r.bar !== false) {  // a balance has no bar: label, then its text
-                const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
-                track.set_width(USAGE_BAR_WIDTH);
-                if (r.fraction > 0) {
-                    track.add_child(new St.Widget({
-                        style_class: `agentail-usage-fill agentail-usage-${r.level}`,
-                        width: Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction)),
-                        y_expand: true,
-                    }));
-                }
-                row.add_child(track);
-            }
-            if (r.percent !== null)
-                row.add_child(label(`${r.percent}%`, `agentail-usage-percent agentail-usage-text-${r.level}`));
-            row.add_child(label(r.resetText, 'agentail-usage-reset', {ellipsize: true, xExpand: true}));
-            box.add_child(row);
-        }
-        return box;
     }
 
     _hosts(rows) {

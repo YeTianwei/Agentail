@@ -60,17 +60,18 @@ NOTE = (
     "and asks api.anthropic.com for your 5-hour and weekly limits when a Claude turn ends or "
     "the panel opens, as Claude Code's /usage does. The endpoint is not documented by "
     "Anthropic, and the requests say they come from Agentail. Without it, Claude's limits "
-    "come only from Claude in a terminal (its status line). `agentail usage-api on` turns it "
-    "on for this computer; add --servers to also ask each server whose account this login "
-    "does not cover, with the server's own login, over ssh. `agentail usage-api off` turns "
-    "both off."
+    "come only from Claude in a terminal (its status line). Switch it in the panel's "
+    "settings (the gear, top right) or with `agentail usage-api on|off`. The servers have a "
+    "switch of their own (`--servers`): each server whose account this login does not cover "
+    "is then asked with the server's own login, over ssh. `agentail usage-api off --all` "
+    "turns both off."
 )
 # Shown by install-local while the user has not chosen.
 OFFER = (
     "Claude usage: limits come only from Claude in a terminal. To include VS Code and Claude "
     "Desktop sessions, Agentail can ask Anthropic with Claude Code's login; it is off until "
-    "you turn it on in the panel's Usage section or with `agentail usage-api on` "
-    "(`agentail usage-api status` explains what it reads)."
+    "you turn it on in the panel's settings (the gear, top right) or with `agentail usage-api "
+    "on` (`agentail usage-api status` explains what it reads)."
 )
 
 # limits[].kind -> window length in minutes. "weekly_scoped" is one model's own weekly

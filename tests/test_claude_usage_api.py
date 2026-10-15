@@ -718,17 +718,27 @@ def test_setting_round_trip_keeps_the_rest_of_the_file(runtime_env):
 
 
 def test_cli_usage_api_switches(runtime_env, capsys):
+    """Each switch on its own (what the panel's settings do), or both with --all."""
     from agentail import cli
 
+    def switches():
+        return config.load_usage_switches()
+
     assert cli.main(["usage-api", "on"]) == 0
-    assert config.load_usage_switches() == config.UsageSwitches(True, None)
+    assert switches() == config.UsageSwitches(True, None)
     assert "This computer: on. Servers: off." in capsys.readouterr().out
     assert cli.main(["usage-api", "on", "--servers"]) == 0
-    assert config.load_usage_switches() == config.UsageSwitches(True, True)
-    assert cli.main(["usage-api", "off", "--servers"]) == 0  # only the servers
-    assert config.load_usage_switches() == config.UsageSwitches(True, False)
-    assert cli.main(["usage-api", "off"]) == 0  # everything
-    assert config.load_usage_switches() == config.UsageSwitches(False, False)
+    assert switches() == config.UsageSwitches(True, True)
+    assert cli.main(["usage-api", "off"]) == 0  # this computer only
+    assert switches() == config.UsageSwitches(False, True)
+    assert cli.main(["usage-api", "off", "--servers"]) == 0
+    assert switches() == config.UsageSwitches(False, False)
+    assert cli.main(["usage-api", "on", "--all"]) == 0
+    assert switches() == config.UsageSwitches(True, True)
+    assert cli.main(["usage-api", "off", "--all"]) == 0
+    assert switches() == config.UsageSwitches(False, False)
+    with pytest.raises(SystemExit):
+        cli.main(["usage-api", "on", "--all", "--servers"])
 
 
 async def test_daemon_reports_the_switches_and_starts_off(runtime_env, tmp_path, fake_api, cred):
@@ -743,19 +753,11 @@ async def test_daemon_reports_the_switches_and_starts_off(runtime_env, tmp_path,
     try:
         r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
         snap = await _read(r)
-        assert snap["usage_api"]["claude"] == {
-            "state": api.OFF,
-            "detail": "",
-            "decided": False,
-            "servers": False,
-        }
+        assert snap["usage_api"]["claude"] == {"state": api.OFF, "detail": "", "servers": False}
         await d.handle("local", _stop_msg())
         await asyncio.sleep(0.3)
-        assert fake_api.count() == 0  # nothing asked before the user said yes
+        assert fake_api.count() == 0  # nothing asked before the user turns it on
 
-        config.set_claude_usage_api(False)  # "No thanks": still off, but decided
-        msg = await _until(r, lambda m: m["type"] == "usage_api_status")
-        assert msg["status"]["decided"] is True and msg["status"]["state"] == api.OFF
         config.set_claude_usage_api(servers=True)
         msg = await _until(r, lambda m: m["type"] == "usage_api_status")
         assert msg["status"]["servers"] is True and msg["status"]["state"] == api.OFF

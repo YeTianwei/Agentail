@@ -72,14 +72,17 @@
 6. **只查本机账号。** 远程服务器不读凭据;owner 已决定(2026-10-12)默认本机与服务器使用同一个账号,服务器上的 Claude 仍走 statusLine。
 7. **不改线协议、不改 hook。** 读数仍是 `UsageReading(host="local", agent="claude")`,USAGE 记录不变;UI 协议只为查询状态加了向后兼容的字段与消息(§4.1)。
 
-## 4. 开关:默认关闭,面板询问一次(owner 决定 2026-10-15)
+## 4. 开关:默认关闭,面板设置里开关(owner 决定 2026-10-15)
 
 > **2026-10-15 改为默认关闭**(推广前的安全评估,"安全 1"):默认开启意味着用户在不知情时,daemon 就拿 Claude Code 的 OAuth token 以 `User-Agent: agentail` 访问一个未公开的接口;是否允许第三方工具这样用由 Anthropic 决定,被限流或封号的风险落在用户身上;`.deb` 又会对机器上每个用户自动生效。现在:
 >
 > - `[usage] claude_api`(本机登录)和 `claude_api_servers`(各服务器自己的登录,经 ssh)两个开关,**都默认关闭**;只有布尔值算"已选择"。
-> - 两个键都没写过时,UI 协议的 `USAGE_API.decided` 为 false;GNOME 面板在见过 Claude(会话或读数)后,在 Usage 区问一次:「Turn on」/「Also on servers」(有服务器时)/「No thanks」,答案通过 `agentail usage-api on|off [--servers]` 写进 `config.toml`。说明文字写明接口未公开、请求标明来自 Agentail。
-> - `install-local` 在未选择时打印一行提示(`OFFER`),开启后才打印完整说明(`NOTE`);`doctor` 分别显示两个开关。
-> - 从 0.0.3 升级:没写过这个键的用户变为关闭,面板会问一次;用 `usage-api on` 明确开过的保持开启,但服务器那一侧要另外打开。
+> - GNOME 面板右上角(深浅色按钮左边)加齿轮,点开是设置页,里面是这两个开关,随时可改。每个开关下面直接写明它做什么:读哪个文件、发往哪里、接口未公开、请求标明来自 Agentail;打开开关就是用户同意的那一刻,所以说明不能藏在别处。开关通过 `agentail usage-api on|off [--servers]` 写进 `config.toml`(参数列表,不经 shell),点下后先显示新值并标"Saving…",以 daemon 广播的 `usage_api_status` 为准,失败则翻回并显示原因。没有服务器时服务器开关为灰色(已开着的仍可关)。
+> - 为了让只用 VS Code 的用户知道有这个功能:本机开关关闭且见过 Claude(会话或读数)时,Usage 区显示一行"Claude: terminal sessions only. More in Settings (⚙, top right)."。不弹提问卡片(最初的实现是问一次的卡片,owner 改为设置开关,2026-10-15)。
+> - UI 协议的 `USAGE_API` 新增 `servers`;`state` 为 `off` 即本机开关关闭。
+> - CLI:`on|off` 只作用于本机,`--servers` 只作用于服务器,`--all` 两个都改。
+> - `install-local` 在两个键都没写过时打印一行提示(`OFFER`),开启后才打印完整说明(`NOTE`);`doctor` 分别显示两个开关。
+> - 从 0.0.3 升级:没写过这个键的用户变为关闭;用 `usage-api on` 明确开过的保持开启,服务器开关一律从关闭开始。
 >
 > 下面是 2026-10-12 的原决定,保留作记录;"默认开启"和"面板上不放开关"两条已被上面取代。
 

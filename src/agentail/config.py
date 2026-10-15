@@ -170,7 +170,7 @@ def load_auto_setup(path: Path | None = None) -> bool:
 class UsageSwitches:
     """``[usage]`` in config.toml: may the daemon use Claude Code's login to ask Anthropic for
     Claude's limits (docs/usage-api-design.md)? Both are off until the user turns them on;
-    None means the user has not chosen (the panel then asks once).
+    None means the user has not chosen (install-local then mentions the switch).
 
         [usage]
         claude_api = true          # this computer's login

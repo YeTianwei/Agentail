@@ -159,10 +159,20 @@
 .agentail-footer { font-size: 12px; color: #8e8e94; padding: 0 4px 2px 4px; }
 .agentail-head { spacing: 8px; }
 
+/* settings */
+.agentail-head-buttons { spacing: 2px; }
+.agentail-settings { spacing: 4px; }
+.agentail-switch-button { padding: 6px 4px; border-radius: 10px; }
+.agentail-switch-button:hover, .agentail-switch-button:focus { background-color: rgba(255, 255, 255, 0.06); }
+.agentail-switch-row { spacing: 12px; }
+.agentail-switch-text { spacing: 3px; }
+.agentail-switch-title { font-size: 13px; font-weight: bold; }
+.agentail-switch-status { font-size: 12px; color: #ffbe6f; }
+.agentail-usage-hint { font-size: 12px; color: #9a9aa0; padding: 0 4px; }
+
 /* add server */
 .agentail-add { spacing: 6px; }
 .agentail-add-row { spacing: 8px; }
-.agentail-consent { spacing: 6px; }
 .agentail-add-title { font-size: 13px; font-weight: bold; }
 .agentail-add-note { font-size: 12px; color: #9a9aa0; }
 .agentail-btn {
@@ -252,6 +262,7 @@
 .agentail-light .agentail-chevron,
 .agentail-light .agentail-section,
 .agentail-light .agentail-add-note,
+.agentail-light .agentail-usage-hint,
 .agentail-light .agentail-empty-text { color: #77767b; }
 .agentail-light .agentail-status-running { color: #1c71d8; }
 .agentail-light .agentail-status-waiting { color: #1f8a4c; }
@@ -294,3 +305,5 @@
 .agentail-light .agentail-usage-text-off { color: #77767b; }
 .agentail-light .agentail-usage-reset { color: #77767b; }
 .agentail-light .agentail-card-stale .agentail-usage-fill { background-color: #9a9996; }
+.agentail-light .agentail-switch-button:hover, .agentail-light .agentail-switch-button:focus { background-color: rgba(0, 0, 0, 0.05); }
+.agentail-light .agentail-switch-status { color: #c64600; }

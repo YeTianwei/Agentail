@@ -134,13 +134,11 @@ class Daemon:
         # [usage] in config.toml (config.UsageSwitches): both off until the user turns them on.
         self._claude_api_on = False
         self._claude_servers_on = False
-        self._claude_decided = False
-        # The usage_api record of the UI protocol: how the Claude query is doing, and the
-        # switches (the panel asks once while "decided" is false).
+        # The usage_api record of the UI protocol: how the Claude query is doing ("off" when
+        # this computer's switch is off), and the servers' switch (the panel's settings show both).
         self.claude_api_status: dict[str, Any] = {
             "state": claude_api.OFF,
             "detail": "",
-            "decided": False,
             "servers": False,
         }
         self._dirty = False  # sessions changed since they were last saved
@@ -463,7 +461,7 @@ class Daemon:
         self._publish_claude_api_status(status)
 
     def _publish_claude_api_status(self, status: dict[str, Any]) -> None:
-        status = {**status, "decided": self._claude_decided, "servers": self._claude_servers_on}
+        status = {**status, "servers": self._claude_servers_on}
         if status == self.claude_api_status:
             return
         self.claude_api_status = status
@@ -481,7 +479,6 @@ class Daemon:
         if mtime != self._settings_mtime:
             self._settings_mtime = mtime
             switches = load_usage_switches(path)
-            self._claude_decided = switches.decided
             if switches.servers != self._claude_servers_on:
                 self._claude_servers_on = switches.servers
                 log.info("Claude usage on the servers %s", "on" if switches.servers else "off")

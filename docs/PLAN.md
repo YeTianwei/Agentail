@@ -265,7 +265,7 @@ git push origin main && git tag v0.0.2 && git push origin v0.0.2
 
 ✅ **A3-Gemini CLI 完成**(2026-10-12,未经真机验证):`adapters/gemini.py`(`SessionStart`、`BeforeAgent`→提交 prompt、`BeforeTool`/`AfterTool`、`Notification`(`ToolPermission`,命令取自 `details.command` / `details.filePath`)→需要你、`AfterAgent`→回合结束、`SessionEnd`;每次模型调用都触发的 `BeforeModel` 等不装);`install/gemini_config.py`(`timeout` 5000 毫秒,`matcher: ""`;`hooksConfig.enabled = false` 时安装和 doctor 都警告;带注释的 settings.json 不改并报错);注册表新增 `dir_env_is_parent`,`GEMINI_CLI_HOME` 本机和远程都按"替换 $HOME"处理;doctor 的配置警告改为对所有 agent 通用;图标取自 geminicli.com;测试 `tests/test_gemini.py`。安装后会提示 folder trust 可能让未信任目录里的会话不显示。
 
-✅ **A3b Claude 额度主动查询**(2026-10-12 加入 0.0.3,同日完成;真实接口已用本机 Pro 账号验证,面板与 systemd 下的 daemon 待你验证):statusLine 在 VS Code 扩展和 Claude Desktop 里不运行,只用 VS Code 时 Claude 额度永远不更新。改为用 Claude Code 自己的 OAuth 登录只读查询 `api.anthropic.com/api/oauth/usage`(已实测可用),由 Stop 和打开面板触发;默认开启(`config.toml` 的 `[usage] claude_api = false` 或 `agentail usage-api off` 关闭),只查本机账号。设计见 `docs/usage-api-design.md`,调研与其他项目的对比见 `docs/usage-notes.md` §2.4、§6。**2026-10-15 改为默认关闭**,面板询问一次,服务器另有开关 `claude_api_servers`(见 `usage-api-design.md` §4)。
+✅ **A3b Claude 额度主动查询**(2026-10-12 加入 0.0.3,同日完成;真实接口已用本机 Pro 账号验证,面板与 systemd 下的 daemon 待你验证):statusLine 在 VS Code 扩展和 Claude Desktop 里不运行,只用 VS Code 时 Claude 额度永远不更新。改为用 Claude Code 自己的 OAuth 登录只读查询 `api.anthropic.com/api/oauth/usage`(已实测可用),由 Stop 和打开面板触发;默认开启(`config.toml` 的 `[usage] claude_api = false` 或 `agentail usage-api off` 关闭),只查本机账号。设计见 `docs/usage-api-design.md`,调研与其他项目的对比见 `docs/usage-notes.md` §2.4、§6。**2026-10-15 改为默认关闭**,在面板设置(右上角齿轮)里开关,服务器另有开关 `claude_api_servers`(见 `usage-api-design.md` §4)。
 
 **下一步**:A5 发布(只含 Qoder),见下方「0.0.3 发布」。
 

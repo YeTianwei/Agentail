@@ -80,11 +80,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="turn the Claude usage query (Claude Code's login, api.anthropic.com) on or off",
     )
     ua.add_argument("action", choices=["on", "off", "status"])
-    ua.add_argument(
+    scope = ua.add_mutually_exclusive_group()
+    scope.add_argument(
         "--servers",
         action="store_true",
-        help="on: also ask servers with their own login (over ssh); off: turn only that off",
+        help="the servers' switch (each server's own login, over ssh) instead of this computer's",
     )
+    scope.add_argument("--all", action="store_true", help="both switches")
 
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
@@ -150,10 +152,12 @@ def main(argv: list[str] | None = None) -> int:
         from agentail import config, doctor
         from agentail.daemon import usage_claude_api as claude_api
 
-        if args.action == "on":
-            config.set_claude_usage_api(True, servers=True if args.servers else None)
-        elif args.action == "off":
-            config.set_claude_usage_api(None if args.servers else False, servers=False)
+        if args.action != "status":
+            on = args.action == "on"
+            config.set_claude_usage_api(
+                None if args.servers else on,
+                servers=on if args.servers or args.all else None,
+            )
         print(claude_api.NOTE)
         sw = config.load_usage_switches()
         print(

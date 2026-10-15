@@ -74,20 +74,22 @@ and red from 90 %.
 **Claude and your login (off until you turn it on).** Claude Code only hands its limits to the
 status line of an interactive terminal session; the VS Code extension and Claude Desktop never do.
 Agentail can ask `api.anthropic.com` for them itself, the way Claude Code's `/usage` does, with the
-access token of Claude Code's login in `~/.claude/.credentials.json`. It does so only after you say
-yes: the panel's Usage section asks once, or run `agentail usage-api on`. The token is then read
+access token of Claude Code's login in `~/.claude/.credentials.json`. It does so only after you
+turn it on: open the panel's settings (the gear next to the light/dark button, top right), or run
+`agentail usage-api on`. You can switch it off there at any time. The token is then read
 for each request and sent only to that address; it is never refreshed (an expired login waits until
 you next run `claude`), written anywhere or logged. Nothing else from the file is used.
 
-Before you say yes, know that Anthropic does not document this endpoint, that it may change, and
+Before you turn it on, know that Anthropic does not document this endpoint, that it may change, and
 that the requests say they come from Agentail, not from Claude Code. How Anthropic treats such
 requests from tools other than Claude Code is up to Anthropic.
 
-**Servers** have a switch of their own (`agentail usage-api on --servers`, or "Also on servers" in
-the panel). With it, a server whose Claude account is not the one on this computer is asked over
-ssh with the server's own login: a short Python script runs there, nothing is installed, and the
-token never leaves the server. `agentail usage-api off` turns both off; `agentail doctor` shows how
-the query is doing.
+**Servers** have a switch of their own, next to it in the settings (`agentail usage-api on
+--servers` in a terminal). With it, a server whose Claude account is not the one on this computer
+is asked over ssh with the server's own login: a short Python script runs there, nothing is
+installed, and the token never leaves the server. `agentail usage-api off --all` turns both off;
+`agentail doctor` shows how the query is doing. While this computer's switch is off, the Usage
+section says so in one line.
 
 Agentail also wraps your status line command, so terminal sessions on your servers report too: it
 still gets the same input and prints the same output, and uninstalling puts it back. Agentail
@@ -232,7 +234,7 @@ the panel, and prints the command that fixes each problem.
 |---|---|
 | `agentail status` | machines, usage limits and sessions in the terminal |
 | `agentail tail` | live session changes |
-| `agentail usage-api on\|off\|status [--servers]` | the Claude usage query with Claude Code's login (off until turned on) |
+| `agentail usage-api on\|off\|status [--servers\|--all]` | the Claude usage query with Claude Code's login, this computer's or the servers' switch (both off until turned on; also in the panel's settings) |
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |
 
