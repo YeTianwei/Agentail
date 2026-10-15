@@ -172,3 +172,51 @@ def test_an_upgrade_to_0_0_3_installs_qoder_only(isolated_home, monkeypatch, tmp
     assert _settings(isolated_home) == {"model": "opus"}  # Claude, uninstalled before, untouched
     state = json.loads(paths.state_dir().joinpath("setup.json").read_text())
     assert state["agents"] == ["claude", "codex", "qoder"]
+
+
+def _set_up_once(isolated_home, monkeypatch, tmp_path):
+    """A first start with Claude, then the hook script of an older version."""
+    _env(isolated_home, monkeypatch, tmp_path)
+    (isolated_home / ".claude").mkdir()
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    hook = paths.agentail_home() / paths.HOOK_FILENAME
+    hook.write_text("# agentail-hook from an older version\n")
+    hook.chmod(0o644)
+    return hook
+
+
+def test_a_changed_hook_script_is_updated_without_touching_the_configs(
+    isolated_home, monkeypatch, tmp_path
+):
+    from agentail.install import local
+
+    hook = _set_up_once(isolated_home, monkeypatch, tmp_path)
+    settings = isolated_home / ".claude" / "settings.json"
+    before = settings.read_bytes()
+    monkeypatch.setattr(local, "install_local", lambda **kw: (_ for _ in ()).throw(AssertionError))
+    lines = []
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lines.append)
+    assert hook.read_bytes() == paths.hook_script_source().read_bytes()
+    assert hook.stat().st_mode & 0o777 == 0o700
+    assert settings.read_bytes() == before
+    assert lines == [f"hook script: updated {hook}"]
+    assert not list(hook.parent.glob(".*agentail-tmp*"))
+
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lines.append)
+    assert len(lines) == 1  # up to date: not written again
+
+
+def test_the_hook_script_is_not_created_or_updated_when_not_wanted(
+    isolated_home, monkeypatch, tmp_path
+):
+    hook = _set_up_once(isolated_home, monkeypatch, tmp_path)
+    (tmp_path / "cfg" / "agentail").mkdir(parents=True)
+    (tmp_path / "cfg" / "agentail" / "config.toml").write_text("[setup]\nauto = false\n")
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    assert hook.read_text() == "# agentail-hook from an older version\n"  # [setup] auto = false
+
+    (tmp_path / "cfg" / "agentail" / "config.toml").unlink()
+    hook.unlink()  # as after `agentail uninstall-local`
+    assert firstrun.refresh_hook_script(out=lambda s: None) is False
+    firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
+    assert not hook.exists()

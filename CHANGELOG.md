@@ -60,6 +60,10 @@
 - **Notifications on GNOME 45.** The extension used the notification API of GNOME 46 and later,
   which GNOME 45 does not have; it now uses the older calls there. Vertical boxes use
   `orientation` where GNOME has it (48 and later) instead of the deprecated `vertical`.
+- **The installed hook script follows upgrades.** `~/.agentail/agentail-hook.py` was only rewritten
+  when an upgrade also changed the agent configs, so `agentail doctor` kept saying the hook script was
+  "from another agentail version". The daemon now replaces it with the packaged copy at start when
+  they differ (unless `[setup] auto = false`); the agent configs are not touched.
 - **Claude plan name after an upgrade.** The plan was read from Claude Code's login file, which
   keeps the plan you had at `/login`; after upgrading to Max the card still said "Pro". The daemon
   now asks Anthropic's profile endpoint for the plan once when it starts and again whenever the login

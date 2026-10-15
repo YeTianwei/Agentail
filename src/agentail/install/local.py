@@ -75,9 +75,14 @@ def _real(path: Path) -> Path:
     return path.resolve() if path.is_symlink() else path
 
 
-def atomic_write(path: Path, data: bytes, default_mode: int = 0o600) -> None:
+def atomic_write(
+    path: Path, data: bytes, default_mode: int = 0o600, mode: int | None = None
+) -> None:
+    """Write ``data`` through a temporary file and a rename. The file keeps its mode
+    (``default_mode`` for a new one) unless ``mode`` is given."""
     real = _real(path)
-    mode = real.stat().st_mode & 0o777 if real.exists() else default_mode
+    if mode is None:
+        mode = real.stat().st_mode & 0o777 if real.exists() else default_mode
     real.parent.mkdir(parents=True, exist_ok=True)
     tmp = real.with_name(f".{real.name}.agentail-tmp.{os.getpid()}")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)

@@ -13,6 +13,10 @@ and the daemon then does the per-user part once:
 - enables the GNOME Shell extension. A shell that started before the package was installed
   does not know the extension until the next login; then a notification says so.
 
+An upgrade that only changes the hook script needs no config change: at every start the
+installed ``~/.agentail/agentail-hook.py``, if there is one, is replaced by the bundled copy
+when they differ (the agent configs are not touched).
+
 An upgrade that writes something new into the agent configs bumps ``SETUP_VERSION``: the
 hooks are then merged again, once, for every agent whose config still has them (0.0.2 adds the
 Claude status line wrapper). An agent the user uninstalled stays uninstalled.
@@ -81,6 +85,24 @@ def _has_our_hooks(path: Path) -> bool:
     return isinstance(doc, dict) and hookjson.has_hooks(doc)
 
 
+def refresh_hook_script(out: Callable[[str], None] = log.info) -> bool:
+    """Replace the installed hook script with the bundled one when it exists and differs
+    (an upgrade that changed only the script). True if it was rewritten."""
+    dest = local.hook_dest()
+    try:
+        if not dest.is_file():
+            return False  # never installed, or uninstalled: install_local writes it
+        src = paths.hook_script_source().read_bytes()
+        if dest.read_bytes() == src:
+            return False
+        atomic_write(dest, src, mode=0o700)
+    except OSError as exc:
+        log.warning("could not update %s: %s; run `agentail install-local`", dest, exc)
+        return False
+    out(f"hook script: updated {dest}")
+    return True
+
+
 def notify(title: str, body: str, run: gnome.Runner = gnome._run) -> None:
     """A desktop notification through the notification daemon's D-Bus API."""
     run(
@@ -101,6 +123,7 @@ def run_setup(
 ) -> None:
     if not load_auto_setup():
         return
+    refresh_hook_script(out)
     state = _load_state()
     install_id = _install_id()
     if install_id and state.get("install_id") != install_id:
