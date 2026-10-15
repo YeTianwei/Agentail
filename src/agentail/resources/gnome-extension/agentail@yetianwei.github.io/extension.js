@@ -540,9 +540,6 @@ class AgentailIndicator extends PanelMenu.Button {
             card.add_child(err);
         }
         group.add_child(card);
-        const footer = label(settings.footer, 'agentail-add-note');
-        footer.clutter_text.line_wrap = true;
-        group.add_child(footer);
         page.add_child(group);
         return page;
     }

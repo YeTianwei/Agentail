@@ -356,10 +356,7 @@ test('settings: the two switches of the Claude usage query', () => {
     // once a query succeeded, the switch says when
     st.apply({type: 'usage_api_status', agent: 'claude', status: {state: 'ok', servers: true, ok_ts: NOW - 42}});
     eq(M.usageSettings(st, {}, NOW).rows[0].status, 'Last checked 42s ago');
-    ok(M.usageSettings(st).intro.includes('only from terminal sessions'), 'intro');
-    // what turning one on means is said once, below the switches
-    ok(M.usageSettings(st).footer.includes('does not document'), 'footer');
-    ok(M.usageSettings(st).footer.includes('marked as Agentail'), 'footer');
+    ok(M.usageSettings(st).intro.includes('only in terminal sessions'), 'intro');
     // a choice the daemon has not reported yet shows as saving, until it does
     let pending = {servers: false};
     eq(M.usageSettings(st, pending).rows[1].on, false);

@@ -635,20 +635,15 @@ export function usageSettings(state, pending = {}, now = 0) {
     }
     const servers = row('servers', "Ask Anthropic with each server's login",
         [hasServers
-            ? 'Only for a server logged in to a different Claude account than this ' +
-              'computer. Runs over ssh; the token stays on the server.'
-            : 'Only for servers logged in to a different Claude account. Add a server first.'],
+            ? 'For servers with a different Claude account. The token stays on the server.'
+            : 'For servers with a different Claude account. Add a server first.'],
         hasServers || actual?.servers === true);
     servers.status = '';
     return {
         available: actual !== null,
-        intro: 'Claude Code reports its limits only from terminal sessions. To also see them ' +
-            'while you use VS Code or Claude Desktop, Agentail can ask Anthropic for them.',
+        intro: 'Claude reports its limits only in terminal sessions. Agentail can also ask ' +
+            'Anthropic for them.',
         rows: [local, servers],
-        // What turning one on means, in one place (docs/usage-api-design.md section 4).
-        footer: "This uses the endpoint behind Claude Code's /usage. Anthropic does not " +
-            'document it, and the requests are marked as Agentail. The login token is read ' +
-            'for each request and never stored.',
     };
 }
 

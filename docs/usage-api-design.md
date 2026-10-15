@@ -77,10 +77,10 @@
 > **2026-10-15 改为默认关闭**(推广前的安全评估,"安全 1"):默认开启意味着用户在不知情时,daemon 就拿 Claude Code 的 OAuth token 以 `User-Agent: agentail` 访问一个未公开的接口;是否允许第三方工具这样用由 Anthropic 决定,被限流或封号的风险落在用户身上;`.deb` 又会对机器上每个用户自动生效。现在:
 >
 > - `[usage] claude_api`(本机登录)和 `claude_api_servers`(各服务器自己的登录,经 ssh)两个开关,**都默认关闭**;只有布尔值算"已选择"。
-> - GNOME 面板右上角(深浅色按钮左边)加齿轮,点开是设置页,里面是这两个开关,随时可改。每个开关下一行说明;两个开关下方用一行写明它们共同的含义:问 api.anthropic.com(同 /usage)、接口未公开、请求标明来自 Agentail、token 不保存。打开开关就是用户同意的那一刻,所以这些不能藏在别处(owner 嫌最初每个开关下两段太长,2026-10-15 压缩成现在这样)。开关通过 `agentail usage-api on|off [--servers]` 写进 `config.toml`(参数列表,不经 shell),点下后先显示新值并标"Saving…",以 daemon 广播的 `usage_api_status` 为准,失败则翻回并显示原因。没有服务器时服务器开关为灰色(已开着的仍可关)。
+> - GNOME 面板右上角(深浅色按钮左边)加齿轮,点开是设置页,里面是这两个开关,随时可改。每个开关下一行说明(owner 嫌最初每个开关下两段太长,2026-10-15 压缩)。开关通过 `agentail usage-api on|off [--servers]` 写进 `config.toml`(参数列表,不经 shell),点下后先显示新值并标"Saving…",以 daemon 广播的 `usage_api_status` 为准,失败则翻回并显示原因。没有服务器时服务器开关为灰色(已开着的仍可关)。
 > - 为了让只用 VS Code 的用户知道有这个功能:本机开关关闭且见过 Claude(会话或读数)时,Usage 区显示一行"Claude: terminal sessions only. More in Settings (⚙, top right)."。不弹提问卡片(最初的实现是问一次的卡片,owner 改为设置开关,2026-10-15)。
 > - UI 协议的 `USAGE_API` 新增 `servers`;`state` 为 `off` 即本机开关关闭。
-> - 关掉开关要马上看得出效果(owner 反馈 2026-10-15:开关切换后 Usage 区毫无变化,因为 gpu7 终端会话的状态栏报的是同一账号的同一组数字,而关闭时旧的接口读数又留着,30 分钟后才变灰)。所以每条读数带 `source`(`api` / `server_api` / `status_line` / `app_server` / `session_files`),关闭开关时 daemon 删掉该开关查到的读数并发 `usage_remove`;每张用量卡片底部写明数字来自哪里;设置页的本机开关下显示"Last checked 42s ago"。设置页文字也重写得更直白:开头一句说明为什么需要它,每个开关说清楚做什么、什么时候查,底部一句写接口未公开、请求标明来自 Agentail、token 不保存。
+> - 关掉开关要马上看得出效果(owner 反馈 2026-10-15:开关切换后 Usage 区毫无变化,因为 gpu7 终端会话的状态栏报的是同一账号的同一组数字,而关闭时旧的接口读数又留着,30 分钟后才变灰)。所以每条读数带 `source`(`api` / `server_api` / `status_line` / `app_server` / `session_files`),关闭开关时 daemon 删掉该开关查到的读数并发 `usage_remove`;每张用量卡片底部写明数字来自哪里;设置页的本机开关下显示"Last checked 42s ago"。设置页文字也重写得更直白:开头一句说明为什么需要它,每个开关一句说清楚做什么、什么时候查。owner 认为底部那句(接口未公开、请求标明来自 Agentail、token 不保存)没有必要,已删去;这些说明保留在 README 的 Usage 一节。
 > - CLI:`on|off` 只作用于本机,`--servers` 只作用于服务器,`--all` 两个都改。
 > - `install-local` 在两个键都没写过时打印一行提示(`OFFER`),开启后才打印完整说明(`NOTE`);`doctor` 分别显示两个开关。
 > - 从 0.0.3 升级:没写过这个键的用户变为关闭;用 `usage-api on` 明确开过的保持开启,服务器开关一律从关闭开始。
