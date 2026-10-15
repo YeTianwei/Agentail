@@ -161,6 +161,17 @@ def test_setup_runs_the_three_installers(monkeypatch):
     assert seen == ["local", "start", "gnome"]
 
 
+def test_extension_calls_only_methods_it_defines():
+    """model.js is tested under gjs, extension.js is not: at least every ``this._name(...)``
+    it calls must be a method it defines (a missing one broke the whole panel once)."""
+    code = re.sub(r"//.*", "", (EXT / "extension.js").read_text())
+    called = set(re.findall(r"this\.(_\w+)\(", code))
+    defined = set(re.findall(r"^ {4}(_\w+)\([^)]*\) \{", code, re.M))
+    callbacks = set(re.findall(r"this\.(_\w+) = ", code))  # e.g. UiClient's _onDisconnect
+    assert called and defined
+    assert called <= defined | callbacks, sorted(called - defined - callbacks)
+
+
 def test_extension_spawns_only_argv_lists():
     """The "Add server" button runs the agentail tool: no shell, no command line strings."""
     code = re.sub(r"//.*", "", (EXT / "extension.js").read_text())

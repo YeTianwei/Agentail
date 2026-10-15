@@ -665,6 +665,50 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
+    _usageCard(c) {
+        const box = vbox(`agentail-card agentail-usage${c.stale ? ' agentail-card-stale' : ''}`,
+            {x_expand: true});
+        const top = hbox('agentail-card-top', {x_expand: true});
+        if (KNOWN_AGENTS.includes(c.agent)) {
+            top.add_child(new St.Icon({
+                gicon: this._gicon(`agent-${c.agent}.png`),
+                icon_size: 16,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        }
+        top.add_child(label(c.plan ? `${c.name} · ${c.plan}` : c.name, 'agentail-project',
+            {ellipsize: true, xExpand: true}));
+        const where = c.sources || (c.via ? `via ${c.via}` : '');
+        const when = [where, c.updatedText].filter(t => t).join(' · ');
+        if (when)
+            top.add_child(label(when, 'agentail-age'));
+        box.add_child(top);
+        for (const r of c.rows) {
+            const row = hbox('agentail-usage-row', {x_expand: true});
+            // A minimum, not a width: the estimate must never cut a label short.
+            const name = label(r.label, 'agentail-usage-label');
+            name.set_style(`min-width: ${c.labelWidth}px;`);
+            row.add_child(name);
+            if (r.bar !== false) {  // a balance has no bar: label, then its text
+                const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
+                track.set_width(USAGE_BAR_WIDTH);
+                if (r.fraction > 0) {
+                    track.add_child(new St.Widget({
+                        style_class: `agentail-usage-fill agentail-usage-${r.level}`,
+                        width: Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction)),
+                        y_expand: true,
+                    }));
+                }
+                row.add_child(track);
+            }
+            if (r.percent !== null)
+                row.add_child(label(`${r.percent}%`, `agentail-usage-percent agentail-usage-text-${r.level}`));
+            row.add_child(label(r.resetText, 'agentail-usage-reset', {ellipsize: true, xExpand: true}));
+            box.add_child(row);
+        }
+        return box;
+    }
+
     // Runs `agentail usage-api on|off [--servers]` (argv list, no shell). The switch shows the
     // new value at once; the daemon confirms it within seconds (M.settlePending).
     _setUsageApi(id, on) {
