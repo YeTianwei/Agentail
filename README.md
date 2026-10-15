@@ -47,6 +47,8 @@ Agentail only watches. You still answer agents in their own terminal.
   account, no cloud, no telemetry. Agentail talks to no online service of its own accord; the
   Claude usage query does, if you turn it on (Codex's limits are asked by Codex itself).
 - 🌗 **Light and dark.** One click, top right of the panel.
+- 🌐 **English and Chinese.** The panel and its notifications follow your desktop's language;
+  pick one in the panel's settings to override it.
 - 🆓 **Open source.** MIT licensed, written from scratch.
 
 ## 👀 At a glance

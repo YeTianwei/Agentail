@@ -11,6 +11,13 @@
   (`docs/protocol.md`); a 0.0.4 daemon ignores it, so the button does nothing until the daemon is
   upgraded too.
 
+- **The panel in Chinese.** The panel and its notifications are in English or Chinese: they
+  follow the desktop's language (Chinese when it is the first of English and Chinese in
+  `LANGUAGE`/`LANG`, else English), or what you pick under Language in the panel's settings
+  (System / English / 中文, saved in `~/.config/agentail/panel.json`, applied at once). What
+  comes from the daemon and the `agentail` tool stays in English: a server's error details, the
+  result line of adding a server, and the command line.
+
 ### Changed
 
 - **Removing a server is a trash can too**, in place of the ✕ at the end of its row.

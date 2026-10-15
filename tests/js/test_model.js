@@ -1,10 +1,14 @@
 // Tests for the GNOME extension's model.js. Run by tests/test_gnome_extension.py:
 //   gjs -m tests/js/test_model.js <path to model.js>
 // Prints one line per failure and exits 1 if any test failed.
+import GLib from 'gi://GLib';
 import System from 'system';
 
 const [modelPath] = ARGV;
 const M = await import(`file://${modelPath}`);
+const extDir = GLib.path_get_dirname(modelPath);
+const I = await import(`file://${extDir}/i18n.js`);
+const source = name => new TextDecoder().decode(GLib.file_get_contents(`${extDir}/${name}`)[1]);
 
 const NOW = 10000;
 let failures = 0;
@@ -511,6 +515,77 @@ test('the read loop goes on after a message handler throws', () => {
     eq(handled, ['session_update', 'snapshot']);
     eq(errors, ['no such API for notify', 'no such API for session_update']);
     ok(st.connected, 'the snapshot after the failures was applied');
+});
+
+test('language: choice, then the desktop, then English', () => {
+    eq(I.resolveLanguage('zh', ['en_US.UTF-8']), 'zh');
+    eq(I.resolveLanguage('en', ['zh_CN.UTF-8']), 'en');
+    eq(I.resolveLanguage(null, ['zh_CN.UTF-8', 'zh_CN', 'zh', 'C']), 'zh');
+    eq(I.resolveLanguage(null, ['de_DE.UTF-8', 'de', 'zh_TW', 'C']), 'zh');
+    eq(I.resolveLanguage(null, ['de_DE.UTF-8', 'de', 'C']), 'en');
+    eq(I.resolveLanguage('fr', []), 'en');
+    eq(I.resolveLanguage(null, undefined), 'en');
+});
+
+test('translation and placeholders', () => {
+    try {
+        I.setLanguage('zh');
+        eq(I.language(), 'zh');
+        eq(I._('Your turn'), '轮到你');
+        eq(I._('{n} running', {n: 3}), '3 个运行中');
+        eq(I._('not a key {x}', {x: '{y}', y: 1}), 'not a key {y}');  // one pass
+        eq(I._('constructor'), 'constructor');
+        I.setLanguage('xx');
+        eq(I.language(), 'en');
+        eq(I._('{n} running', {n: 3}), '3 running');
+    } finally {
+        I.setLanguage('en');
+    }
+});
+
+test('the panel in Chinese', () => {
+    try {
+        I.setLanguage('zh');
+        const st = make([
+            s('local', 'w', 'waiting_input', {last: NOW - 360}),
+            s('gpu1', 'x', 'stale', {prompt: ''}),
+            s('gpu1', 'e', 'ended'),
+        ]);
+        const cards = M.agentGroups(st, NOW)[0].cards;
+        eq(cards.map(c => [c.statusLabel, c.host, c.age]), [['轮到你', '本机', '6分钟'], ['已过时', 'gpu1', '5秒']]);
+        eq(cards[1].subtitle, '最后一次看到时在运行');
+        eq(M.summary(st).text, '1 个轮到你');
+        eq(M.footer(st), {ended: '最近结束了 1 个'});
+        eq([600, 7800, 90000].map(M.durationText), ['10分钟', '2小时10分', '1天1小时']);
+        eq([300, 10080, 0].map(M.windowLabel), ['5小时', '每周', '限额']);
+        eq(M.hostRows(st)[0].stateText, '已连接');
+        eq(M.extraRow({label: 'Extra usage', kind: 'spent', amount: 2, limit: 10, currency: 'USD'}).label, '额外用量');
+        eq(M.extraRow({label: 'Bonus', kind: 'spent', amount: 2, currency: 'USD'}).label, 'Bonus');
+        eq(M.usageLabelWidth(['每周 · Fable']), M.usageLabelWidth(['xxxx · Fable']));  // wide: two columns
+        const n = M.notice({type: 'notify', kind: 'turn_done', key: {host: 'local', agent: 'claude', session_id: 'w'}}, st);
+        eq([n.title, n.body], ['app 已完成', '本机']);
+        eq(M.addedMessage('gpu7', ''), '已添加 gpu7。');
+        eq(M.addHostMessage('', false), '失败');
+    } finally {
+        I.setLanguage('en');
+    }
+});
+
+test('every string marked for translation has a Chinese entry', () => {
+    const code = ['model.js', 'extension.js'].map(source).join('\n');
+    ok(!/(?<![\w$.])N?_\(\s*`/.test(code), 'no template literals as keys');
+    const keys = new Set();
+    const re = /(?<![\w$.])N?_\(\s*(?:'([^'\\\n]*)'|"([^"\\\n]*)")/g;
+    for (const m of code.matchAll(re))
+        keys.add(m[1] ?? m[2]);
+    ok(keys.size > 120, `found only ${keys.size} strings`);
+    const holes = text => [...text.matchAll(/\{(\w+)\}/g)].map(m => m[1]).sort();
+    for (const key of keys) {
+        ok(Object.hasOwn(I.ZH, key), `no Chinese for "${key}"`);
+        eq(holes(I.ZH[key]), holes(key), `placeholders of "${key}"`);
+    }
+    for (const key of Object.keys(I.ZH))
+        ok(keys.has(key), `unused Chinese entry "${key}"`);
 });
 
 for (const [name, fn] of tests) {

@@ -57,7 +57,7 @@ def test_inactive_texts_match_python():
 
     src = (EXT / "model.js").read_text()
     body = re.search(r"export const INACTIVE_TEXT = \{(.*?)\};", src, re.S).group(1)
-    assert dict(re.findall(r"(\w+): '([^']*)'", body)) == INACTIVE_TEXT
+    assert dict(re.findall(r"(\w+): (?:N_\()?'([^']*)'", body)) == INACTIVE_TEXT
 
 
 def test_referenced_icons_exist():

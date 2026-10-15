@@ -167,6 +167,13 @@
 .agentail-settings-subtitle { font-size: 12.5px; font-weight: bold; color: #c0bfc4; padding: 2px 4px 0 4px; }
 .agentail-settings-intro { padding: 0 4px 2px 4px; }
 .agentail-switch-button { padding: 6px 4px; border-radius: 10px; }
+.agentail-lang-row { spacing: 6px; }
+.agentail-btn-lang { padding: 6px 8px; font-size: 12.5px; text-align: center; color: #c0bfc4; }
+.agentail-btn-lang-on, .agentail-btn-lang-on:hover, .agentail-btn-lang-on:focus {
+  background-color: rgba(98, 160, 234, 0.30);
+  color: #ffffff;
+  font-weight: bold;
+}
 .agentail-switch-button:hover, .agentail-switch-button:focus { background-color: rgba(255, 255, 255, 0.06); }
 .agentail-switch-row { spacing: 12px; }
 .agentail-switch-text { spacing: 3px; }
@@ -315,3 +322,7 @@
 .agentail-light .agentail-switch-status { color: #c64600; }
 .agentail-light .agentail-settings-divider { background-color: rgba(0, 0, 0, 0.08); }
 .agentail-light .agentail-settings-subtitle { color: #3d3d42; }
+.agentail-light .agentail-btn-lang { color: #3d3d42; }
+.agentail-light .agentail-btn-lang-on,
+.agentail-light .agentail-btn-lang-on:hover,
+.agentail-light .agentail-btn-lang-on:focus { background-color: rgba(28, 113, 216, 0.16); color: #1a4f91; }

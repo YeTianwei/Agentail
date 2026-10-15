@@ -7,13 +7,17 @@
 // Every string that came from the daemon is passed through clean() (no control
 // characters, bounded length) before it reaches a view object, and the panel
 // renders it as plain text only (St.Label text, never markup).
+//
+// Text of our own goes through _() (i18n.js): in the language set with setLanguage().
+
+import {_, N_} from './i18n.js';
 
 export const STATUS = {
-    needs_attention: {label: 'Needs you', order: 0, style: 'attention'},
-    waiting_input: {label: 'Your turn', order: 1, style: 'waiting'},
-    running: {label: 'Running', order: 2, style: 'running'},
-    stale: {label: 'Out of date', order: 3, style: 'stale'},
-    ended: {label: 'Ended', order: 4, style: 'ended'},
+    needs_attention: {label: N_('Needs you'), order: 0, style: 'attention'},
+    waiting_input: {label: N_('Your turn'), order: 1, style: 'waiting'},
+    running: {label: N_('Running'), order: 2, style: 'running'},
+    stale: {label: N_('Out of date'), order: 3, style: 'stale'},
+    ended: {label: N_('Ended'), order: 4, style: 'ended'},
 };
 
 // Tunnel state -> level: ok | pending | error | off.
@@ -28,13 +32,13 @@ const HOST_LEVEL = {
 };
 
 const HOST_STATE_TEXT = {
-    local: 'local',
-    connected: 'connected',
-    connecting: 'connecting',
-    backoff: 'reconnecting',
-    auth_failed: 'login failed',
-    error: 'error',
-    stopped: 'not set up',
+    local: N_('local'),
+    connected: N_('connected'),
+    connecting: N_('connecting'),
+    backoff: N_('reconnecting'),
+    auth_failed: N_('login failed'),
+    error: N_('error'),
+    stopped: N_('not set up'),
 };
 
 // Same names and order as agentail.agents.AGENTS (tests/test_gnome_extension.py checks it).
@@ -95,12 +99,12 @@ export function ageText(ts, now) {
         return '';
     const secs = Math.max(0, Math.floor(now - ts));
     if (secs < 60)
-        return `${secs}s`;
+        return _('{n}s', {n: secs});
     if (secs < 3600)
-        return `${Math.floor(secs / 60)}m`;
+        return _('{n}m', {n: Math.floor(secs / 60)});
     if (secs < 86400)
-        return `${Math.floor(secs / 3600)}h`;
-    return `${Math.floor(secs / 86400)}d`;
+        return _('{n}h', {n: Math.floor(secs / 3600)});
+    return _('{n}d', {n: Math.floor(secs / 86400)});
 }
 
 export function basename(path) {
@@ -210,7 +214,7 @@ export class UiState {
 
     hostTitle(alias) {
         if (alias === 'local')
-            return 'This computer';
+            return _('This computer');
         const h = this.hosts.get(alias);
         const name = h ? clean(h.name, 30) : '';
         return name && name !== alias ? `${name} (${alias})` : alias;
@@ -228,7 +232,7 @@ export function summary(state) {
     if (!state.connected) {
         return {
             level: 'offline', counts: {attention: 0, running: 0, waiting: 0},
-            agents: [], total: 0, lead: '', text: 'Not connected', hostsDown: [],
+            agents: [], total: 0, lead: '', text: _('Not connected'), hostsDown: [],
         };
     }
     const counts = {attention: 0, running: 0, waiting: 0};
@@ -255,13 +259,15 @@ export function summary(state) {
     }
     const parts = [];
     if (counts.attention)
-        parts.push(`${counts.attention} needs you`);
+        parts.push(_('{n} needs you', {n: counts.attention}));
     if (counts.running)
-        parts.push(`${counts.running} running`);
+        parts.push(_('{n} running', {n: counts.running}));
     if (counts.waiting)
-        parts.push(`${counts.waiting} waiting`);
-    if (hostsDown.length)
-        parts.push(`${hostsDown.length} host${hostsDown.length > 1 ? 's' : ''} unreachable`);
+        parts.push(_('{n} waiting', {n: counts.waiting}));
+    if (hostsDown.length) {
+        const n = hostsDown.length;
+        parts.push(n > 1 ? _('{n} hosts unreachable', {n}) : _('{n} host unreachable', {n}));
+    }
     let level = 'idle';
     if (counts.attention)
         level = 'attention';
@@ -272,7 +278,7 @@ export function summary(state) {
     return {
         level, counts, agents: sortAgents(agents), lead,
         total: counts.attention + counts.running + counts.waiting,
-        text: parts.join(' · ') || 'No active sessions', hostsDown,
+        text: parts.join(' · ') || _('No active sessions'), hostsDown,
     };
 }
 
@@ -287,18 +293,20 @@ export function card(s, now) {
     if (status === 'needs_attention' && message)
         subtitle = message;
     else if (status === 'stale')
-        subtitle = prompt || 'Last seen running';
+        subtitle = prompt || _('Last seen running');
+    const local = keyOf(s.key)[0] === 'local';
     return {
         id: sid,
         key: wireKey(s.key),
         agent,
         agentName: AGENT_NAME[agent] ?? agent,
-        host: keyOf(s.key)[0] === 'local' ? 'This computer' : keyOf(s.key)[0],
+        local,
+        host: local ? _('This computer') : keyOf(s.key)[0],
         project: clean(basename(s.cwd), LIMITS.project) || '?',
         cwd: clean(s.cwd),
         subtitle,
         status,
-        statusLabel: STATUS[status].label,
+        statusLabel: _(STATUS[status].label),
         style: STATUS[status].style,
         tool: clean(s.tool, 30),
         toolDetail: clean(s.tool_detail, LIMITS.detail),
@@ -359,7 +367,8 @@ export function hostRows(state) {
             alias,
             title: state.hostTitle(alias),
             level,
-            stateText: HOST_STATE_TEXT[hostState] ?? (hostState || 'unknown'),
+            stateText: Object.hasOwn(HOST_STATE_TEXT, hostState)
+                ? _(HOST_STATE_TEXT[hostState]) : hostState || _('unknown'),
             problem: level === 'pending' || level === 'error'
                 ? clean(h.detail, LIMITS.hostDetail) : '',
             sessions: live.get(alias) ?? 0,
@@ -373,14 +382,14 @@ export function hostRows(state) {
 // "5h", "Week", "2d" ... for a window length in minutes.
 export function windowLabel(minutes) {
     if (typeof minutes !== 'number' || !(minutes > 0))
-        return 'Limit';
+        return _('Limit');
     if (minutes === 10080)
-        return 'Week';
+        return _('Week');
     if (minutes % 1440 === 0)
-        return `${minutes / 1440}d`;
+        return _('{n}d', {n: minutes / 1440});
     if (minutes % 60 === 0)
-        return `${minutes / 60}h`;
-    return `${Math.floor(minutes)}m`;
+        return _('{n}h', {n: minutes / 60});
+    return _('{n}m', {n: Math.floor(minutes)});
 }
 
 // "2h 10m", "4d 3h", "45m": the two largest units.
@@ -390,10 +399,10 @@ export function durationText(secs) {
     const hours = Math.floor((secs % 86400) / 3600);
     const minutes = Math.floor((secs % 3600) / 60);
     if (days)
-        return `${days}d ${hours}h`;
+        return _('{d}d {h}h', {d: days, h: hours});
     if (hours)
-        return `${hours}h ${minutes}m`;
-    return `${Math.max(minutes, 1)}m`;
+        return _('{h}h {m}m', {h: hours, m: minutes});
+    return _('{n}m', {n: Math.max(minutes, 1)});
 }
 
 // "max_5x" -> "Max 5x", "plus" -> "Plus".
@@ -405,10 +414,14 @@ export function planText(plan) {
     return words.join(' ');
 }
 
+// Wide characters (CJK) take about two columns.
+const WIDE = /[\u1100-\u115f\u2e80-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6]/u;
+const columns = text => Array.from(text).reduce((n, ch) => n + (WIDE.test(ch) ? 2 : 1), 0);
+
 // The label column of a usage card: wide enough for its longest label ("Week · Fable"),
 // estimated from the character count since St cannot measure text before it is shown.
 export function usageLabelWidth(labels, charWidth = 6.6, min = 34, max = 130) {
-    const longest = Math.max(0, ...labels.map(l => Array.from(l).length));
+    const longest = Math.max(0, ...labels.map(columns));
     return Math.min(max, Math.max(min, Math.ceil(longest * charWidth + 4)));
 }
 
@@ -418,7 +431,7 @@ function usageRow(w, now) {
     const resetsAt = typeof w.resets_at === 'number' && w.resets_at > 0 ? w.resets_at : 0;
     if (resetsAt && resetsAt <= now) {
         // The window has reset since the last reading: the old percentage means nothing.
-        return {label, percent: null, fraction: 0, level: 'off', resetText: 'reset, waiting for the next update'};
+        return {label, percent: null, fraction: 0, level: 'off', resetText: _('reset, waiting for the next update')};
     }
     const percent = Math.min(100, Math.max(0, w.used_percent));
     return {
@@ -426,7 +439,7 @@ function usageRow(w, now) {
         percent: Math.round(percent),
         fraction: percent / 100,
         level: percent >= USAGE_CRIT ? 'crit' : percent >= USAGE_WARN ? 'warn' : 'ok',
-        resetText: resetsAt ? `resets in ${durationText(resetsAt - now)}` : '',
+        resetText: resetsAt ? _('resets in {time}', {time: durationText(resetsAt - now)}) : '',
     };
 }
 
@@ -443,36 +456,44 @@ const amountOk = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
 
 // Why an extra that is switched on cannot be used (agentail.usage.UsageExtra.inactive):
 // only known codes are put into words. Keep in sync with client.INACTIVE_TEXT.
-export const INACTIVE_TEXT = {out_of_credits: 'out of credits'};
-const inactiveText = code => INACTIVE_TEXT[code] ?? 'not active';
+export const INACTIVE_TEXT = {out_of_credits: N_('out of credits')};
+const inactiveText = code => Object.hasOwn(INACTIVE_TEXT, code) ? _(INACTIVE_TEXT[code]) : _('not active');
+
+// Extra labels the daemon writes (agentail.daemon.usage_claude_api.EXTRA_USAGE,
+// usage_codex.CREDITS): translated when known, shown as sent otherwise.
+const EXTRA_LABELS = [N_('Extra usage'), N_('Credits')];
+
+const spent = (amount, e) => _('{amount} spent', {amount: amountText(amount, e.currency)});
+const ofLimit = (amount, e) =>
+    _('{amount} of {limit}', {amount: amountText(amount, e.currency), limit: amountText(e.limit, e.currency)});
 
 // A row for an extra (agentail.usage.UsageExtra): money spent beyond the plan, with a bar
 // when it has a cap, or a balance left, without one.
 export function extraRow(e) {
     if (!e || typeof e !== 'object')
         return null;
-    const label = clean(e.label, 24);
-    if (!label)
+    const raw = clean(e.label, 24);
+    if (!raw)
         return null;
+    const label = EXTRA_LABELS.includes(raw) ? _(raw) : raw;
     const amount = amountOk(e.amount) ? e.amount : null;
     const off = {label, bar: false, percent: null, fraction: 0, level: 'off'};
     if (e.kind === 'balance') {
         if (e.unlimited === true)
-            return {...off, resetText: 'unlimited'};
-        return amount === null ? null : {...off, resetText: `${amountText(amount, e.currency)} left`};
+            return {...off, resetText: _('unlimited')};
+        return amount === null ? null
+            : {...off, resetText: _('{amount} left', {amount: amountText(amount, e.currency)})};
     }
     if (e.kind !== 'spent' || amount === null)
         return null;
     const capped = amountOk(e.limit) && e.limit > 0;
     if (typeof e.inactive === 'string' && e.inactive) {
         // Switched on but not usable: grey, with the reason.
-        const amounts = capped
-            ? `${amountText(amount, e.currency)} of ${amountText(e.limit, e.currency)}`
-            : `${amountText(amount, e.currency)} spent`;
+        const amounts = capped ? ofLimit(amount, e) : spent(amount, e);
         return {...off, bar: capped, resetText: `${amounts} · ${inactiveText(e.inactive)}`};
     }
     if (!capped)
-        return {...off, resetText: `${amountText(amount, e.currency)} spent`};
+        return {...off, resetText: spent(amount, e)};
     const percent = Math.min(100, amount / e.limit * 100);
     return {
         label,
@@ -480,7 +501,7 @@ export function extraRow(e) {
         percent: Math.round(percent),
         fraction: percent / 100,
         level: percent >= USAGE_CRIT ? 'crit' : percent >= USAGE_WARN ? 'warn' : 'ok',
-        resetText: `${amountText(amount, e.currency)} of ${amountText(e.limit, e.currency)}`,
+        resetText: ofLimit(amount, e),
     };
 }
 
@@ -560,16 +581,16 @@ export function usageGroups(records, now) {
 // Where a card's numbers come from (USAGE "source"), as one line at its foot. The host is
 // named in the card's head ("via gpu7"), except for a server's own login, which is the point.
 const SOURCE_TEXT = {
-    api: () => "From Anthropic, with this computer's Claude login",
-    server_api: host => `From Anthropic, with the Claude login on ${host}`,
-    status_line: () => 'From a Claude session in a terminal',
-    app_server: () => 'From Codex',
-    session_files: () => "From Codex's session files",
+    api: () => _("From Anthropic, with this computer's Claude login"),
+    server_api: host => _('From Anthropic, with the Claude login on {host}', {host}),
+    status_line: () => _('From a Claude session in a terminal'),
+    app_server: () => _('From Codex'),
+    session_files: () => _("From Codex's session files"),
 };
 
 export function sourceText(u, state) {
-    const text = SOURCE_TEXT[clean(u?.source)];
-    return text ? text(state.hostTitle(clean(u.host))) : '';
+    const source = clean(u?.source);
+    return Object.hasOwn(SOURCE_TEXT, source) ? SOURCE_TEXT[source](state.hostTitle(clean(u.host))) : '';
 }
 
 export function usageCards(state, now) {
@@ -598,11 +619,11 @@ export function usageCards(state, now) {
                 plan: planText(members.map(m => clean(m.u.plan, 16)).find(p => p)),
                 via: host && host !== 'local' ? state.hostTitle(host) : '',
                 sources: groups.length > 1
-                    ? hosts.map(h => h === 'local' ? 'this computer' : state.hostTitle(h)).join(' · ')
+                    ? hosts.map(h => h === 'local' ? _('this computer') : state.hostTitle(h)).join(' · ')
                     : '',
                 updatedText: local && state.usageApi.get(agent)?.state === 'needs_login'
-                    ? `sign-in expired · run ${agent} once`
-                    : ts > 0 ? `updated ${ageText(ts, now)} ago` : '',
+                    ? _('sign-in expired · run {agent} once', {agent})
+                    : ts > 0 ? _('updated {age} ago', {age: ageText(ts, now)}) : '',
                 stale: !(ts > 0) || now - ts > USAGE_STALE_S,
                 sourceText: sourceText(u, state),
                 rows,
@@ -635,9 +656,9 @@ function switchValues(state) {
 }
 
 const LOCAL_STATUS = {
-    pending: 'Checking…',
-    needs_login: 'Sign-in expired: run claude once',
-    error: 'The last query failed: see agentail doctor',
+    pending: N_('Checking…'),
+    needs_login: N_('Sign-in expired: run claude once'),
+    error: N_('The last query failed: see agentail doctor'),
 };
 
 // The settings page: the Usage switch, then (while it is on) Claude's two. `pending`: values
@@ -657,27 +678,29 @@ export function usageSettings(state, pending = {}, now = 0) {
             status: '',
         };
     };
-    const usage = row('usage', 'Show usage limits',
-        ["Claude's and Codex's limits in this panel. Off: Agentail collects none."], true);
+    const usage = row('usage', _('Show usage limits'),
+        [_("Claude's and Codex's limits in this panel.")], true);
     const api = state.usageApi.get('claude');
-    const local = row('local', "Ask Anthropic with this computer's login",
-        ['Checks after every Claude turn and when you open this panel.'], true);
+    const local = row('local', _("Ask Anthropic with this computer's login"),
+        [_('Checks after every Claude turn and when you open this panel.')], true);
     if (local.on && api) {
         const ago = api.state === 'ok' ? ageText(api.okTs, now) : '';
-        local.status = ago ? `Last checked ${ago} ago` : LOCAL_STATUS[api.state] ?? '';
+        if (ago)
+            local.status = _('Last checked {age} ago', {age: ago});
+        else if (Object.hasOwn(LOCAL_STATUS, api.state))
+            local.status = _(LOCAL_STATUS[api.state]);
     }
-    const servers = row('servers', "Ask Anthropic with each server's login",
+    const servers = row('servers', _("Ask Anthropic with each server's login"),
         [hasServers
-            ? 'For servers with a different Claude account. The token stays on the server.'
-            : 'For servers with a different Claude account. Add a server first.'],
+            ? _('For servers with a different Claude account. The token stays on the server.')
+            : _('For servers with a different Claude account. Add a server first.')],
         hasServers || actual.servers === true);
     return {
         available: actual.usage !== null,
         usage,
         // Claude's switches only matter while usage is shown at all.
         showClaude: usage.on && actual.local !== null,
-        intro: 'Claude reports its limits only in terminal sessions. Agentail can also ask ' +
-            'Anthropic for them.',
+        intro: _('Claude reports its limits only in terminal sessions. Agentail can also ask Anthropic for them.'),
         rows: [local, servers],
     };
 }
@@ -699,7 +722,7 @@ export function usageHint(state) {
     const api = state.usageApi.get('claude');
     if (state.settings.usage === false || !api || api.state !== 'off' || !claudeSeen(state))
         return null;
-    return 'Claude: terminal sessions only. More in Settings (⚙, top right).';
+    return _('Claude: terminal sessions only. More in Settings (⚙, top right).');
 }
 
 // Host chips wrapped into rows that fit the panel. Clutter's FlowLayout under-reports its
@@ -726,14 +749,14 @@ export function chipRows(aliases, maxWidth = 350, charWidth = 7.5, padding = 22,
 // One line for the collapsed Servers header: "2 connected", "1 unreachable", ...
 export function serversSummary(rows) {
     if (!rows.length)
-        return {text: 'none yet', level: 'off'};
+        return {text: _('none yet'), level: 'off'};
     const down = rows.filter(r => r.level === 'pending' || r.level === 'error').length;
     if (down)
-        return {text: `${down} unreachable`, level: 'error'};
+        return {text: _('{n} unreachable', {n: down}), level: 'error'};
     const ok = rows.filter(r => r.level === 'ok').length;
     if (ok === rows.length)
-        return {text: `${ok} connected`, level: 'ok'};
-    return {text: `${ok} of ${rows.length} connected`, level: 'off'};
+        return {text: _('{n} connected', {n: ok}), level: 'ok'};
+    return {text: _('{ok} of {total} connected', {ok, total: rows.length}), level: 'off'};
 }
 
 // Panel colours: the user's choice, else the desktop's colour scheme. GNOME Shell's own
@@ -750,7 +773,7 @@ export function footer(state) {
         if (s.status === 'ended')
             ended++;
     }
-    return {ended: ended ? `${ended} ended recently` : ''};
+    return {ended: ended ? _('{n} ended recently', {n: ended}) : ''};
 }
 
 // ---- adding a server -----------------------------------------------------------------
@@ -775,29 +798,32 @@ export function parseAliases(stdout) {
 }
 
 // What to tell the user after `agentail add-host` ran: the last line it printed
-// (preferring an "error:" line), cleaned and bounded.
+// (preferring an "error:" line), cleaned and bounded. The tool's text stays in English.
 export function addHostMessage(output, ok) {
     const lines = String(output ?? '').split('\n').map(l => l.trim()).filter(l => l);
     const error = lines.filter(l => l.startsWith('error:')).pop();
     const text = ok ? lines[lines.length - 1] : (error ?? lines[lines.length - 1]);
-    return clean(text ?? (ok ? 'Done' : 'Failed'), 240);
+    return text === undefined ? (ok ? _('Done') : _('Failed')) : clean(text, 240);
 }
 
 // "Added gpu7. connected (end-to-end ping received)": the tool's last line, minus its own
 // "gpu7:" prefix.
 export function addedMessage(alias, output) {
+    const lines = String(output ?? '').split('\n').map(l => l.trim()).filter(l => l);
+    if (!lines.length)
+        return _('Added {alias}.', {alias});
     const last = addHostMessage(output, true);
-    const tail = last.startsWith(`${alias}: `) ? last.slice(alias.length + 2) : last;
-    return `Added ${alias}.${tail && tail !== 'Done' ? ` ${tail}` : ''}`;
+    const detail = last.startsWith(`${alias}: `) ? last.slice(alias.length + 2) : last;
+    return detail ? _('Added {alias}. {detail}', {alias, detail}) : _('Added {alias}.', {alias});
 }
 
 export function removedMessage(alias, output) {
     const text = String(output ?? '');
     if (text.includes('shares its $HOME'))
-        return `Removed ${alias}. The hooks stay for the server that shares its home.`;
+        return _('Removed {alias}. The hooks stay for the server that shares its home.', {alias});
     if (text.includes('other receivers still use the hooks'))
-        return `Removed ${alias}. The hooks stay for the other desktops that watch it.`;
-    return `Removed ${alias}.`;
+        return _('Removed {alias}. The hooks stay for the other desktops that watch it.', {alias});
+    return _('Removed {alias}.', {alias});
 }
 
 // ---- notifications ------------------------------------------------------------------
@@ -812,18 +838,19 @@ export function notice(msg, state) {
     const key = keyOf(msg.key);
     const known = state.sessions.get(keyString(key));
     const c = card(known ?? {key: msg.key}, 0);
-    const where = key[0] === 'local' ? 'this computer' : key[0];
+    const where = key[0] === 'local' ? _('this computer') : key[0];
     let detail = '';
     if (msg.details === true) {
         detail = known ? c.subtitle : '';
         if (kind === 'attention' && c.tool && c.toolDetail)
-            detail = `${c.agentName} wants to run ${c.tool}: ${c.toolDetail}`;
+            detail = _('{agent} wants to run {tool}: {detail}', {agent: c.agentName, tool: c.tool, detail: c.toolDetail});
     }
     return {
         key: keyString(key),
         kind,
         agent: key[1],
-        title: kind === 'attention' ? `${c.project} needs you` : `${c.project} is done`,
+        title: kind === 'attention'
+            ? _('{project} needs you', {project: c.project}) : _('{project} is done', {project: c.project}),
         body: [where, detail].filter(x => x).join(' · '),
         urgent: kind === 'attention',
     };
