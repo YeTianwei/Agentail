@@ -73,8 +73,9 @@ first. Clients that predate it ignore the field.
 shortest first. `resets_at` is Unix seconds; a time in the past means the window has reset and
 the percentage is out of date. Claude's numbers come from its `statusLine` input, which the
 installer wraps and forwards with the ordinary hook envelope (`"event": "StatusLine"`, the
-status line JSON as `stdin`); Codex's are read by the daemon from the local rollout files, so
-only `local` has them. A reading that did not change is not re-sent more than once a minute.
+status line JSON as `stdin`); Codex's are read by the daemon from the local rollout files and
+`codex app-server`, and since 0.0.4 from `codex app-server` on a server over ssh (after a Codex
+Stop there, or when the panel opens), stored under that server's alias. A reading that did not change is not re-sent more than once a minute.
 `usage_remove` is sent when a host is removed. Clients ignore message types and snapshot keys
 they do not know. See `docs/usage-design.md`.
 
@@ -103,7 +104,8 @@ control characters before writing to a terminal (`agentail tail` / `status` do).
 Clients hold no state of their own; after a reconnect they rebuild from the next snapshot.
 A client that cannot keep up (more than 1024 queued messages) is disconnected rather than slowing
 the daemon. A client may send one line, `{"type": "refresh_usage"}`, when the user opens the panel: the daemon
-then asks `codex app-server` for Codex's current limits (at most once a minute) and, when its
+then asks `codex app-server` for Codex's current limits (at most once a minute, here and on each
+connected server where Codex has been seen) and, when its
 reading is over a minute old, Anthropic's usage endpoint for Claude's; both answer with an
 ordinary `usage_update`. Nothing else a client sends is acted on; the daemon otherwise reads only
 to detect disconnects.

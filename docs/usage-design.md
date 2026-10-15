@@ -40,7 +40,7 @@ Codex (仅本机)  ~/.codex/sessions/**.jsonl ─▶ daemon/usage_codex.py ─�
 
 ### 2.2 Codex:daemon 读取本机 jsonl
 
-Codex 的 hook 载荷里没有额度,只能读文件。因此只覆盖**本机**的 Codex,服务器上的 Codex 暂不支持(额度是账号级的,通常和本机同账号;不同账号的情形留到有人需要时再做)。
+Codex 的 hook 载荷里没有额度,只能读文件。因此只覆盖**本机**的 Codex。服务器上的 Codex 见 §2.4(2026-10-15 加入)。
 
 `daemon/usage_codex.py`:
 - 触发:daemon 启动时一次;收到本机 `codex` 事件后(去抖 5 秒);另有每 60 秒一次按 mtime 的兜底检查。
@@ -49,6 +49,16 @@ Codex 的 hook 载荷里没有额度,只能读文件。因此只覆盖**本机**
 - 遇到不认识的后缀(如 `.jsonl.zst`)或解析失败时静默跳过。
 - 文件读取放进线程(`asyncio.to_thread`),不阻塞事件循环。
 - 只读 `sessions/`,绝不打开 `auth.json`。
+
+### 2.4 Codex:服务器(2026-10-15)
+
+只在本机读 Codex 时,只在服务器上用 Codex(比如 VS Code Remote)的人看不到用量。daemon 在服务器上通过 ssh 启动 `codex app-server`(`codex_appserver.remote_argv`),问法和本机完全一样(`account/rateLimits/read`),读数存为该服务器的别名:
+
+- 远程命令是固定的 shell 脚本(`REMOTE_SCRIPT`,不带任何参数),按顺序找 codex:PATH、`~/.local/bin` 等常见目录、VS Code Remote 扩展自带的那一份。非交互 ssh 的 PATH 往往不含 `~/.local/bin`(gpu8 实测如此)。有 `timeout` 时用它包一层,确保 app-server 不会在 ssh 断开后长期残留。
+- 用的是服务器上 Codex 自己的登录,token 不离开服务器,只有 JSON-RPC 的回答经 ssh 回来。不读服务器上的任何文件。
+- 何时查询(`RemoteSchedule`):那台服务器上的 Codex Stop 之后 15 秒(去抖),或打开面板时;同一台服务器每分钟最多一次;只查 `hosts.toml` 里装了 Codex hook、隧道已连接、Codex 出现过的服务器;失败后按 5 分钟起、最多 1 小时退避。没有定时轮询。
+- 实测(gpu8,codex-cli 0.160.0,2026-10-15):一次约 1.5 秒,结束后服务器上没有残留进程;读数的重置时间和本机完全相同,所以按账号分组时和本机合成一张卡。
+- 它是完整来源(`_on_usage(full=True)`),和本机 app-server 一样。
 
 ### 2.3 规范化
 
@@ -186,7 +196,7 @@ USAGE = {"host", "agent", "plan": "plus" | null,
 
 ## 6. 已知限制
 
-- Codex 只覆盖本机;服务器上的 Codex 用量不显示。
+- 服务器上的 Codex 只在那台服务器上的 Codex 出现过(事件或读数)、隧道已连接时才查询。
 - 额度是账号级的,但读数按 `(host, agent)` 存;如果不同机器用不同账号,面板只显示最新的一个账号。
 - Claude 要等会话里的第一次响应后才有数据;API key 用户没有。
 - Codex 的 jsonl 格式没有官方文档,字段随版本可能变;解析必须容错,失败时显示旧值并变灰,不能报错。
@@ -201,4 +211,4 @@ USAGE = {"host", "agent", "plan": "plus" | null,
 ## 8. 暂不做(2026-10-08 决定)
 
 - **多账号**:读数按 `(host, agent)` 存,面板对每个 agent 只显示最新的一条。本机和服务器用同一个账号时没有问题;不同账号会互相覆盖。想做时的办法:用周窗口的 `resets_at` 当账号指纹,指纹相同合并成一张卡,不同则分卡显示来源。指纹已经用于补全同一账号的读数(`usage.same_account`、`fill_in`,2026-10-15,见 `usage-api-design.md` §7)。**分卡显示已做(2026-10-15)**:见 §4.5。
-- **服务器上的 Codex 用量**:用量在服务器的 rollout 文件里。Codex 的 hook 载荷带 `transcript_path`,以后可以让 daemon 经 ssh 读文件尾部,但路径必须先校验在 `~/.codex/sessions/` 之下。同账号时本机那一份已够用。
+- ~~服务器上的 Codex 用量~~:已做(2026-10-15),改用 ssh 上的 `codex app-server`(§2.4),不读服务器上的文件。

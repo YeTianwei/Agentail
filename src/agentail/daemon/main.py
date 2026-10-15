@@ -33,14 +33,14 @@ from agentail.config import (
     load_retention,
 )
 from agentail.daemon import usage_claude_api as claude_api
-from agentail.daemon.codex_appserver import read_codex_usage_live
+from agentail.daemon.codex_appserver import RemoteSchedule, read_codex_usage_live, remote_argv
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.state import Change, Retention, Store
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
 from agentail.daemon.usage_codex import read_codex_usage
 from agentail.protocol import HookMessage
-from agentail.usage import UsageReading, UsageStore, fill_in, same_account
+from agentail.usage import UsageKey, UsageReading, UsageStore, fill_in, same_account
 
 log = logging.getLogger(__name__)
 
@@ -49,6 +49,7 @@ HOSTS_POLL_S = 2.0
 CODEX_USAGE_POLL_S = 60.0
 LIVE_USAGE_MIN_INTERVAL_S = 60.0  # at most one live Codex query per this long
 CODEX_USAGE_DEBOUNCE_S = 5.0  # after a local Codex event, before re-reading its files
+REMOTE_CODEX_TIMEOUT_S = 30.0  # one query of a server's codex app-server, ssh included
 
 
 @dataclass
@@ -86,7 +87,12 @@ class Daemon:
             log.warning("%s; using the default", exc)
             self.ignore_cwd = default_ignore_cwd()
         self.usage = UsageStore()
-        self._full_usage: dict[str, UsageReading] = {}  # agent -> latest full reading
+        # Latest full reading per (host, agent): see _on_usage.
+        self._full_usage: dict[UsageKey, UsageReading] = {}
+        # Codex on the servers (codex_appserver.RemoteSchedule), per alias.
+        self._remote_codex: dict[str, RemoteSchedule] = {}
+        self._remote_codex_tasks: dict[str, asyncio.Task[None]] = {}
+        self._remote_codex_timeout = REMOTE_CODEX_TIMEOUT_S
         self._codex_home = codex_usage_home
         self._codex_argv = codex_argv
         self._live_interval = live_usage_interval
@@ -152,6 +158,12 @@ class Daemon:
                 self._codex_usage_due or float("inf"), time.monotonic() + CODEX_USAGE_DEBOUNCE_S
             )
         event = adapter.decode(msg, host=source) if adapter else None
+        if source != LOCAL_SOURCE and msg.agent == "codex":
+            sched = self._remote_codex_schedule(source)
+            if sched is not None:
+                sched.seen = True
+                if event is not None and event.kind is EventKind.STOP:
+                    sched.record_stop(time.monotonic())
         if event is not None and event.kind is EventKind.STOP and msg.agent == "claude":
             # Any host counts: the servers are assumed to use the same account.
             self._claude_schedule.record_stop(time.monotonic())
@@ -193,11 +205,15 @@ class Daemon:
             # The login file and the statusLine do not follow plan changes; the profile does.
             reading = replace(reading, plan=self._claude_plan)
         if full:
-            self._full_usage[reading.agent] = reading
+            self._full_usage[UsageKey(reading.host, reading.agent)] = reading
         else:
-            known = self._full_usage.get(reading.agent)
-            if known is not None and same_account(reading, known):
-                reading = fill_in(reading, known)
+            known = [
+                r
+                for r in self._full_usage.values()
+                if r.agent == reading.agent and same_account(reading, r)
+            ]
+            if known:
+                reading = fill_in(reading, max(known, key=lambda r: r.ts))
         if not self.usage.update(reading):
             return
         self._usage_dirty = True
@@ -216,12 +232,21 @@ class Daemon:
             )
 
     def request_live_usage(self) -> None:
-        """The panel was opened: ask Codex for its current limits, at most once a minute.
-        Opening the panel is the only trigger, so nothing is queried while nobody looks.
-        Claude's usage endpoint is asked too when its reading is over a minute old."""
+        """The panel was opened: ask Codex for its current limits, at most once a minute,
+        here and on every connected server where Codex has been seen. Opening the panel is
+        the only trigger, so nothing is queried while nobody looks. Claude's usage endpoint
+        is asked too when its reading is over a minute old."""
         now = time.monotonic()
         if self._claude_api_on and self._claude_schedule.panel_opened(now):
             self._start_claude_query(now)
+        for alias in list(self.remotes):
+            sched = self._remote_codex_schedule(alias)
+            if sched is None:
+                continue
+            if UsageKey(alias, "codex") in self.usage.readings:  # e.g. from before a restart
+                sched.seen = True
+            if sched.panel_opened(now):
+                self._start_remote_codex(alias, now)
         if self._live_task is not None and not self._live_task.done():
             return
         if now - self._live_last < self._live_interval:
@@ -240,6 +265,50 @@ class Daemon:
             log.exception("live Codex usage failed")
             return
         if reading is not None:
+            self._on_usage(reading, full=True)
+
+    # -- Codex on the servers (codex_appserver.remote_argv) ------------------------------------
+
+    def _remote_codex_schedule(self, alias: str) -> RemoteSchedule | None:
+        """The schedule of a server set up for Codex, None for any other source."""
+        remote = self.remotes.get(alias)
+        if remote is None or "codex" not in remote.host.agents:
+            return None
+        return self._remote_codex.setdefault(alias, RemoteSchedule())
+
+    def _sync_remote_codex(self) -> None:
+        """Start the queries that are due. Called from the main loop every few seconds."""
+        now = time.monotonic()
+        for alias, sched in list(self._remote_codex.items()):
+            due = sched.next_due()
+            if due is not None and now >= due:
+                self._start_remote_codex(alias, now)
+
+    def _start_remote_codex(self, alias: str, now: float) -> None:
+        if self.hosts.get(alias, {}).get("state") != "connected":
+            return  # ssh would fail too; a later Stop or panel opening tries again
+        task = self._remote_codex_tasks.get(alias)
+        if task is not None and not task.done():
+            return
+        self._remote_codex[alias].record_start(now)
+        self._remote_codex_tasks[alias] = asyncio.get_running_loop().create_task(
+            self._remote_codex_query(alias)
+        )
+
+    async def _remote_codex_query(self, alias: str) -> None:
+        try:
+            reading = await read_codex_usage_live(
+                remote_argv(self.ssh, alias), host=alias, timeout=self._remote_codex_timeout
+            )
+        except Exception:  # a broken server must never take the daemon down
+            log.exception("Codex usage on %s failed", alias)
+            reading = None
+        sched = self._remote_codex.get(alias)
+        if sched is not None:
+            sched.record_result(reading is not None)
+        if reading is None:
+            log.info("Codex usage on %s: no answer from codex app-server", alias)
+        elif alias in self.remotes:  # the host may have been removed meanwhile
             self._on_usage(reading, full=True)
 
     # -- Claude usage endpoint (daemon/usage_claude_api.py) --------------------------------
@@ -279,7 +348,7 @@ class Daemon:
                     self._set_claude_api_status(claude_api.PENDING)
                 else:
                     self._set_claude_api_status(claude_api.OFF)
-                    self._full_usage.pop("claude", None)
+                    self._full_usage.pop(UsageKey(LOCAL_SOURCE, "claude"), None)
         if not self._claude_api_on:
             return
         try:
@@ -439,6 +508,10 @@ class Daemon:
 
     async def _stop_host(self, alias: str) -> None:
         remote = self.remotes.pop(alias)
+        self._remote_codex.pop(alias, None)
+        task = self._remote_codex_tasks.pop(alias, None)
+        if task is not None:
+            task.cancel()
         if remote.tunnel is not None:
             await remote.tunnel.stop()
         await remote.listener.stop()
@@ -591,6 +664,7 @@ class Daemon:
                 except TimeoutError:
                     await self.sync_hosts()
                     self._sync_claude_api()
+                    self._sync_remote_codex()
                     if time.monotonic() >= self._codex_usage_due:
                         await self._read_codex_usage()
                     if time.monotonic() >= next_sweep:
@@ -600,7 +674,7 @@ class Daemon:
                         self._save_sessions()
                         self._save_usage()
         finally:
-            for task in (self._live_task, self._claude_task):
+            for task in (self._live_task, self._claude_task, *self._remote_codex_tasks.values()):
                 if task is not None:
                     task.cancel()
             self._save_sessions()

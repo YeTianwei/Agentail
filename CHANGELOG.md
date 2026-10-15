@@ -23,6 +23,10 @@
 
 ### Added
 
+- **Codex usage from your servers.** Codex limits were read only on this computer, so Codex used
+  only on a server (in a terminal or through VS Code Remote) showed none. The daemon now asks
+  `codex app-server` on the server over ssh, with the server's own Codex login, a few seconds after
+  a Codex turn ends there and when you open the panel (at most once a minute per server).
 - **One Usage card per account.** Limits belong to an account, not to a machine, but the panel
   showed one card per agent, taken from whichever machine reported last: with another account on a
   server, the card switched between the two. Readings whose weekly limits reset at the same time

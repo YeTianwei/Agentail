@@ -6,6 +6,10 @@ for exactly that in openai/codex#5302; verified with codex-cli 0.160.1 on 2026-1
 docs/usage-notes.md section 3.3). Codex uses its own login: we never read ``auth.json``.
 The protocol is marked unstable upstream, so any failure just returns None and the caller
 falls back to the session files.
+
+On a server the same query runs over ssh (``remote_argv``): the app-server starts there, with
+the server's own Codex login, and only its JSON-RPC answer comes back. ``RemoteSchedule``
+decides when (verified against gpu8, codex-cli 0.160.0, 2026-10-15: about 1.5 s per query).
 """
 
 from __future__ import annotations
@@ -17,9 +21,11 @@ import logging
 import os
 import shutil
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from agentail.sshexec import sh_script, ssh_argv
 from agentail.usage import UsageReading, clean_label, clean_plan, make_window, sorted_windows
 
 log = logging.getLogger(__name__)
@@ -40,6 +46,83 @@ def find_codex() -> str | None:
 def default_argv() -> list[str] | None:
     codex = find_codex()
     return [codex, *CODEX_ARGS] if codex else None
+
+
+# Finds codex on a server, where a non-interactive ssh shell often lacks the PATH entries of
+# a login shell: the PATH, the usual install dirs, then the copy bundled with the VS Code
+# extension (VS Code Remote; the last match is the highest version). `timeout` makes sure a
+# hung app-server does not outlive the ssh connection by long. Constant text: no arguments.
+REMOTE_SCRIPT = r"""
+p=$(command -v codex 2>/dev/null)
+for c in "$HOME/.local/bin/codex" "$HOME/.npm-global/bin/codex" "$HOME/.cargo/bin/codex" \
+         "$HOME/bin/codex"; do
+  [ -n "$p" ] && break
+  [ -x "$c" ] && p=$c
+done
+if [ -z "$p" ]; then
+  for c in "$HOME"/.vscode-server/extensions/openai.chatgpt-*/bin/*/codex; do
+    [ -x "$c" ] && p=$c
+  done
+fi
+[ -n "$p" ] || exit 127
+if command -v timeout >/dev/null 2>&1; then
+  exec timeout 60 "$p" -s read-only -a never app-server
+fi
+exec "$p" -s read-only -a never app-server
+"""
+
+
+def remote_argv(ssh: str, alias: str) -> list[str]:
+    """``codex app-server`` on ``alias``, speaking JSON-RPC over the ssh connection."""
+    return ssh_argv(ssh, alias, sh_script(REMOTE_SCRIPT))
+
+
+@dataclass
+class RemoteSchedule:
+    """When to ask one server's Codex for its limits, as a pure function of what happened
+    (monotonic seconds; the daemon owns the clock). Like Claude's (usage_claude_api.Schedule):
+
+    - a Codex Stop on that server schedules a query ``debounce`` after the last one, never
+      sooner than ``interval`` after the previous query;
+    - opening the panel queries a server whose Codex has been seen (an event, or a reading)
+      when the last query is ``interval`` old;
+    - nothing else: no polling;
+    - a failure (codex missing, not logged in, ssh down) backs off exponentially.
+    """
+
+    debounce: float = 15.0
+    interval: float = 60.0
+    backoff_base: float = 300.0
+    backoff_max: float = 3600.0
+    seen: bool = False
+    last: float | None = None
+    due: float | None = None
+    failures: int = 0
+
+    def record_stop(self, now: float) -> None:
+        self.seen = True
+        self.due = now + self.debounce
+
+    def _not_before(self) -> float:
+        if self.last is None:
+            return -float("inf")
+        wait = self.interval
+        if self.failures:
+            wait = max(wait, min(self.backoff_base * 2 ** (self.failures - 1), self.backoff_max))
+        return self.last + wait
+
+    def next_due(self) -> float | None:
+        return None if self.due is None else max(self.due, self._not_before())
+
+    def panel_opened(self, now: float) -> bool:
+        return self.seen and now >= self._not_before()
+
+    def record_start(self, now: float) -> None:
+        self.last = now
+        self.due = None
+
+    def record_result(self, ok: bool) -> None:
+        self.failures = 0 if ok else min(self.failures + 1, 10)
 
 
 MAIN_LIMIT_ID = "codex"

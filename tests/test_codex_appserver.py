@@ -157,3 +157,160 @@ async def test_a_broken_app_server_leaves_the_session_file_reading(runtime_env, 
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)
+
+
+# ---- Codex on the servers --------------------------------------------------------------
+
+
+def _bin_dir(root: Path) -> Path:
+    """A PATH with sh and timeout but no codex, whatever this machine has installed."""
+    import shutil
+
+    d = root / "bin"
+    d.mkdir()
+    for tool in ("sh", "timeout"):
+        found = shutil.which(tool)
+        if found:
+            (d / tool).symlink_to(found)
+    return d
+
+
+def _fake_codex(path: Path, counter: Path) -> None:
+    """An executable `codex` that logs its arguments and behaves like fakecodex.py ok."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"#!{sys.executable}\n"
+        "import os, sys\n"
+        f"open({str(counter)!r}, 'a').write(' '.join(sys.argv[1:]) + '\\n')\n"
+        f"os.execv(sys.executable, [sys.executable, {FAKE!r}, 'ok'])\n"
+    )
+    path.chmod(0o755)
+
+
+def _run_remote_script(home: Path, bin_dir: Path):
+    import subprocess
+
+    from agentail.daemon.codex_appserver import REMOTE_SCRIPT
+
+    return subprocess.run(
+        ["sh", "-c", REMOTE_SCRIPT],
+        env={"HOME": str(home), "PATH": str(bin_dir)},
+        input=b"",
+        capture_output=True,
+        timeout=30,
+    )
+
+
+def test_remote_script_finds_codex_where_ssh_has_no_path(tmp_path):
+    home, log = tmp_path / "home", tmp_path / "args"
+    home.mkdir()
+    bins = _bin_dir(tmp_path)
+    assert _run_remote_script(home, bins).returncode == 127  # no codex anywhere
+
+    ext = home / ".vscode-server" / "extensions"
+    _fake_codex(ext / "openai.chatgpt-26.1001.1-linux-x64" / "bin" / "linux-x86_64" / "codex", log)
+    _fake_codex(ext / "openai.chatgpt-26.1007.2-linux-x64" / "bin" / "linux-x86_64" / "codex", log)
+    assert _run_remote_script(home, bins).returncode == 0  # VS Code Remote's bundled copy
+    _fake_codex(home / ".local" / "bin" / "codex", log)  # a CLI install wins
+    assert _run_remote_script(home, bins).returncode == 0
+    assert log.read_text().splitlines() == ["-s read-only -a never app-server"] * 2
+
+
+def test_remote_argv_quotes_the_constant_script():
+    from agentail.daemon.codex_appserver import REMOTE_SCRIPT, remote_argv
+
+    argv = remote_argv("ssh", "gpu8")
+    assert argv[:2] == ["ssh", "-o"] and argv[-2] == "gpu8"
+    import shlex
+
+    assert shlex.split(argv[-1]) == ["sh", "-c", REMOTE_SCRIPT, "sh"]
+
+
+def test_remote_schedule():
+    from agentail.daemon.codex_appserver import RemoteSchedule
+
+    s = RemoteSchedule()
+    assert s.next_due() is None and not s.panel_opened(0)  # Codex never seen there
+    s.record_stop(100)
+    s.record_stop(110)  # a later Stop moves the query
+    assert s.next_due() == 125
+    s.record_start(125)
+    assert s.next_due() is None
+    assert not s.panel_opened(180) and s.panel_opened(185)  # once a minute
+    s.record_stop(130)
+    assert s.next_due() == 185
+    s.record_start(185)
+    s.record_result(False)
+    s.record_result(False)
+    assert not s.panel_opened(185 + 599) and s.panel_opened(185 + 600)  # backing off
+    s.record_result(True)
+    assert s.panel_opened(185 + 60)
+
+
+async def test_daemon_asks_a_servers_codex_after_a_stop_and_on_panel_open(
+    runtime_env, fake_ssh, short_tmp, monkeypatch
+):
+    from agentail.config import Host, save_host
+    from agentail.daemon import main as daemon_main
+    from agentail.daemon.codex_appserver import RemoteSchedule
+    from agentail.protocol import HookMessage
+
+    monkeypatch.setattr(
+        daemon_main, "RemoteSchedule", lambda: RemoteSchedule(debounce=0.1, interval=0.3)
+    )
+    monkeypatch.setenv("PATH", str(_bin_dir(short_tmp)))
+    log = short_tmp / "args"
+    _fake_codex(fake_ssh.add_host("gpu1") / ".local" / "bin" / "codex", log)
+    fake_ssh.add_host("gpu2")  # no Codex in its hosts.toml entry
+    save_host(Host("gpu1", agents=("codex",)))
+    save_host(Host("gpu2", agents=("claude",)))
+
+    def stop():
+        payload = {"session_id": "t1", "hook_event_name": "Stop", "cwd": "/w"}
+        return HookMessage(
+            agent="codex",
+            event="Stop",
+            mode="fire",
+            ts=time.time(),
+            ppid=1,
+            cwd="/w",
+            stdin=json.dumps(payload),
+        )
+
+    d = Daemon(codex_usage_home=short_tmp / "none", ssh=str(fake_ssh.path), hosts_poll=0.05)
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        await _read(r)  # snapshot
+        await d.handle("gpu1", stop())
+        await asyncio.sleep(0.5)
+        assert not log.exists()  # the host is not connected (no tunnel in this test)
+
+        for alias in ("gpu1", "gpu2"):
+            d._set_host(alias, "connected", "")  # the pending query can run now
+        await d.handle("gpu2", stop())
+        msg = await _until(r, lambda m: m["type"] == "usage_update")
+        assert msg["usage"]["host"] == "gpu1" and msg["usage"]["plan"] == "plus"
+        assert log.read_text().count("app-server") == 1
+
+        await asyncio.sleep(0.4)
+        w.write(b'{"type": "refresh_usage"}\n')
+        await w.drain()
+        for _ in range(100):
+            if log.read_text().count("app-server") == 2:
+                break
+            await asyncio.sleep(0.05)
+        assert log.read_text().count("app-server") == 2  # opening the panel asks again
+        assert fake_ssh.calls("gpu2") == []  # not set up for Codex: never asked
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)
+
+
+async def _until(reader, pred):
+    while True:
+        msg = await _read(reader)
+        if pred(msg):
+            return msg
