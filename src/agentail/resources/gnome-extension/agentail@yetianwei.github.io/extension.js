@@ -520,31 +520,30 @@ class AgentailIndicator extends PanelMenu.Button {
         page.add_child(head);
 
         const settings = M.usageSettings(this._state, this._usagePending, Date.now() / 1000);
+        // One group: the Usage switch, and under it (while it is on) Claude's two, indented.
         const usage = vbox('agentail-group', {x_expand: true});
         usage.add_child(label('Usage limits', 'agentail-section'));
-        const usageCard = vbox('agentail-card agentail-settings', {x_expand: true});
+        const card = vbox('agentail-card agentail-settings', {x_expand: true});
         if (!settings.available) {
             const off = label('The agentail daemon is not running, or is too old for these settings.',
                 'agentail-add-note');
             off.clutter_text.line_wrap = true;
-            usageCard.add_child(off);
+            card.add_child(off);
         }
-        usageCard.add_child(this._switchRow(settings.usage));
-        usage.add_child(usageCard);
-        page.add_child(usage);
-
+        card.add_child(this._switchRow(settings.usage));
         if (settings.showClaude) {
-            const claude = vbox('agentail-group', {x_expand: true});
-            claude.add_child(label('Claude', 'agentail-section'));
-            const intro = label(settings.intro, 'agentail-add-note');
+            card.add_child(new St.Widget({style_class: 'agentail-settings-divider', x_expand: true}));
+            const claude = vbox('agentail-settings-sub', {x_expand: true});
+            claude.add_child(label('Claude', 'agentail-settings-subtitle'));
+            const intro = label(settings.intro, 'agentail-add-note agentail-settings-intro');
             intro.clutter_text.line_wrap = true;
             claude.add_child(intro);
-            const card = vbox('agentail-card agentail-settings', {x_expand: true});
             for (const r of settings.rows)
-                card.add_child(this._switchRow(r));
-            claude.add_child(card);
-            page.add_child(claude);
+                claude.add_child(this._switchRow(r));
+            card.add_child(claude);
         }
+        usage.add_child(card);
+        page.add_child(usage);
         if (this._settingsError) {
             const err = label(this._settingsError, 'agentail-add-result agentail-add-fail');
             err.clutter_text.line_wrap = true;
