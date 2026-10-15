@@ -885,7 +885,7 @@ class AgentailIndicator extends PanelMenu.Button {
                 return GLib.SOURCE_REMOVE;
             });
         } else if (a.mode === 'confirm') {
-            const msg = label(`Remove ${a.alias}? Agentail puts the server's Claude and Codex settings back as they were and stops watching it.`, 'agentail-add-title');
+            const msg = label(`Remove ${a.alias}? Agentail stops watching it and takes this desktop out of the server's Claude and Codex settings (they go back to the original once nothing else uses them). The server must be reachable.`, 'agentail-add-title');
             msg.clutter_text.line_wrap = true;
             box.add_child(msg);
             const row = hbox('agentail-add-row');

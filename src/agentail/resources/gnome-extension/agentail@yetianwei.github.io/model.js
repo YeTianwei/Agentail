@@ -780,8 +780,12 @@ export function addedMessage(alias, output) {
 }
 
 export function removedMessage(alias, output) {
-    const shared = String(output ?? '').includes('shares its $HOME');
-    return `Removed ${alias}.${shared ? ' Its settings stay: another server shares the same home.' : ''}`;
+    const text = String(output ?? '');
+    if (text.includes('shares its $HOME'))
+        return `Removed ${alias}. The hooks stay for the server that shares its home.`;
+    if (text.includes('other receivers still use the hooks'))
+        return `Removed ${alias}. The hooks stay for the other desktops that watch it.`;
+    return `Removed ${alias}.`;
 }
 
 // ---- notifications ------------------------------------------------------------------

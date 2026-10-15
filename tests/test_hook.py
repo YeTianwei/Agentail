@@ -138,6 +138,7 @@ def test_constants_in_sync_with_protocol():
                 "PING_EVENT",
                 "ENV_WHITELIST",
                 "UID_PLACEHOLDER",
+                "HOOK_VERSION",
             ):
                 consts[name] = (
                     ast.literal_eval(node.value)
@@ -149,6 +150,9 @@ def test_constants_in_sync_with_protocol():
     assert consts["PING_EVENT"] == protocol.PING_EVENT
     assert tuple(consts["ENV_WHITELIST"]) == protocol.ENV_WHITELIST
     assert consts["UID_PLACEHOLDER"] == paths.UID_PLACEHOLDER
+    assert consts["HOOK_VERSION"] == paths.HOOK_VERSION
+    assert paths.hook_version(paths.hook_script_source().read_bytes()) == paths.HOOK_VERSION
+    assert paths.hook_version(b"import sys\n") == 0
 
 
 def test_python36_syntax_subset():

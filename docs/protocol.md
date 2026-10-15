@@ -30,7 +30,7 @@ several `--sock`, only if it reached every one).
 The hook command carries one `--sock` per receiver, e.g.
 
 ```
-/usr/bin/python3 ~/.agentail/agentail-hook.py --agent claude --event Stop --mode fire \
+/usr/bin/python3 "$HOME"/.agentail/agentail-hook.py --agent claude --event Stop --mode fire \
   --sock /run/user/1000/agentail/local.sock --sock '/run/user/{uid}/agentail-1a2b3c4d.sock' \
   2>/dev/null || true
 ```
@@ -42,6 +42,10 @@ The hook command carries one `--sock` per receiver, e.g.
   file on a shared NFS `$HOME`) works on hosts that give the user different uids. It is single
   quoted in the command, so no shell touches it.
 - Duplicate paths (after expansion) receive one message.
+- The script carries `HOOK_VERSION` (2 since 0.0.4: several `--sock`, `{uid}`). `add-host`
+  refuses a server whose script is newer than its own, and a daemon's first-start refresh never
+  replaces a newer script: a script that does not understand another desktop's entries would
+  drop that desktop's events.
 - Socket names: `local.sock` (in `$XDG_RUNTIME_DIR/agentail/`) is the machine's own daemon,
   written by `install-local`; `agentail-<desktop id>.sock` (in `/run/user/<uid>/`, or
   `~/.agentail/run/` where that does not exist) is a desktop that added the machine with

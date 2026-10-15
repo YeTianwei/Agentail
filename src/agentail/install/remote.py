@@ -114,6 +114,8 @@ while [ $# -ge 5 ]; do
   echo "${a}_bin=$p"
 done
 echo "home_id=$(cat "$HOME/.agentail/home-id" 2>/dev/null)"
+hook=$HOME/.agentail/agentail-hook.py
+echo "hook_version=$(sed -n 's/^HOOK_VERSION = \([0-9][0-9]*\)$/\1/p' "$hook" 2>/dev/null)"
 """
 
 # $1 = new home id (used only if none exists), $2 = "fallback" to create run/.
@@ -230,6 +232,7 @@ class Probe:
     agent_dirs: tuple[str, ...]
     agent_bins: dict[str, str]
     home_id: str
+    hook_version: int = 0  # of the hook script on the server; 0: none, or before 0.0.4
 
     @property
     def home_on_nfs(self) -> bool:
@@ -263,6 +266,7 @@ def parse_probe(stdout: str) -> Probe:
         agent_dirs=tuple(a for a in registry.names() if kv.get(f"{a}_dir") == "yes"),
         agent_bins={a: kv.get(f"{a}_bin", "") for a in registry.names()},
         home_id=kv.get("home_id", ""),
+        hook_version=int(kv["hook_version"]) if kv.get("hook_version", "").isdigit() else 0,
     )
 
 
@@ -495,6 +499,12 @@ def _add_host(
     )
     if not probe.python:
         raise RemoteError(f"{alias}: no python3 >= {'.'.join(map(str, MIN_PYTHON))} found")
+    if probe.hook_version > paths.HOOK_VERSION:
+        raise RemoteError(
+            f"{alias}: its hook script is version {probe.hook_version}, from a newer Agentail "
+            f"than this one (version {paths.HOOK_VERSION}); another desktop set it up. Upgrade "
+            "Agentail here first: an older script would not understand that desktop's entries."
+        )
     selected = list(agents) if agents else list(probe.agent_dirs)
     if not selected:
         raise RemoteError(

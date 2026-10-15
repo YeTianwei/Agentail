@@ -97,7 +97,18 @@ def refresh_hook_script(out: Callable[[str], None] = log.info) -> bool:
         if not dest.is_file():
             return False  # never installed, or uninstalled: install_local writes it
         src = paths.hook_script_source().read_bytes()
-        if dest.read_bytes() == src:
+        installed = dest.read_bytes()
+        if installed == src:
+            return False
+        if paths.hook_version(installed) > paths.HOOK_VERSION:
+            # Uploaded by a newer desktop's add-host (this machine is its server): an older
+            # script would not understand that desktop's entries. Upgrade here instead.
+            log.warning(
+                "%s is version %d, newer than this Agentail's %d: not replaced",
+                dest,
+                paths.hook_version(installed),
+                paths.HOOK_VERSION,
+            )
             return False
         atomic_write(dest, src, mode=0o700)
     except OSError as exc:

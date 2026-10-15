@@ -654,3 +654,24 @@ def test_rotation_keeps_the_original_named_by_the_other_manifest(fake_ssh, serve
     backups = _backups(server, group)
     assert original in backups and original.read_text() == SETTINGS
     assert len(backups) == BACKUP_KEEP + 1
+
+
+def test_add_host_refuses_a_server_with_a_newer_hook_script(fake_ssh, server, runtime_env):
+    """Another, newer desktop set the server up: our older script would not understand its
+    entries, so nothing is written and the message says to upgrade."""
+    hook = server / ".agentail" / paths.HOOK_FILENAME
+    hook.parent.mkdir()
+    newer = (
+        paths.hook_script_source()
+        .read_bytes()
+        .replace(f"HOOK_VERSION = {paths.HOOK_VERSION}".encode(), b"HOOK_VERSION = 99")
+    )
+    hook.write_bytes(newer)
+    before = (server / ".claude" / "settings.json").read_bytes()
+    rc, out = _add(fake_ssh, dry_run=True)
+    assert rc == 1 and "version 99" in out and "Upgrade Agentail here" in out
+    assert hook.read_bytes() == newer
+    assert (server / ".claude" / "settings.json").read_bytes() == before
+    hook.write_bytes(b"# old\n")  # older: replaced as usual
+    rc, out = _add(fake_ssh)
+    assert rc == 0 and paths.hook_version(hook.read_bytes()) == paths.HOOK_VERSION

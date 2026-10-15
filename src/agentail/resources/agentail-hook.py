@@ -38,6 +38,9 @@ import sys
 import time
 
 PROTOCOL_VERSION = 1
+# The script's own interface version (agentail.paths.HOOK_VERSION mirrors it): 2 = several
+# --sock and {uid}. add-host and the daemon's first start never replace a newer script.
+HOOK_VERSION = 2
 MAX_STDIN_BYTES = 256 * 1024
 DEFAULT_TIMEOUT = 1.0
 PING_EVENT = "__ping__"

@@ -339,8 +339,10 @@ def _save_manifest(manifest: dict[str, Any]) -> None:
 
 
 def _read(path: Path) -> str | None:
+    """The file's text exactly as stored (no newline translation: the manifest hashes it
+    and uninstall must put it back byte for byte, CRLF included)."""
     try:
-        return path.read_text(encoding="utf-8")
+        return path.read_bytes().decode("utf-8")
     except FileNotFoundError:
         return None
     except (OSError, UnicodeDecodeError) as exc:

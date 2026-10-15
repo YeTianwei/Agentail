@@ -50,6 +50,13 @@
 
 ### Fixed
 
+- **Uninstall restores a config with Windows line endings byte for byte.** It read the file
+  with newline translation, so its hash never matched the manifest and the hooks were removed
+  structurally instead of the original being put back.
+- **Mixed versions on one server.** A desktop on an older Agentail could overwrite the hook
+  script a newer desktop had uploaded, and the older script would drop the newer desktop's
+  events. The script now carries a version; `add-host` refuses a server with a newer one and
+  says to upgrade, and the daemon's first-start refresh never replaces a newer script.
 - **A server whose `$HOME` has a space.** The hook command on servers wrote the script path as
   an unquoted `~/.agentail/agentail-hook.py`, which the shell splits at a space in `$HOME`; it is
   now `"$HOME"/.agentail/agentail-hook.py`. This changes the command on servers, which Codex

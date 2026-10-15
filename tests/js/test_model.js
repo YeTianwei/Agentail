@@ -160,7 +160,8 @@ test('add server helpers', () => {
     eq(M.addedMessage('gpu7', 'x\ngpu7: connected (end-to-end ping received)\n'), 'Added gpu7. connected (end-to-end ping received)');
     eq(M.addedMessage('gpu7', ''), 'Added gpu7.');
     eq(M.removedMessage('gpu7', 'removed gpu7 from x'), 'Removed gpu7.');
-    eq(M.removedMessage('gpu8', 'gpu8 shares its $HOME with gpu7: leaving'), 'Removed gpu8. Its settings stay: another server shares the same home.');
+    eq(M.removedMessage('gpu8', 'gpu8 shares its $HOME with gpu7: leaving'), 'Removed gpu8. The hooks stay for the server that shares its home.');
+    eq(M.removedMessage('gpu8', 'kept gpu8:/h/.agentail: other receivers still use the hooks'), 'Removed gpu8. The hooks stay for the other desktops that watch it.');
     ok(Array.from(M.addHostMessage('y'.repeat(900), false)).length <= 240, 'bounded');
 });
 

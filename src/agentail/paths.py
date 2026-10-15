@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 from pathlib import Path, PurePosixPath
 
 APP = "agentail"
@@ -119,6 +120,18 @@ def ensure_private_dir(path: Path) -> Path:
 REMOTE_DIR = "~/.agentail"  # expanded on the remote side via $HOME
 HOOK_FILENAME = "agentail-hook.py"
 HOOK_MARKER = "agentail-hook"  # identifies our entries in agent configs
+# Mirrors HOOK_VERSION in the hook script (a test keeps them in sync). Bump when the hook's
+# command line changes in a way older scripts do not understand (2: several --sock, {uid}).
+HOOK_VERSION = 2
+_HOOK_VERSION_RE = re.compile(r"^HOOK_VERSION = (\d+)$", re.M)
+
+
+def hook_version(script: bytes) -> int:
+    """The HOOK_VERSION of a hook script's source, 0 for scripts from before it existed."""
+    m = _HOOK_VERSION_RE.search(script.decode("utf-8", "replace"))
+    return int(m.group(1)) if m else 0
+
+
 # In a --sock path, replaced by the hook script with its uid (mirrored in the hook script).
 UID_PLACEHOLDER = "{uid}"
 RUN_USER_DIR = "/run/user"  # per-user tmpfs on systemd hosts

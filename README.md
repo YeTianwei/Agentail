@@ -164,10 +164,12 @@ with the package on one machine: a unit from `install-service` overrides the pac
 
 The server needs key-based login (`ssh <alias> true` works without a prompt) and Python 3.6+.
 
-To remove one, click the **✕** on its row: Agentail puts the server's Claude and Codex settings back
-exactly as they were. Their backups stay in the server's `~/.agentail/backups/` (readable only by
-you); delete that directory when you no longer need them. If the server cannot be reached,
-**Forget it anyway** just stops watching it.
+To remove one, click the **✕** on its row: Agentail takes this desktop out of the server's Claude
+and Codex settings, and puts them back exactly as they were once no desktop is left in them. Their
+backups stay in the server's `~/.agentail/backups/` (readable only by you); delete that directory
+when you no longer need them. Removing needs the server reachable, also when it shares its home
+with another server you keep; if it cannot be reached, **Forget it anyway** just stops watching it
+and leaves the server as it is.
 
 Prefer the terminal?
 
@@ -177,8 +179,9 @@ agentail add-host gpu7
 agentail remove-host gpu7
 ```
 
-Servers that share one NFS home are recognised: the hook is installed once and removed with the
-last of them, and it works even when your uid differs between them. On each server, run `codex`
+Servers that share one NFS home are recognised: the hook is installed once, each server's own
+socket is removed when you remove that server, and the shared settings go back to the original
+with the last of them. It works even when your uid differs between them. On each server, run `codex`
 once to trust its hooks.
 
 One server can be watched from several desktops, and a desktop can itself be a server for another

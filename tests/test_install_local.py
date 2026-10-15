@@ -446,3 +446,18 @@ def test_installed_command_is_silent_when_hook_is_gone(agents_home, missing):
             cmd, shell=True, input=b'{"hook_event_name": "PreToolUse"}', capture_output=True
         )
         assert (proc.returncode, proc.stdout, proc.stderr) == (0, b"", b"")
+
+
+def test_uninstall_restores_windows_line_endings_byte_for_byte(isolated_home, runtime_env):
+    """A config edited on Windows has CRLF; reading it with newline translation made the
+    manifest hash never match, so uninstall rewrote it instead of restoring it."""
+    claude = isolated_home / ".claude"
+    claude.mkdir()
+    original = b'{\r\n  "model": "opus"\r\n}\r\n'
+    (claude / "settings.json").write_bytes(original)
+    assert install_local(out=lambda _: None) == 0
+    assert b"agentail-hook" in (claude / "settings.json").read_bytes()
+    lines = []
+    assert uninstall_local(out=lines.append) == 0
+    assert any(line.startswith("restored original") for line in lines), lines
+    assert (claude / "settings.json").read_bytes() == original

@@ -245,3 +245,25 @@ def test_the_hook_script_is_not_created_or_updated_when_not_wanted(
     assert firstrun.refresh_hook_script(out=lambda s: None) is False
     firstrun.run_setup(run=Runner(), sleep=lambda s: None, out=lambda s: None)
     assert not hook.exists()
+
+
+def test_hook_refresh_never_downgrades_a_newer_script(isolated_home, runtime_env, caplog):
+    """This machine is a server of a newer desktop: its add-host uploaded a newer script,
+    which an older bundled copy must not replace (it would not understand the entries)."""
+    from agentail import firstrun, paths
+    from agentail.install.local import hook_dest
+
+    dest = hook_dest()
+    dest.parent.mkdir(parents=True)
+    newer = (
+        paths.hook_script_source()
+        .read_bytes()
+        .replace(f"HOOK_VERSION = {paths.HOOK_VERSION}".encode(), b"HOOK_VERSION = 99")
+    )
+    dest.write_bytes(newer)
+    assert firstrun.refresh_hook_script() is False
+    assert dest.read_bytes() == newer
+    assert "newer than this Agentail" in caplog.text
+    dest.write_bytes(b"# old, before HOOK_VERSION\n")
+    assert firstrun.refresh_hook_script() is True
+    assert dest.read_bytes() == paths.hook_script_source().read_bytes()
