@@ -10,6 +10,8 @@ import pytest
 
 from agentail import cli, paths
 from agentail.config import load_hosts
+from agentail.install import local
+from agentail.install.local import BACKUP_KEEP, LEGACY_BACKUP_INFIX, backup_group
 from agentail.install.remote import (
     Probe,
     RemoteError,
@@ -109,6 +111,24 @@ def _tree(root):
     }
 
 
+def _mode(p):
+    return stat.S_IMODE(p.stat().st_mode)
+
+
+def _backups(home, group=""):
+    """Backups in the remote ~/.agentail/backups (of one config file), oldest first."""
+    d = home / ".agentail" / "backups"
+    if not d.is_dir():
+        return []
+
+    def when(p):
+        m = local._BACKUP_RE.match(p.name)
+        assert m, p.name
+        return m["stamp"], int(m["n"] or 0)
+
+    return sorted((p for p in d.iterdir() if p.name.startswith(group)), key=when)
+
+
 def test_add_then_remove_restores_server(fake_ssh, server, short_tmp):
     before = _tree(server)
     rc, out = _add(fake_ssh, name="GPU one")
@@ -126,7 +146,15 @@ def test_add_then_remove_restores_server(fake_ssh, server, short_tmp):
     assert "~/.agentail/agentail-hook.py" in cmd and str(short_tmp / "r1.sock") in cmd
     codex = json.loads((server / ".codex" / "hooks.json").read_text())
     assert "--agent codex" in codex["hooks"]["Stop"][0]["hooks"][0]["command"]
-    assert list((server / ".claude").glob("settings.json.agentail-bak.*"))
+    # The backup is private and in ~/.agentail/backups, not next to the config.
+    assert not list((server / ".claude").glob("*.agentail-bak.*"))
+    [backup] = _backups(server)
+    assert backup.name.startswith("claude.settings.json.") and backup.read_text() == SETTINGS
+    assert _mode(backup) == 0o600 and _mode(backup.parent) == 0o700
+    assert f"(backup: {backup})" in out
+    manifest = json.loads((server / ".agentail" / "install.json").read_text())
+    path = str(server / ".claude" / "settings.json")
+    assert manifest["files"][path]["pristine"] == str(backup)
     assert "approve the agentail-hook entries" in out
 
     (host,) = load_hosts()
@@ -141,9 +169,55 @@ def test_add_then_remove_restores_server(fake_ssh, server, short_tmp):
 
     rc, out = _remove(fake_ssh)
     assert rc == 0, out
-    after = {k: v for k, v in _tree(server).items() if ".agentail-bak." not in k}
+    # Everything is as before, except the backups, which are kept (and said so).
+    after = {k: v for k, v in _tree(server).items() if not k.startswith(".agentail")}
     assert after == before
+    assert [p.name for p in (server / ".agentail").iterdir()] == ["backups"]
+    assert len(_backups(server)) == 3  # settings.json before add and before remove, hooks.json
+    assert all(_mode(p) == 0o600 for p in _backups(server))
+    assert "kept 3 backup(s)" in out and str(server / ".agentail" / "backups") in out
     assert load_hosts() == []
+
+
+def test_remote_backups_rotate_and_keep_the_original(fake_ssh, server, short_tmp, monkeypatch):
+    settings = server / ".claude" / "settings.json"
+    os.chmod(settings, 0o644)
+    group = backup_group("claude", str(settings))
+    for i in range(BACKUP_KEEP + 3):  # a new socket path each time: a new write, a new backup
+        monkeypatch.setattr(paths, "remote_sock_preferred", lambda uid, i=i: f"/run/s{i}.sock")
+        rc, out = _add(fake_ssh, agents=["claude"])
+        assert rc == 0, out
+    backups = _backups(server, group)
+    assert len(backups) == BACKUP_KEEP + 1  # the newest few, and the original
+    assert backups[0].read_text() == SETTINGS
+    assert f"/run/s{BACKUP_KEEP + 1}.sock" in backups[-1].read_text()
+    assert all(_mode(b) == 0o600 for b in backups) and _mode(settings) == 0o644
+    manifest = json.loads((server / ".agentail" / "install.json").read_text())
+    assert manifest["files"][str(settings)]["pristine"] == str(backups[0])
+
+    rc, out = _remove(fake_ssh)
+    assert rc == 0, out
+    assert settings.read_bytes() == SETTINGS.encode() and _mode(settings) == 0o644
+    assert len(_backups(server, group)) == BACKUP_KEEP
+
+
+def test_remote_old_style_backup_still_restores(fake_ssh, server):
+    """A server set up before 0.0.4 has its original next to the config; remove-host
+    restores from it and leaves it there."""
+    settings = server / ".claude" / "settings.json"
+    assert _add(fake_ssh, agents=["claude"])[0] == 0
+    [backup] = _backups(server)
+    legacy = settings.with_name(settings.name + LEGACY_BACKUP_INFIX + "20250101-120000")
+    backup.rename(legacy)
+    mpath = server / ".agentail" / "install.json"
+    manifest = json.loads(mpath.read_text())
+    manifest["files"][str(settings)]["pristine"] = str(legacy)
+    mpath.write_text(json.dumps(manifest))
+
+    rc, out = _remove(fake_ssh)
+    assert rc == 0 and "restored original" in out, out
+    assert settings.read_bytes() == SETTINGS.encode()
+    assert legacy.read_text() == SETTINGS
 
 
 def test_installed_remote_command_runs_on_the_server(fake_ssh, server, short_tmp):

@@ -697,7 +697,8 @@ class Daemon:
         Recorded payloads may contain code and paths: review before committing."""
         assert self.record_dir is not None
         d = paths.ensure_private_dir(self.record_dir / msg.agent)
-        with (d / f"{source}.jsonl").open("a", encoding="utf-8") as fh:
+        fd = os.open(d / f"{source}.jsonl", os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+        with os.fdopen(fd, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(asdict(msg), ensure_ascii=False) + "\n")
 
     def stop(self) -> None:

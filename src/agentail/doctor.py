@@ -2,7 +2,8 @@
 
 Checks, in order: the daemon (ui.sock), the systemd user service, the local hook
 script and each agent's hook entries (plus agent-specific checks: Claude's status line,
-whether Codex trusts the hooks),
+whether Codex trusts the hooks; backups that versions before 0.0.4 left next to the
+configs, as information only),
 each remote host's tunnel as the daemon reports it, and the GNOME Shell extension.
 
 Remote hosts are judged by their tunnel: "connected" already means a ping from
@@ -27,6 +28,7 @@ from agentail import paths
 from agentail.client import clean
 from agentail.config import UsageSwitches, load_hosts, load_usage_switches
 from agentail.install import gnome, service, statusline
+from agentail.install import local as local_install
 from agentail.install.local import hook_dest
 
 Runner = Callable[[list[str]], tuple[int, str]]
@@ -215,6 +217,37 @@ def _dir_checks(spec: registry.AgentSpec) -> list[Check]:
     return []
 
 
+def legacy_backup_checks() -> list[Check]:
+    """Backups that installs before 0.0.4 left next to the agent configs
+    (``<file>.agentail-bak.<time>``, with the config's mode). Agentail never deletes them;
+    this only says where they are and which one uninstall-local still needs."""
+    manifest = local_install.load_manifest()
+    files = manifest.get("files", {})
+    configs = {spec.config_path() for spec in registry.AGENTS} | {Path(p) for p in files}
+    needed = {
+        e.get("pristine") for e in files.values() if isinstance(e, dict) and e.get("pristine")
+    }
+    checks = []
+    pattern = "{}" + local_install.LEGACY_BACKUP_INFIX + "*"
+    for config in sorted(configs):
+        try:
+            found = sorted(config.parent.glob(pattern.format(config.name)))
+            readable = sum(1 for p in found if p.stat().st_mode & 0o077)
+        except OSError:
+            continue
+        if not found:
+            continue
+        keep = [p for p in found if str(p) in needed]
+        detail = f"{len(found)} old backup(s) next to {config} ({config.name}.agentail-bak.*)"
+        if readable:
+            detail += f", {readable} readable by others"
+        hint = "they may hold secrets from the config; delete them when no longer needed"
+        if keep:
+            hint += f", except {keep[0].name} until `agentail uninstall-local` (the original)"
+        checks.append(Check("old backups", INFO, detail, hint))
+    return checks
+
+
 def local_checks() -> list[Check]:
     checks = []
     used = any(a.home().is_dir() for a in registry.AGENTS)
@@ -247,7 +280,7 @@ def local_checks() -> list[Check]:
             checks += extras(spec)
         for warning in spec.warnings(spec.home()) if spec.warnings else []:
             checks.append(Check(f"{spec.name} config", WARN, warning))
-    return checks
+    return checks + legacy_backup_checks()
 
 
 def _ago(ts: Any, now: float) -> str:

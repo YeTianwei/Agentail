@@ -13,16 +13,19 @@ add-host <alias>:
 3. Upload the hook to ~/.agentail/agentail-hook.py over ssh stdin (no scp), 0700.
    ~/.agentail/home-id holds a random id; hosts that report the same id share $HOME.
 4. Fetch each agent config (e.g. Claude ``settings.json``, Codex ``hooks.json``), merge
-   locally with the same code as install-local, back up on the server, write back
-   via tmp file + mv. A server-side ~/.agentail/install.json manifest lets
-   remove-host restore the originals byte for byte (same rules as uninstall-local).
+   locally with the same code as install-local, back up on the server to
+   ~/.agentail/backups (dir 0700, files 0600, the newest few per file kept, as with
+   install-local), write back via tmp file + mv. A server-side ~/.agentail/install.json
+   manifest lets remove-host restore the originals byte for byte (same rules as
+   uninstall-local, including originals backed up next to the config before 0.0.4).
    A config that already holds identical entries (shared $HOME) is left untouched.
 5. Save the host to hosts.toml (tomlkit, comments kept). A running daemon picks up
    the change, starts the tunnel and add-host waits for it to report "connected"
    (which requires an end-to-end ping).
 
 remove-host <alias>: undo 3-4 unless another configured host shares the same
-$HOME, then drop the host from hosts.toml. ``--local-only`` skips the server.
+$HOME, then drop the host from hosts.toml. ``--local-only`` skips the server. The
+backups directory is kept (and so ~/.agentail); the output says so.
 
 Every remote command goes through sshexec.Remote: fixed ``sh -c`` scripts with
 data passed as quoted positional arguments, never interpolated.
@@ -43,11 +46,13 @@ from agentail import agents as registry
 from agentail import config, paths
 from agentail.config import Host
 from agentail.install.local import (
-    BACKUP_INFIX,
     InstallError,
+    backup_stem,
+    backups_to_prune,
     dump_json,
     load_json,
     manifest_entry,
+    protected_backups,
     unified_diff,
     uninstall_action,
 )
@@ -113,32 +118,78 @@ READ_SCRIPT = r"""
 if [ -f "$1" ]; then echo present; cat "$1"; else echo absent; fi
 """
 
-# $1 = file, $2 = backup path or "" (no backup). New content on stdin.
+# backup FILE STEM: copy FILE to $HOME/.agentail/backups/STEM.bak, dir 0700 and file 0600
+# whatever FILE's mode; prints the backup's path. After a backup taken in the same second:
+# STEM-<n>.bak, n above the highest (as local.make_backup). set -C: never overwrite a
+# backup, even one another host on a shared $HOME took at the same moment.
+_BACKUP_FN = r"""
+backup() {
+  d=$HOME/.agentail/backups
+  (umask 077; mkdir -p "$d")
+  chmod 700 "$HOME/.agentail" "$d"
+  n=0
+  if [ -e "$d/$2.bak" ]; then n=1; fi
+  for x in "$d/$2"-*.bak; do
+    k=${x#"$d/$2"-}; k=${k%.bak}
+    case $k in ''|*[!0-9]*) continue;; esac
+    if [ "$k" -ge "$n" ]; then n=$((k+1)); fi
+  done
+  if [ "$n" -eq 0 ]; then b=$d/$2.bak; else b=$d/$2-$n.bak; fi
+  (umask 077; set -C; cat "$1" > "$b")
+  chmod 600 "$b"
+  printf '%s\n' "$b"
+}
+"""
+
+# $1 = file, $2 = backup name stem or "" (no backup). New content on stdin.
 # Symlinks (dotfile managers) are written through to their target.
-WRITE_SCRIPT = r"""
-set -e
+WRITE_SCRIPT = (
+    "set -e\n"
+    + _BACKUP_FN
+    + r"""
 f=$1
 if [ -L "$f" ]; then f=$(readlink -f "$f"); fi
 mkdir -p "$(dirname "$f")"
-if [ -n "$2" ] && [ -e "$f" ]; then cp -p "$f" "$2"; fi
+if [ -n "$2" ] && [ -e "$f" ]; then backup "$f" "$2"; fi
 tmp=$f.agentail-tmp.$$
 if [ -e "$f" ]; then cp -p "$f" "$tmp"; else (umask 077; : > "$tmp"); fi
 cat > "$tmp"
 mv -f "$tmp" "$f"
 """
+)
 
-# $1 = file, $2 = backup path.
-DELETE_SCRIPT = r"""
-set -e
-cp -p "$1" "$2"
+# $1 = file, $2 = backup name stem.
+DELETE_SCRIPT = (
+    "set -e\n"
+    + _BACKUP_FN
+    + r"""
+backup "$1" "$2"
 rm -f "$1"
 """
+)
 
-# $1 = remote socket.
+# Prints the names of the files in $HOME/.agentail/backups.
+LIST_BACKUPS_SCRIPT = r"""
+d=$HOME/.agentail/backups
+[ -d "$d" ] || exit 0
+for f in "$d"/*; do
+  if [ -f "$f" ]; then printf '%s\n' "${f##*/}"; fi
+done
+exit 0
+"""
+
+# $@ = names of backups to delete (checked against local._BACKUP_RE first: no "/").
+PRUNE_SCRIPT = r"""
+cd "$HOME/.agentail/backups" || exit 0
+rm -f -- "$@"
+"""
+
+# $1 = remote socket. backups/ is kept: then so is ~/.agentail.
 CLEANUP_SCRIPT = r"""
 d=$HOME/.agentail
 rm -f "$d/agentail-hook.py" "$d/install.json" "$d/home-id" "$1"
 rmdir "$d/run" 2>/dev/null
+rmdir "$d/backups" 2>/dev/null
 rmdir "$d" 2>/dev/null
 exit 0
 """
@@ -273,16 +324,33 @@ class _Files:
         except UnicodeDecodeError as exc:
             raise RemoteError(f"{path}: not UTF-8") from exc
 
-    def write(self, path: str, text: str, backup: str = "") -> None:
-        res = self.remote.script(WRITE_SCRIPT, path, backup, stdin=text.encode("utf-8"))
-        self._check(res, f"writing {path}")
+    def write(self, path: str, text: str, backup_stem: str = "") -> str:
+        """Write ``text`` to ``path``; with ``backup_stem``, back the old file up first.
+        Returns the backup's path on the server, "" if none was taken."""
+        res = self.remote.script(WRITE_SCRIPT, path, backup_stem, stdin=text.encode("utf-8"))
+        return self._backup_path(self._check(res, f"writing {path}"))
 
-    def delete(self, path: str, backup: str) -> None:
-        self._check(self.remote.script(DELETE_SCRIPT, path, backup), f"removing {path}")
+    def delete(self, path: str, backup_stem: str) -> str:
+        res = self.remote.script(DELETE_SCRIPT, path, backup_stem)
+        return self._backup_path(self._check(res, f"removing {path}"))
+
+    @staticmethod
+    def _backup_path(res: Result) -> str:
+        lines = res.stdout.decode("utf-8", "replace").strip().splitlines()
+        return lines[-1] if lines else ""
+
+    def prune_backups(self, backups_dir: str, manifest: dict[str, Any]) -> int:
+        """``local.backups_to_prune`` on the server's backups; returns the number left."""
+        res = self._check(self.remote.script(LIST_BACKUPS_SCRIPT), "listing backups")
+        names = res.stdout.decode("utf-8", "replace").splitlines()
+        doomed = backups_to_prune(names, protected_backups(manifest, backups_dir))
+        if doomed:
+            self._check(self.remote.script(PRUNE_SCRIPT, *doomed), "removing old backups")
+        return len(names) - len(doomed)
 
 
-def _backup_name(path: str) -> str:
-    return f"{path}{BACKUP_INFIX}{time.strftime('%Y%m%d-%H%M%S')}"
+def _backups_dir(probe: Probe) -> str:
+    return f"{probe.home}/.agentail/{paths.BACKUPS}"
 
 
 def _probe(remote: Remote) -> Probe:
@@ -405,16 +473,16 @@ def _add_host(
         if not changed(old_text, old_doc, new_text):
             out(f"{agent}: {alias}:{path} already up to date")
             continue
-        backup = _backup_name(path) if old_text is not None else ""
-        data = new_text.encode("utf-8")
+        stem = backup_stem(agent, path) if old_text is not None else ""
+        backup = files.write(path, new_text, stem)
         entries[path] = manifest_entry(
-            agent, old_text, old_doc, entries.get(path), backup or None, data
+            agent, old_text, old_doc, entries.get(path), backup or None, new_text.encode("utf-8")
         )
-        files.write(path, new_text, backup)
         wrote = True
         out(f"{agent}: updated {alias}:{path}" + (f" (backup: {backup})" if backup else ""))
     if wrote:
         files.write(_manifest_path(probe), dump_json(manifest))
+        files.prune_backups(_backups_dir(probe), manifest)
     for agent in selected:
         spec = registry.get(agent)
         if spec and spec.trust_note:
@@ -558,22 +626,34 @@ def _uninstall_remote(
             out(unified_diff(Path(f"{alias}:{path}"), old_text, new_text).rstrip("\n"))
         if not plans:
             out(f"No agentail hooks found in agent config files on {alias}.")
-        out(f"would remove {alias}:{probe.home}/.agentail")
+        out(f"would remove {alias}:{probe.home}/.agentail (backups/ in it would be kept)")
         return
 
+    agent_of = {p: a for a, p in config_files(probe).items()}
     for path, _, action, new_text in plans:
-        backup = _backup_name(path)
+        entry = entries.get(path)
+        agent = agent_of.get(path) or (entry.get("agent") if isinstance(entry, dict) else None)
+        stem = backup_stem(str(agent or "agent"), path)
         if action == "delete":
-            files.delete(path, backup)
+            backup = files.delete(path, stem)
             out(f"removed {alias}:{path} (it did not exist before install; backup: {backup})")
         else:
             assert new_text is not None
-            files.write(path, new_text, backup)
+            backup = files.write(path, new_text, stem)
             what = "restored original" if action == "restore" else "removed agentail hooks from"
             out(f"{what} {alias}:{path} (backup: {backup})")
     if not plans:
         out(f"No agentail hooks found in agent config files on {alias}.")
+    # Nothing needs an original any more: keep only the newest few of each file.
+    left = files.prune_backups(_backups_dir(probe), {"files": {}})
     files._check(
         remote.script(CLEANUP_SCRIPT, host.remote_sock or "/nonexistent"), "removing ~/.agentail"
     )
-    out(f"removed {alias}:{probe.home}/.agentail")
+    if left:
+        out(
+            f"removed agentail from {alias}:{probe.home}/.agentail, but kept {left} backup(s) "
+            f"in {_backups_dir(probe)} (readable only by you); delete that directory when you "
+            "no longer need them"
+        )
+    else:
+        out(f"removed {alias}:{probe.home}/.agentail")

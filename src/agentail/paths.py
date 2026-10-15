@@ -79,6 +79,15 @@ def agentail_home() -> Path:
     return Path.home() / f".{APP}"
 
 
+BACKUPS = "backups"  # under ~/.agentail, here and on servers
+
+
+def backup_dir() -> Path:
+    """~/.agentail/backups (mode 0700): copies of agent config files taken before every
+    write by install-local / uninstall-local (files 0600, the newest few per file kept)."""
+    return agentail_home() / BACKUPS
+
+
 def ensure_private_dir(path: Path) -> Path:
     path.mkdir(parents=True, exist_ok=True)
     os.chmod(path, 0o700)

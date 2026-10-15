@@ -26,6 +26,17 @@
   needs you; the panel still shows everything. `[notifications] details = true` in
   `~/.config/agentail/config.toml` brings the details back (applies without a restart). The UI
   protocol's `notify` message gained a `details` field; a missing one counts as `false`.
+- **Backups of agent configs in one private place.** `install-local`, `uninstall-local`,
+  `add-host` and `remove-host` used to copy each config they changed to
+  `<file>.agentail-bak.<time>` next to it, with the config's own permissions (often readable by
+  everyone, while Claude's `settings.json` can hold an API key), a new one each time and never
+  cleaned up. Backups now go to `~/.agentail/backups/` (on servers: the server's
+  `~/.agentail/backups/`), directory 0700 and files 0600, named after the agent, the file and the
+  time; only the 5 newest per file are kept, plus the original that uninstalling restores.
+  Uninstalling keeps that directory (and so `~/.agentail`) and says so. Existing installs keep
+  working: an original backed up the old way is still restored from, and old backups are never
+  deleted; `agentail doctor` lists them. The README now lists everything Agentail keeps on disk.
+- `agentail daemon --record` writes its files readable only by you (0600).
 
 ### Fixed
 

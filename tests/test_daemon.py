@@ -26,8 +26,11 @@ async def test_record_skips_ping(short_tmp):
     await d.handle("local", _msg(PING_EVENT, agent="unknown"))
     assert not (short_tmp / "rec").exists()
     await d.handle("local", _msg("Stop", '{"session_id": "s", "hook_event_name": "Stop"}'))
-    lines = (short_tmp / "rec" / "claude" / "local.jsonl").read_text().splitlines()
+    rec = short_tmp / "rec" / "claude" / "local.jsonl"
+    lines = rec.read_text().splitlines()
     assert len(lines) == 1 and json.loads(lines[0])["event"] == "Stop"
+    # Raw payloads (prompts, commands, file contents): readable only by the user.
+    assert rec.stat().st_mode & 0o777 == 0o600 and rec.parent.stat().st_mode & 0o777 == 0o700
 
 
 async def _start(daemon):
@@ -176,7 +179,9 @@ async def test_multi_host_end_to_end(runtime_env, fake_ssh, monkeypatch):
         rc = await asyncio.to_thread(remove_host, "gpu2", ssh=str(fake_ssh.path), out=lines.append)
         assert rc == 0, lines
         await _wait(lambda: "gpu2" not in daemon.hosts and k2 not in daemon.store.sessions)
-        assert "gpu2" not in daemon.remotes and not (homes["gpu2"] / ".agentail").exists()
+        assert "gpu2" not in daemon.remotes
+        # Only the backups of its agent configs are left on the server (remove-host keeps them).
+        assert [p.name for p in (homes["gpu2"] / ".agentail").iterdir()] == ["backups"]
     finally:
         daemon.stop()
         await asyncio.wait_for(task, 10)

@@ -264,3 +264,28 @@ def test_host_states_in_doctor(runtime_env):
     c = {x.name: x for x in doctor.host_checks(snap)}
     assert c["host gpu1"].status == FAIL and "retries" in c["host gpu1"].hint
     assert c["host gpu2"].status == FAIL and "journalctl" in c["host gpu2"].hint
+
+
+def test_old_style_backups_are_mentioned(isolated_home, runtime_env):
+    """Backups from before 0.0.4 next to the config: INFO with their place, never touched."""
+    import json
+    import os
+
+    claude = isolated_home / ".claude"
+    claude.mkdir()
+    settings = claude / "settings.json"
+    settings.write_text("{}")
+    assert install_local(out=lambda _: None) == 0
+    assert "old backups" not in by_name(run_checks(fake_run(), snapshot=None))
+    old = [claude / f"settings.json.agentail-bak.2025010{i}-000000" for i in (1, 2)]
+    for p in old:
+        p.write_text("{}")
+        os.chmod(p, 0o644)
+    manifest_path = paths.agentail_home() / "install.json"
+    manifest = json.loads(manifest_path.read_text())
+    manifest["files"][str(settings)]["pristine"] = str(old[0])
+    manifest_path.write_text(json.dumps(manifest))
+    c = by_name(run_checks(fake_run(), snapshot=None))["old backups"]
+    assert c.status == INFO and "2 old backup(s)" in c.detail and str(settings) in c.detail
+    assert "2 readable by others" in c.detail and old[0].name in c.hint
+    assert all(p.exists() for p in old)

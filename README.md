@@ -130,8 +130,8 @@ sudo apt install ./agentail_0.0.3.deb
 
 Behind the scenes the package started the daemon, which merged the hooks into
 `~/.claude/settings.json`, `~/.codex/hooks.json` and `~/.qoder/settings.json` /
-`~/.qoder-cn/settings.json` for the agents you have (backing each up) and
-enabled the panel.
+`~/.qoder-cn/settings.json` for the agents you have (backing each up to
+`~/.agentail/backups/`) and enabled the panel.
 
 > **Codex** only runs hooks you trust: start `codex` once and approve the `agentail-hook` entries
 > (or use `/hooks`).
@@ -164,7 +164,9 @@ with the package on one machine: a unit from `install-service` overrides the pac
 The server needs key-based login (`ssh <alias> true` works without a prompt) and Python 3.6+.
 
 To remove one, click the **✕** on its row: Agentail puts the server's Claude and Codex settings back
-exactly as they were. If the server cannot be reached, **Forget it anyway** just stops watching it.
+exactly as they were. Their backups stay in the server's `~/.agentail/backups/` (readable only by
+you); delete that directory when you no longer need them. If the server cannot be reached,
+**Forget it anyway** just stops watching it.
 
 Prefer the terminal?
 
@@ -236,6 +238,34 @@ private.
 `[usage]` and `[notifications]` apply within a few seconds; after changing `[sessions]` or
 `[setup]`, restart the daemon: `systemctl --user restart agentail`.
 
+## 🗄️ What Agentail keeps on disk
+
+Everything stays on your machines (the only outside request is the usage query to Anthropic,
+see [Usage limits](#-usage-limits)). Files that can hold your prompts, commands or secrets are readable only
+by you.
+
+| Where | What | Permissions |
+|---|---|---|
+| `~/.local/state/agentail/sessions.json` | the sessions the panel shows, kept across daemon restarts: working directory, prompt preview, current tool and its command or file, the agent's notification text, terminal variables (`TERM`, `TMUX`, …). A session is dropped when the daemon forgets it (see `[sessions]`) | dir 0700, file 0600 |
+| `~/.local/state/agentail/usage.json` | the last usage readings: plan, percentages, reset times, extra usage / credits. No login tokens | 0600 |
+| `~/.local/state/agentail/setup.json` | what the automatic setup has done | 0600 |
+| `~/.config/agentail/config.toml`, `hosts.toml` | your settings; your servers' aliases, socket paths and Python paths | 0600 when Agentail creates them |
+| `~/.agentail/agentail-hook.py` | the hook script (also on every server) | dir 0700, file 0700 |
+| `~/.agentail/install.json` | which agent config files Agentail changed, a hash of what it wrote and which backup holds the original (also on every server) | 0600 |
+| `~/.agentail/agent-dirs.json` | agent config dirs moved by `CLAUDE_CONFIG_DIR` / `CODEX_HOME` | 0600 |
+| `~/.agentail/backups/` | a copy of an agent config file (e.g. `claude.settings.json.1a2b3c4d.20261015-143000.bak`: agent, file, hash of its path, time) taken before every change by `install-local`, `uninstall-local`, `add-host` and `remove-host`, here and in the server's `~/.agentail/backups/`. These can contain whatever the config holds, API keys included. The 5 newest per file are kept, plus the original that uninstalling restores | dir 0700, files 0600 |
+| server: `~/.agentail/home-id`, `~/.agentail/run/` | a random id that tells servers sharing one `$HOME` apart; the tunnel socket when `/run/user/<uid>` is missing | dir 0700 |
+| `$XDG_RUNTIME_DIR/agentail/` | the daemon's sockets (in memory, gone at logout) | dir 0700, sockets 0600 |
+| `agentail daemon --record DIR` | for debugging only: every raw hook message (full prompts, commands, file contents) in `DIR/<agent>/<host>.jsonl`. Review before sharing | dirs 0700, files 0600 |
+
+Agentail reads Claude Code's login (`~/.claude/.credentials.json`) for the usage query but never
+writes or copies the token, and never reads `~/.codex/auth.json`.
+
+**Backups from before 0.0.4** were written next to each config, as
+`settings.json.agentail-bak.<time>`, with the config's own permissions. Agentail no longer
+creates them and never deletes them: they are your files. `agentail doctor` lists them and names
+the one uninstalling still needs; delete the others when you no longer need them.
+
 ## 🩺 Troubleshooting
 
 ```bash
@@ -267,6 +297,12 @@ sudo apt remove agentail
 
 Run the first two before removing the package, while the `agentail` command is still there.
 Hooks left behind are harmless: without the daemon they do nothing.
+
+Both keep the backups of your agent configs in `~/.agentail/backups/` (on each server too) as a
+last way back, and say so; `~/.agentail` then stays. When you no longer need them:
+`rm -r ~/.agentail` (and the same on each server, unless another Agentail desktop uses it). The
+session and usage files in `~/.local/state/agentail/` and your settings in
+`~/.config/agentail/` can be removed the same way.
 
 ## 🗺️ Roadmap
 

@@ -4,16 +4,23 @@ Install:
 
 * copy resources/agentail-hook.py to ~/.agentail/agentail-hook.py (dir and file 0700),
 * python = sys.executable resolved to an absolute path, sock = paths.local_sock(),
-* for each agent in ``agentail.agents``: back up its config file to
-  ``<file>.agentail-bak.<timestamp>``, merge our entries (the agent's config module) and
-  write atomically (tmp + rename). Claude: ``~/.claude/settings.json``. Codex:
-  ``$CODEX_HOME/hooks.json``.
+* for each agent in ``agentail.agents``: back up its config file (below), merge our
+  entries (the agent's config module) and write atomically (tmp + rename). Claude:
+  ``~/.claude/settings.json``. Codex: ``$CODEX_HOME/hooks.json``.
+
+Backups go to ``~/.agentail/backups/`` (dir 0700, files 0600: a config such as Claude's
+settings.json can hold API keys), named ``<agent>.<file name>.<hash of its path>.<time>.bak``.
+After each run only the ``BACKUP_KEEP`` newest per config file are kept, plus any backup
+the manifest still needs as the original to restore. Before 0.0.4 backups were written
+next to the config as ``<file>.agentail-bak.<time>``; manifests may still name one, and
+uninstall restores from it as before. Those are never deleted automatically.
 
 A manifest (``~/.agentail/install.json``) remembers, per config file, whether it
-existed before we touched it, the backup taken at that point, and a hash of what
-we wrote. Uninstall uses it to restore the original file byte for byte when
-nobody has edited the file since; otherwise it removes our entries structurally
-(identified by ``paths.HOOK_MARKER``) and keeps everything else.
+existed before we touched it, the backup taken at that point (``pristine``), and a
+hash of what we wrote. Uninstall uses it to restore the original file byte for byte
+when nobody has edited the file since; otherwise it removes our entries structurally
+(identified by ``paths.HOOK_MARKER``) and keeps everything else. Uninstall keeps the
+backups directory (and so ``~/.agentail``) and says so.
 
 Nothing is written before every config file has been read and merged
 successfully. ``--dry-run`` prints unified diffs and writes nothing.
@@ -25,12 +32,12 @@ import difflib
 import hashlib
 import json
 import os
-import shutil
+import re
 import sys
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from agentail import agents as registry
@@ -38,7 +45,12 @@ from agentail import paths
 from agentail.install import hookjson
 
 MANIFEST_NAME = "install.json"
-BACKUP_INFIX = ".agentail-bak."
+LEGACY_BACKUP_INFIX = ".agentail-bak."  # before 0.0.4: <config>.agentail-bak.<time>
+BACKUP_KEEP = 5  # newest backups kept per config file (a needed original is kept as well)
+_BACKUP_RE = re.compile(
+    r"^(?P<group>[A-Za-z0-9_.-]+\.[0-9a-f]{8})\.(?P<stamp>\d{8}-\d{6})(?:-(?P<n>\d+))?\.bak$"
+)
+_UNSAFE = re.compile(r"[^A-Za-z0-9_.-]")
 
 Out = Callable[[str], None]
 
@@ -81,15 +93,97 @@ def atomic_write(path: Path, data: bytes, default_mode: int = 0o600) -> None:
         raise
 
 
-def make_backup(path: Path) -> Path:
-    stamp = time.strftime("%Y%m%d-%H%M%S")
-    backup = path.with_name(f"{path.name}{BACKUP_INFIX}{stamp}")
-    n = 1
-    while backup.exists():
-        backup = path.with_name(f"{path.name}{BACKUP_INFIX}{stamp}.{n}")
-        n += 1
-    shutil.copy2(_real(path), backup)
+# ---- backups ---------------------------------------------------------------
+
+
+def backup_group(agent: str, path: str) -> str:
+    """``claude.settings.json.1a2b3c4d``: the agent, the file name and a hash of the file's
+    full path (two config dirs can hold files of the same name). Shared with add-host."""
+    name = _UNSAFE.sub("_", PurePosixPath(path).name) or "config"
+    digest = hashlib.sha256(path.encode("utf-8", "surrogateescape")).hexdigest()[:8]
+    return f"{_UNSAFE.sub('_', agent) or 'agent'}.{name}.{digest}"
+
+
+def backup_stem(agent: str, path: str) -> str:
+    """A backup's name without the ``.bak`` suffix (and without the ``-<n>`` added when a
+    backup of that file was already taken in the same second)."""
+    return f"{backup_group(agent, path)}.{time.strftime('%Y%m%d-%H%M%S')}"
+
+
+def backups_to_prune(names: Iterable[str], protected: Iterable[str] = ()) -> list[str]:
+    """Backup file names to delete: per config file all but the ``BACKUP_KEEP`` newest,
+    never one in ``protected`` (the originals a manifest still needs). Names that are not
+    ours are never returned."""
+    keep = set(protected)
+    groups: dict[str, list[tuple[str, int, str]]] = {}
+    for name in names:
+        m = _BACKUP_RE.match(name)
+        if m:
+            groups.setdefault(m["group"], []).append((m["stamp"], int(m["n"] or 0), name))
+    out = []
+    for items in groups.values():
+        items.sort(reverse=True)
+        out += [name for _, _, name in items[BACKUP_KEEP:] if name not in keep]
+    return sorted(out)
+
+
+def make_backup(path: Path, agent: str) -> Path:
+    """Copy ``path`` to ~/.agentail/backups (dir 0700, file 0600; never the config's own
+    mode, which is often 0644)."""
+    paths.ensure_private_dir(paths.agentail_home())
+    d = paths.ensure_private_dir(paths.backup_dir())
+    data = _real(path).read_bytes()
+    stem = backup_stem(agent, str(path))
+    # Taken in the same second as an earlier one: number it above the highest, never in a
+    # gap left by pruning, so the names keep sorting in the order they were taken.
+    same = [
+        int(m["n"] or 0)
+        for p in d.iterdir()
+        if (m := _BACKUP_RE.match(p.name)) and f"{m['group']}.{m['stamp']}" == stem
+    ]
+    n = max(same) + 1 if same else 0
+    while True:
+        backup = d / (f"{stem}.bak" if n == 0 else f"{stem}-{n}.bak")
+        try:
+            fd = os.open(backup, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+            break
+        except FileExistsError:
+            n += 1
+    try:
+        with os.fdopen(fd, "wb") as fh:
+            fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.chmod(backup, 0o600)
+    except BaseException:
+        backup.unlink(missing_ok=True)
+        raise
     return backup
+
+
+def protected_backups(manifest: dict[str, Any], backups: str) -> set[str]:
+    """Names of the backups in ``backups`` (a directory path) that ``manifest`` needs."""
+    out = set()
+    for entry in manifest.get("files", {}).values():
+        pristine = entry.get("pristine") if isinstance(entry, dict) else None
+        if isinstance(pristine, str):
+            p = PurePosixPath(pristine)
+            if str(p.parent) == backups.rstrip("/"):
+                out.add(p.name)
+    return out
+
+
+def prune_backups(manifest: dict[str, Any]) -> int:
+    """Apply ``backups_to_prune`` to ~/.agentail/backups; returns the number of files left."""
+    d = paths.backup_dir()
+    try:
+        names = [p.name for p in d.iterdir() if p.is_file()]
+    except OSError:
+        return 0
+    doomed = backups_to_prune(names, protected_backups(manifest, str(d)))
+    for name in doomed:
+        (d / name).unlink(missing_ok=True)
+    return len(names) - len(doomed)
 
 
 def load_json(path: Path, text: str) -> dict[str, Any]:
@@ -172,7 +266,7 @@ def _manifest_path() -> Path:
     return paths.agentail_home() / MANIFEST_NAME
 
 
-def _load_manifest() -> dict[str, Any]:
+def load_manifest() -> dict[str, Any]:
     try:
         data = json.loads(_manifest_path().read_text(encoding="utf-8"))
     except (OSError, ValueError):
@@ -265,14 +359,14 @@ def install_local(
     os.chmod(dest, 0o700)
     out(f"hook script: {dest}")
 
-    manifest = _load_manifest()
+    manifest = load_manifest()
     files = manifest["files"]
     for p in plans:
         t = p.target
         if not p.changed:
             out(f"{t.agent}: {t.path} already up to date")
             continue
-        backup = make_backup(t.path) if p.old_text is not None else None
+        backup = make_backup(t.path, t.agent) if p.old_text is not None else None
         data = p.new_text.encode("utf-8")
         entry = manifest_entry(
             t.agent,
@@ -286,6 +380,7 @@ def install_local(
         files[str(t.path)] = entry
         out(f"{t.agent}: updated {t.path}" + (f" (backup: {backup})" if backup else " (created)"))
     _save_manifest(manifest)
+    prune_backups(manifest)
     if from_shell:
         remember_dirs([p.target.agent for p in plans])
 
@@ -389,10 +484,14 @@ def _plan_uninstall(path: Path, entry: dict[str, Any] | None) -> _UninstallPlan 
 
 
 def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
-    manifest = _load_manifest()
+    manifest = load_manifest()
     files = manifest["files"]
-    candidates = [t.path for t in targets("python3", str(hook_dest()), "").values()]
+    agent_of = {t.path: t.agent for t in targets("python3", str(hook_dest()), "").values()}
+    candidates = list(agent_of)
     candidates += [Path(p) for p in files if Path(p) not in candidates]
+    for p, entry in files.items():
+        if isinstance(entry, dict) and isinstance(entry.get("agent"), str):
+            agent_of.setdefault(Path(p), entry["agent"])
 
     try:
         plans = [p for c in candidates if (p := _plan_uninstall(c, files.get(str(c))))]
@@ -409,11 +508,13 @@ def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
             out("No agentail hooks found in agent config files.")
         if dest.exists():
             out(f"would remove {dest}")
+        if plans or paths.backup_dir().is_dir():
+            out(f"would keep the backups in {paths.backup_dir()}")
         out("(dry run: nothing was written)")
         return 0
 
     for p in plans:
-        backup = make_backup(p.path)
+        backup = make_backup(p.path, agent_of.get(p.path, "agent"))
         if p.action == "delete":
             p.path.unlink()
             out(f"removed {p.path} (it did not exist before install; backup: {backup})")
@@ -428,8 +529,16 @@ def uninstall_local(dry_run: bool = False, out: Out = print) -> int:
     dest.unlink(missing_ok=True)
     _manifest_path().unlink(missing_ok=True)
     (paths.agentail_home() / registry.DIRS_FILE).unlink(missing_ok=True)
+    # Nothing needs an original any more: keep only the newest few of each file. The rest
+    # stays, the user's last way back; ~/.agentail is then not removed.
+    left = prune_backups({"files": {}})
+    if left:
+        out(
+            f"kept {left} backup(s) in {paths.backup_dir()} (readable only by you); "
+            "delete that directory when you no longer need them"
+        )
     try:
         paths.agentail_home().rmdir()
     except OSError:
-        pass  # missing, or holds something else (e.g. remote-style run/ dir): leave it
+        pass  # missing, or holds backups or something else (e.g. a run/ dir): leave it
     return 0
