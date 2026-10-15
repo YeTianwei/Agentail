@@ -34,10 +34,20 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from agentail.usage import UsageReading, clean_label, clean_plan, make_window, sorted_windows
+from agentail.usage import (
+    SPENT,
+    UsageExtra,
+    UsageReading,
+    clean_label,
+    clean_plan,
+    make_extra,
+    make_window,
+    sorted_windows,
+)
 
 ENDPOINT = "https://api.anthropic.com/api/oauth/usage"
 PROFILE_ENDPOINT = "https://api.anthropic.com/api/oauth/profile"
+EXTRA_USAGE = "Extra usage"
 BETA = "oauth-2025-04-20"
 TIMEOUT_S = 15.0
 MAX_BODY = 1024 * 1024
@@ -140,6 +150,55 @@ def _scope_label(scope: Any) -> str | None:
     return clean_label(model.get("display_name")) if isinstance(model, dict) else None
 
 
+def _minor(money: Any) -> tuple[float, str | None] | None:
+    """``{"amount_minor": 861, "currency": "USD", "exponent": 2}`` as (8.61, "USD")."""
+    if not isinstance(money, dict):
+        return None
+    minor, exp = money.get("amount_minor"), money.get("exponent")
+    if not isinstance(minor, int) or isinstance(minor, bool):
+        return None
+    if not isinstance(exp, int) or isinstance(exp, bool) or not 0 <= exp <= 6:
+        return None
+    cur = money.get("currency")
+    return minor / 10**exp, cur if isinstance(cur, str) else None
+
+
+def parse_extra_usage(body: Any) -> UsageExtra | None:
+    """Money spent beyond the plan ("extra usage", paid usage credits), when switched on.
+
+    ``spend`` states its units (minor units and an exponent) and comes first; the older
+    ``extra_usage`` gives ``used_credits`` / ``monthly_limit`` with ``decimal_places``, taken
+    here as minor units with that many decimals.
+    TODO(M0): only seen switched off (2026-10-14, Max 5x: ``spend.enabled`` false,
+    ``extra_usage.is_enabled`` false); the units of both are read from the field names.
+    """
+    if not isinstance(body, dict):
+        return None
+    spend = body.get("spend")
+    if isinstance(spend, dict) and spend.get("enabled") is True:
+        used, limit = _minor(spend.get("used")), _minor(spend.get("limit"))
+        if used is not None:
+            return make_extra(EXTRA_USAGE, SPENT, used[0], limit[0] if limit else None, used[1])
+    extra = body.get("extra_usage")
+    if isinstance(extra, dict) and extra.get("is_enabled") is True:
+        places = extra.get("decimal_places")
+        scale = 10**places if isinstance(places, int) and 0 <= places <= 6 else 1
+
+        def scaled(val: Any) -> float | None:
+            if isinstance(val, bool) or not isinstance(val, int | float):
+                return None
+            return val / scale
+
+        return make_extra(
+            EXTRA_USAGE,
+            SPENT,
+            scaled(extra.get("used_credits")),
+            scaled(extra.get("monthly_limit")),
+            extra.get("currency"),
+        )
+    return None
+
+
 def parse_usage(body: Any, host: str, now: float, plan: str | None = None) -> UsageReading | None:
     """The endpoint's JSON as a reading: ``limits[]`` first, else the older top-level
     ``five_hour`` / ``seven_day`` objects. None if no window is usable."""
@@ -173,7 +232,15 @@ def parse_usage(body: Any, host: str, now: float, plan: str | None = None) -> Us
     ordered = sorted_windows(windows)
     if not ordered:
         return None
-    return UsageReading(host=host, agent="claude", windows=ordered, ts=now, plan=plan)
+    extra = parse_extra_usage(body)
+    return UsageReading(
+        host=host,
+        agent="claude",
+        windows=ordered,
+        ts=now,
+        plan=plan,
+        extras=(extra,) if extra else (),
+    )
 
 
 class _NoRedirect(urllib.request.HTTPRedirectHandler):

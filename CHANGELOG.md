@@ -30,6 +30,9 @@
   server's own login: a short Python script runs there, nothing is installed, the token stays on
   the server. A server seen with this computer's account is not asked itself. `agentail usage-api
   off` turns this off too.
+- **Extra usage and Codex credits.** When Claude's extra usage (paid usage beyond the plan) is
+  switched on, the Claude card shows what was spent, with a bar if there is a monthly cap; when
+  Codex has credits, the Codex card shows the balance (or "unlimited").
 - **Codex usage from your servers.** Codex limits were read only on this computer, so Codex used
   only on a server (in a terminal or through VS Code Remote) showed none. The daemon now asks
   `codex app-server` on the server over ssh, with the server's own Codex login, a few seconds after

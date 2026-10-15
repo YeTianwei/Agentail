@@ -97,6 +97,23 @@ def test_parse_rate_limits_adds_other_limits():
     assert [w.label for w in alone.windows] == [None, None]
 
 
+def test_codex_credits():
+    from agentail.daemon.usage_codex import credits_extra
+
+    assert credits_extra({"hasCredits": False, "unlimited": False, "balance": "0"}) is None  # owner
+    assert credits_extra({"hasCredits": True, "unlimited": False, "balance": "12.5"}).amount == 12.5
+    assert credits_extra({"has_credits": True, "balance": "3"}).amount == 3.0  # session files
+    assert credits_extra({"hasCredits": True, "unlimited": True, "balance": "0"}).unlimited
+    for junk in (None, "x", {"hasCredits": True, "balance": "lots"}, {"hasCredits": "yes"}):
+        assert credits_extra(junk) is None
+    main = {
+        "primary": {"usedPercent": 7, "windowDurationMins": 300, "resetsAt": 1791952428},
+        "credits": {"hasCredits": True, "unlimited": False, "balance": "40"},
+    }
+    r = parse_rate_limits({"rateLimits": main}, "local", 1_791_950_000.0)
+    assert [(e.label, e.kind, e.amount) for e in r.extras] == [("Credits", "balance", 40.0)]
+
+
 def test_default_argv_uses_the_fixed_arguments(tmp_path, monkeypatch):
     codex = tmp_path / "bin" / "codex"
     codex.parent.mkdir()

@@ -400,6 +400,47 @@ function usageRow(w, now) {
     };
 }
 
+// "$8.61", "12.5 EUR", "40" (credits): an amount from the daemon, never trusted text.
+export function amountText(amount, currency) {
+    const money = typeof currency === 'string' && /^[A-Z]{3}$/.test(currency);
+    const text = money ? amount.toFixed(2) : String(Number(amount.toFixed(2)));
+    if (!money)
+        return text;
+    return currency === 'USD' ? `$${text}` : `${text} ${currency}`;
+}
+
+const amountOk = v => typeof v === 'number' && Number.isFinite(v) && v >= 0;
+
+// A row for an extra (agentail.usage.UsageExtra): money spent beyond the plan, with a bar
+// when it has a cap, or a balance left, without one.
+export function extraRow(e) {
+    if (!e || typeof e !== 'object')
+        return null;
+    const label = clean(e.label, 24);
+    if (!label)
+        return null;
+    const amount = amountOk(e.amount) ? e.amount : null;
+    const off = {label, bar: false, percent: null, fraction: 0, level: 'off'};
+    if (e.kind === 'balance') {
+        if (e.unlimited === true)
+            return {...off, resetText: 'unlimited'};
+        return amount === null ? null : {...off, resetText: `${amountText(amount, e.currency)} left`};
+    }
+    if (e.kind !== 'spent' || amount === null)
+        return null;
+    if (!amountOk(e.limit) || !(e.limit > 0))
+        return {...off, resetText: `${amountText(amount, e.currency)} spent`};
+    const percent = Math.min(100, amount / e.limit * 100);
+    return {
+        label,
+        bar: true,
+        percent: Math.round(percent),
+        fraction: percent / 100,
+        level: percent >= USAGE_CRIT ? 'crit' : percent >= USAGE_WARN ? 'warn' : 'ok',
+        resetText: `${amountText(amount, e.currency)} of ${amountText(e.limit, e.currency)}`,
+    };
+}
+
 // Accounts, as agentail.usage.group_by_account (Python) tells them apart: same agent and
 // weekly windows that reset within SAME_ACCOUNT_S of each other. Keep the two in sync.
 export const SAME_ACCOUNT_S = 600;
@@ -488,7 +529,8 @@ export function usageCards(state, now) {
         groups.sort((a, b) => Number(b.some(m => m.host === 'local')) - Number(a.some(m => m.host === 'local')));
         for (const members of groups) {
             const {u, ts, host, windows} = members[0];
-            const rows = windows.map(w => usageRow(w, now));
+            const extras = Array.isArray(u.extras) ? u.extras : [];
+            const rows = [...windows.map(w => usageRow(w, now)), ...extras.map(extraRow).filter(r => r)];
             const hosts = [...new Set(members.map(m => m.host))]
                 .sort((a, b) => Number(b === 'local') - Number(a === 'local'));
             const local = hosts.includes('local');

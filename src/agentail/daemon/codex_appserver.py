@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from agentail.daemon.schedule import RemoteSchedule  # noqa: F401  (re-exported)
+from agentail.daemon.usage_codex import credits_extra
 from agentail.sshexec import sh_script, ssh_argv
 from agentail.usage import UsageReading, clean_label, clean_plan, make_window, sorted_windows
 
@@ -117,8 +118,14 @@ def parse_rate_limits(result: Any, host: str, now: float) -> UsageReading | None
     ordered = sorted_windows(windows)
     if not ordered:
         return None
+    extra = credits_extra(snap.get("credits"))
     return UsageReading(
-        host=host, agent="codex", windows=ordered, ts=now, plan=clean_plan(snap.get("planType"))
+        host=host,
+        agent="codex",
+        windows=ordered,
+        ts=now,
+        plan=clean_plan(snap.get("planType")),
+        extras=(extra,) if extra else (),
     )
 
 

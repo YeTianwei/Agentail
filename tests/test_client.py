@@ -185,3 +185,31 @@ def test_format_event_usage():
     assert "removed" in client.format_event(
         {"type": "usage_remove", "host": "gpu1", "agent": "codex"}, now=NOW
     )
+
+
+def test_format_extras():
+    f = client.format_extra
+    assert f(
+        {"label": "Extra usage", "kind": "spent", "amount": 8.61, "limit": 50, "currency": "USD"}
+    ) == ("Extra usage $8.61 of $50.00")
+    assert f({"label": "Extra usage", "kind": "spent", "amount": 3, "currency": "EUR"}) == (
+        "Extra usage 3.00 EUR spent"
+    )
+    assert f({"label": "Credits", "kind": "balance", "amount": 12.5}) == "Credits 12.5 left"
+    assert f({"label": "Credits", "kind": "balance", "unlimited": True}) == "Credits unlimited"
+    assert (
+        f({"label": "Credits", "kind": "balance", "amount": 2, "currency": "U\x1bD"})
+        == "Credits 2 left"
+    )
+    for junk in (
+        "x",
+        {},
+        {"label": "Credits", "kind": "balance"},
+        {"label": "X", "kind": "spent", "amount": -1},
+    ):
+        assert f(junk) == ""
+    u = {
+        "windows": [{"used_percent": 5, "window_minutes": 300}],
+        "extras": [{"label": "Credits", "kind": "balance", "amount": 40}],
+    }
+    assert client.format_usage_windows(u, NOW) == "5h 5%, Credits 40 left"

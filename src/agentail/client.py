@@ -8,6 +8,7 @@ Every string that came from a hook payload is untrusted: control characters
 from __future__ import annotations
 
 import json
+import re
 import socket
 import sys
 import time
@@ -145,7 +146,41 @@ def format_usage_windows(usage: dict[str, Any], now: float) -> str:
         if isinstance(reset, (int, float)) and not isinstance(reset, bool):
             text += " (reset)" if reset <= now else f" (resets in {duration_text(reset - now)})"
         parts.append(text)
+    for e in usage.get("extras") or []:
+        text = format_extra(e)
+        if text:
+            parts.append(text)
     return ", ".join(parts)
+
+
+def _amount(val: Any, currency: Any) -> str:
+    money = isinstance(currency, str) and re.fullmatch(r"[A-Z]{3}", currency) is not None
+    if not money:
+        return f"{val:.2f}".rstrip("0").rstrip(".")
+    return f"${val:.2f}" if currency == "USD" else f"{val:.2f} {currency}"
+
+
+def format_extra(e: Any) -> str:
+    """ "Extra usage $8.61 of $50.00", "Credits 12.5 left" ... for one USAGE extra."""
+    if not isinstance(e, dict):
+        return ""
+    label = clean(e.get("label"), 24)
+    amount, limit, cur = e.get("amount"), e.get("limit"), e.get("currency")
+
+    def number(v: Any) -> bool:
+        return isinstance(v, int | float) and not isinstance(v, bool) and v >= 0
+
+    if not label:
+        return ""
+    if e.get("kind") == "balance":
+        if e.get("unlimited") is True:
+            return f"{label} unlimited"
+        return f"{label} {_amount(amount, cur)} left" if number(amount) else ""
+    if e.get("kind") != "spent" or not number(amount):
+        return ""
+    if number(limit) and limit > 0:
+        return f"{label} {_amount(amount, cur)} of {_amount(limit, cur)}"
+    return f"{label} {_amount(amount, cur)} spent"
 
 
 def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:

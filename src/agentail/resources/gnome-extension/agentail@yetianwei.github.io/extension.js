@@ -585,16 +585,18 @@ class AgentailIndicator extends PanelMenu.Button {
             const name = label(r.label, 'agentail-usage-label');
             name.set_style(`min-width: ${c.labelWidth}px;`);
             row.add_child(name);
-            const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
-            track.set_width(USAGE_BAR_WIDTH);
-            if (r.fraction > 0) {
-                track.add_child(new St.Widget({
-                    style_class: `agentail-usage-fill agentail-usage-${r.level}`,
-                    width: Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction)),
-                    y_expand: true,
-                }));
+            if (r.bar !== false) {  // a balance has no bar: label, then its text
+                const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
+                track.set_width(USAGE_BAR_WIDTH);
+                if (r.fraction > 0) {
+                    track.add_child(new St.Widget({
+                        style_class: `agentail-usage-fill agentail-usage-${r.level}`,
+                        width: Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction)),
+                        y_expand: true,
+                    }));
+                }
+                row.add_child(track);
             }
-            row.add_child(track);
             if (r.percent !== null)
                 row.add_child(label(`${r.percent}%`, `agentail-usage-percent agentail-usage-text-${r.level}`));
             row.add_child(label(r.resetText, 'agentail-usage-reset', {ellipsize: true, xExpand: true}));

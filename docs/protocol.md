@@ -60,8 +60,16 @@ HOST    = {"alias", "name", "state": "local|connecting|connected|backoff|auth_fa
 ```
 USAGE   = {"host", "agent", "plan": "plus" | null, "updated_ts",
            "windows": [{"used_percent": 0..100, "window_minutes": int | null, "resets_at": int | null,
-                        "label": "Fable" | null}]}
+                        "label": "Fable" | null}],
+           "extras": [{"label": "Extra usage" | "Credits", "kind": "spent" | "balance",
+                       "amount": float | null, "limit": float | null, "currency": "USD" | null,
+                       "unlimited": bool}]}
 ```
+
+`extras` (since 0.0.4) are amounts next to the windows: money spent beyond the plan
+(`spent`, with `limit` when capped; Claude's extra usage) or a balance left (`balance`, or
+`unlimited`; Codex credits). `currency` is an ISO 4217 code, null for plain credits. Labels are
+written by the daemon, not taken from the agents; clients format the numbers themselves.
 
 `plan` is a short lowercase id (`plus`, `pro`, `max_5x`); clients format it for display
 ("Max 5x"). A window's `label` (since 0.0.4) names what it is limited to when that is not

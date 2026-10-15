@@ -42,6 +42,52 @@ class UsageWindow:
     label: str | None = None  # what the window is limited to, when not everything
 
 
+# UsageExtra.kind: money spent beyond the plan (Claude's extra usage) or a balance left
+# (Codex credits).
+SPENT, BALANCE = "spent", "balance"
+_CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
+MAX_AMOUNT = 1e9
+
+
+@dataclass(frozen=True)
+class UsageExtra:
+    """An amount next to the rate-limit windows: what was spent (``limit``: the cap, if
+    any) or what is left (``unlimited``: no balance needed). ``currency`` is an ISO 4217
+    code; None means plain credits."""
+
+    label: str
+    kind: str
+    amount: float | None = None
+    limit: float | None = None
+    currency: str | None = None
+    unlimited: bool = False
+
+
+def make_extra(
+    label: Any,
+    kind: Any,
+    amount: Any = None,
+    limit: Any = None,
+    currency: Any = None,
+    unlimited: Any = False,
+) -> UsageExtra | None:
+    """A validated extra, or None when nothing usable is left."""
+    name = clean_label(label)
+    if name is None or kind not in (SPENT, BALANCE):
+        return None
+
+    def money(val: Any) -> float | None:
+        n = _number(val)
+        return n if n is not None and 0 <= n <= MAX_AMOUNT else None
+
+    amt, lim = money(amount), money(limit)
+    unl = unlimited is True and kind == BALANCE
+    cur = currency if isinstance(currency, str) and _CURRENCY_RE.match(currency) else None
+    if amt is None and not unl:
+        return None
+    return UsageExtra(name, kind, amt, lim if lim else None, cur, unl)
+
+
 @dataclass(frozen=True)
 class UsageReading:
     host: str
@@ -49,6 +95,7 @@ class UsageReading:
     windows: tuple[UsageWindow, ...]
     ts: float
     plan: str | None = None
+    extras: tuple[UsageExtra, ...] = ()
 
 
 class UsageKey(NamedTuple):
@@ -126,7 +173,7 @@ def fill_in(partial: UsageReading, full: UsageReading) -> UsageReading:
     windows it lacks come from ``full``. The caller checks ``same_account`` first."""
     have = {(w.window_minutes, w.label) for w in partial.windows}
     extra = [w for w in full.windows if w.label and (w.window_minutes, w.label) not in have]
-    if not extra and (partial.plan or not full.plan):
+    if not extra and (partial.plan or not full.plan) and (partial.extras or not full.extras):
         return partial
     return UsageReading(
         partial.host,
@@ -134,6 +181,7 @@ def fill_in(partial: UsageReading, full: UsageReading) -> UsageReading:
         sorted_windows([*partial.windows, *extra]),
         partial.ts,
         partial.plan or full.plan,
+        partial.extras or full.extras,
     )
 
 
@@ -209,7 +257,11 @@ class UsageStore:
         if old is not None and reading.ts < old.ts:
             return False  # out of order: keep the newer reading
         if old is not None:
-            same = old.windows == reading.windows and old.plan == reading.plan
+            same = (old.windows, old.plan, old.extras) == (
+                reading.windows,
+                reading.plan,
+                reading.extras,
+            )
             if same and reading.ts - old.ts < REFRESH_S:
                 return False  # keep the old timestamp: the throttle counts from the last send
         self.readings[key] = reading
@@ -251,6 +303,17 @@ def reading_to_dict(r: UsageReading) -> dict[str, Any]:
             }
             for w in r.windows
         ],
+        "extras": [
+            {
+                "label": e.label,
+                "kind": e.kind,
+                "amount": e.amount,
+                "limit": e.limit,
+                "currency": e.currency,
+                "unlimited": e.unlimited,
+            }
+            for e in r.extras
+        ],
         "updated_ts": r.ts,
     }
 
@@ -272,4 +335,24 @@ def reading_from_dict(d: Any, now: float) -> UsageReading | None:
     ordered = sorted_windows(windows)
     if not ordered:
         return None
-    return UsageReading(host, agent, ordered, min(ts, now), clean_plan(d.get("plan")))
+    raw = d.get("extras")
+    extras = [
+        make_extra(
+            e.get("label"),
+            e.get("kind"),
+            e.get("amount"),
+            e.get("limit"),
+            e.get("currency"),
+            e.get("unlimited"),
+        )
+        for e in (raw if isinstance(raw, list) else [])
+        if isinstance(e, dict)
+    ]
+    return UsageReading(
+        host,
+        agent,
+        ordered,
+        min(ts, now),
+        clean_plan(d.get("plan")),
+        tuple(e for e in extras if e is not None),
+    )

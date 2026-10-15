@@ -10,7 +10,10 @@ from agentail.daemon.main import Daemon
 from agentail.daemon.usage_codex import read_codex_usage
 from agentail.protocol import HookMessage
 from agentail.usage import (
+    BALANCE,
     REFRESH_S,
+    SPENT,
+    UsageExtra,
     UsageReading,
     UsageStore,
     UsageWindow,
@@ -18,6 +21,7 @@ from agentail.usage import (
     clean_plan,
     fill_in,
     group_by_account,
+    make_extra,
     make_window,
     same_account,
     sorted_windows,
@@ -169,6 +173,48 @@ def test_group_by_account_without_fingerprints_and_after_a_reset():
     assert _hosts(group_by_account([old], NOW)) == [[("claude", "gpu7")]]
 
 
+def test_make_extra_validates():
+    assert make_extra("Extra usage", SPENT, 8.61, 50, "USD") == UsageExtra(
+        "Extra usage", SPENT, 8.61, 50, "USD"
+    )
+    assert make_extra("Credits", BALANCE, unlimited=True) == UsageExtra(
+        "Credits", BALANCE, None, None, None, True
+    )
+    assert make_extra("Credits", BALANCE, 12.5, currency="usd").currency is None
+    assert make_extra("Extra usage", SPENT, 1, 0).limit is None  # a zero cap is no cap
+    assert make_extra("Extra usage", SPENT, unlimited=True) is None  # only balances
+    for bad in (
+        ("<b>", SPENT, 1),
+        ("Credits", "other", 1),
+        ("Credits", BALANCE, None),
+        ("Credits", BALANCE, -1),
+        ("Credits", BALANCE, float("nan")),
+        ("Credits", BALANCE, True),
+    ):
+        assert make_extra(*bad) is None, bad
+
+
+def test_extras_round_trip_and_count_as_a_change():
+    extra = UsageExtra("Extra usage", SPENT, 8.61, 50.0, "USD")
+    r = UsageReading("local", "claude", (UsageWindow(5, 300),), NOW, "max_5x", (extra,))
+    st = UsageStore()
+    st.update(r)
+    other = UsageStore()
+    other.load(json.loads(json.dumps(st.dump())), NOW)
+    assert other.readings == st.readings
+    assert st.update(UsageReading("local", "claude", r.windows, NOW + 1, "max_5x"))  # gone
+    junk = {**st.dump()[0], "extras": ["x", {"label": "Credits", "kind": "balance"}]}
+    assert UsageStore().load([junk], NOW) == 1  # the reading stays, the junk extra goes
+
+
+def test_fill_in_takes_the_extras_from_the_full_reading():
+    week = int(NOW) + 86400
+    extra = UsageExtra("Extra usage", SPENT, 8.61, None, "USD")
+    full = UsageReading("local", "claude", (UsageWindow(5, 10080, week),), NOW, "max_5x", (extra,))
+    line = UsageReading("gpu1", "claude", (UsageWindow(6, 10080, week),), NOW + 5)
+    assert fill_in(line, full).extras == (extra,)
+
+
 def test_claude_statusline_usage():
     adapter = get_adapter("claude")
     payload = {
@@ -314,7 +360,7 @@ async def test_daemon_publishes_usage_from_both_agents(runtime_env, tmp_path):
         assert [(u["host"], u["agent"], u["plan"]) for u in snap["usage"]] == [
             ("local", "codex", "plus")
         ]
-        assert set(snap["usage"][0]) == {"host", "agent", "plan", "windows", "updated_ts"}
+        assert set(snap["usage"][0]) == {"host", "agent", "plan", "windows", "extras", "updated_ts"}
 
         now = time.time()
         payload = {"rate_limits": {"five_hour": {"used_percentage": 41, "resets_at": now + 600}}}

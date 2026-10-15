@@ -193,6 +193,48 @@ def test_parse_labels_the_older_per_model_fields():
     assert [(w.used_percent, w.label) for w in r.windows] == [(43.0, None), (9.0, "Opus")]
 
 
+def test_extra_usage_only_when_switched_on():
+    # the owner's account (2026-10-14): both switched off
+    off = {
+        "spend": {"used": {"amount_minor": 0, "currency": "USD", "exponent": 2}, "enabled": False},
+        "extra_usage": {"is_enabled": False, "monthly_limit": None, "used_credits": None},
+    }
+    assert api.parse_extra_usage(off) is None
+    assert api.parse_usage({**BODY, **off}, "local", NOW).extras == ()
+
+    spend = {
+        "enabled": True,
+        "used": {"amount_minor": 861, "currency": "USD", "exponent": 2},
+        "limit": {"amount_minor": 5000, "currency": "USD", "exponent": 2},
+    }
+    e = api.parse_extra_usage({"spend": spend})
+    assert (e.label, e.kind, e.amount, e.limit, e.currency) == (
+        "Extra usage",
+        "spent",
+        8.61,
+        50.0,
+        "USD",
+    )
+    assert api.parse_extra_usage({"spend": {**spend, "limit": None}}).limit is None
+    r = api.parse_usage({**BODY, "spend": spend}, "local", NOW)
+    assert r.extras == (e,)
+
+    older = {
+        "is_enabled": True,
+        "used_credits": 861,
+        "monthly_limit": 5000,
+        "decimal_places": 2,
+        "currency": "EUR",
+    }
+    e = api.parse_extra_usage({"extra_usage": older})
+    assert (e.amount, e.limit, e.currency) == (8.61, 50.0, "EUR")
+    junk = {
+        "spend": {"enabled": True, "used": {"amount_minor": "x", "exponent": 2}},
+        "extra_usage": {"is_enabled": True, "used_credits": True},
+    }
+    assert api.parse_extra_usage(junk) is None
+
+
 @pytest.mark.parametrize(
     "body, plan",
     [

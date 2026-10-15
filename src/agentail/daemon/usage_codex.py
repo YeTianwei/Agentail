@@ -16,10 +16,13 @@ from pathlib import Path
 from typing import Any
 
 from agentail.usage import (
+    BALANCE,
+    UsageExtra,
     UsageReading,
     UsageWindow,
     clean_label,
     clean_plan,
+    make_extra,
     make_window,
     sorted_windows,
 )
@@ -66,6 +69,7 @@ def _timestamp(obj: dict[str, Any], fallback: float) -> float:
 
 
 MAIN_LIMIT_ID = "codex"
+CREDITS = "Credits"
 
 
 def _windows(limits: dict[str, Any], ts: float, label: Any = None) -> list[UsageWindow | None]:
@@ -81,14 +85,37 @@ def _windows(limits: dict[str, Any], ts: float, label: Any = None) -> list[Usage
     return windows
 
 
+def credits_extra(credits: Any) -> UsageExtra | None:
+    """Codex credits (``{"has_credits", "unlimited", "balance": "12.5"}`` in the session
+    files, camelCase from the app-server) as a balance, when there is one.
+    TODO(M0): only seen empty (2026-10-14, Plus: no credits, balance "0")."""
+    if not isinstance(credits, dict):
+        return None
+    if credits.get("unlimited") is True:
+        return make_extra(CREDITS, BALANCE, unlimited=True)
+    if credits.get("has_credits", credits.get("hasCredits")) is not True:
+        return None
+    try:
+        balance = float(credits.get("balance"))
+    except (TypeError, ValueError):
+        return None
+    return make_extra(CREDITS, BALANCE, balance)
+
+
 def parse_rate_limits(limits: Any, host: str, ts: float) -> UsageReading | None:
     if not isinstance(limits, dict):
         return None
     ordered = sorted_windows(_windows(limits, ts))
     if not ordered:
         return None
+    extra = credits_extra(limits.get("credits"))
     return UsageReading(
-        host=host, agent="codex", windows=ordered, ts=ts, plan=clean_plan(limits.get("plan_type"))
+        host=host,
+        agent="codex",
+        windows=ordered,
+        ts=ts,
+        plan=clean_plan(limits.get("plan_type")),
+        extras=(extra,) if extra else (),
     )
 
 

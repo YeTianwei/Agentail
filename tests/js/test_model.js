@@ -248,6 +248,23 @@ test('usage: one card per account, hosts named only when there are several', () 
     eq(M.usageCards(login, NOW).map(x => x.updatedText), ['sign-in expired · run claude once', 'updated 30s ago']);
 });
 
+test('usage extras: extra usage and credits', () => {
+    eq([M.amountText(8.61, 'USD'), M.amountText(3, 'EUR'), M.amountText(12.5, null), M.amountText(40, undefined)],
+        ['$8.61', '3.00 EUR', '12.5', '40']);
+    const capped = M.extraRow({label: 'Extra usage', kind: 'spent', amount: 40, limit: 50, currency: 'USD'});
+    eq([capped.bar, capped.percent, capped.level, capped.resetText], [true, 80, 'warn', '$40.00 of $50.00']);
+    eq(M.extraRow({label: 'Extra usage', kind: 'spent', amount: 3, currency: 'USD'}).resetText, '$3.00 spent');
+    const credits = M.extraRow({label: 'Credits', kind: 'balance', amount: 12.5});
+    eq([credits.bar, credits.percent, credits.resetText], [false, null, '12.5 left']);
+    eq(M.extraRow({label: 'Credits', kind: 'balance', unlimited: true}).resetText, 'unlimited');
+    for (const junk of [null, 'x', {kind: 'balance', amount: 1}, {label: 'C', kind: 'balance'},
+        {label: 'C', kind: 'spent', amount: -1}, {label: 'C', kind: 'other', amount: 1}])
+        eq(M.extraRow(junk), null);
+    const st = withUsage([{...usage('local', 'codex', [win(5, 300)]),
+        extras: [{label: 'Credits', kind: 'balance', amount: 40}, 'junk']}]);
+    eq(M.usageCards(st, NOW)[0].rows.map(r => [r.label, r.resetText]), [['5h', ''], ['Credits', '40 left']]);
+});
+
 test('usage levels switch at 70 and 90 percent', () => {
     const st = withUsage([usage('local', 'codex', [win(69.9, 300), win(70, 300), win(89.9, 300), win(90, 300), win(120, 300)])]);
     eq(M.usageCards(st, NOW)[0].rows.map(r => [r.level, r.percent]),
