@@ -1,8 +1,6 @@
 <div align="center">
 
-<img src="src/agentail/resources/gnome-extension/agentail@yetianwei.github.io/icons/agentail-mark.svg" alt="" width="96">
-
-# Agentail
+# <img src="src/agentail/resources/gnome-extension/agentail@yetianwei.github.io/icons/agentail-mark.svg" alt="" height="40" align="center"> Agentail
 
 **The AI coding agent status island for Linux.**
 
