@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.0.5 — 2026-10-16
+
+A tidier panel: sessions you can clear, settings for notifications and language, servers moved
+into the settings, and a new mark. Checked on the owner's GNOME 46 desktop and servers; the
+AppIndicator fallback's change is covered by tests only.
 
 ### Added
 
@@ -41,6 +45,11 @@
   server that failed stays unreachable, with its last reason, until it has connected again
   (it retries by connecting between failures). The AppIndicator fallback does the same.
 - **Removing a server is a trash can too**, in place of the ✕ at the end of its row.
+- **Shorter settings.** "Show usage limits" has no note under it. Claude's two switches line up
+  with it under "Ask Anthropic for Claude's limits", which says once when it asks (after every
+  Claude turn and when you open the panel); they are just "This computer" and "Servers".
+- **Smaller switches.** The panel's switches are 36×20 instead of the shell theme's 46×26, in
+  proportion to the 13px text next to them; the rest of GNOME is unchanged.
 
 ## 0.0.4 — 2026-10-15
 

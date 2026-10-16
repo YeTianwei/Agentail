@@ -336,7 +336,22 @@ agentail add-host gpu7 && agentail add-host gpu8  # 切到新的 socket 名,然�
 git push origin main && git tag v0.0.4 && git push origin v0.0.4
 ```
 
-### 0.0.5:Qwen Code、Gemini CLI
+### 0.0.5 发布 ☁️ + 👤
+
+☁️ 已完成(2026-10-16):面板打磨,owner 在 GNOME 46 桌面上逐项验证后直接提交到 main。内容:会话卡片可删除(`dismiss_session`,下一个事件会带回)、垃圾桶图标;面板与通知中英文(`i18n.js`,设置里 System / English / 中文);设置页精简(Claude 两个开关左对齐、文案改短);通知分组(`[notifications] turn_done` / `attention` / `details`,`agentail notifications`);服务器管理移到设置页底部,主面板只显示连不上的服务器,`connecting` 本身不再算断线;新图标(金色流星,`icons/agentail-mark*.svg`,原创);开关缩到 36×20。hook 脚本和安装逻辑没变,服务器不用重新 `add-host`。版本号 0.0.5、CHANGELOG、README、`.github/release-notes/v0.0.5.md`、`dist/agentail_0.0.5.deb`。扩展 `metadata.json` 的 version 升到 3。
+
+👤 你要做的:
+
+```bash
+sudo apt install ./dist/agentail_0.0.5.deb       # postinst 会重启已登录用户的 daemon
+# X11:Alt+F2,r,回车(或注销再登录);agentail doctor 全绿
+git switch main && git merge --ff-only release-0.0.5
+git push origin main && git tag v0.0.5 && git push origin v0.0.5
+```
+
+README 顶部的截图 `docs/images/panel.png` 还是 0.0.4 的面板(主面板里有 Servers 区),可以换一张新的。
+
+### 0.0.6:Qwen Code、Gemini CLI
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
 
@@ -344,4 +359,4 @@ git push origin main && git tag v0.0.4 && git push origin v0.0.4
 
 ## 4. v1 之后(不在当前范围)
 
-Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,Qwen、Gemini CLI 见 0.0.5;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
+Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,Qwen、Gemini CLI 见 0.0.6;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。

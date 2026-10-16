@@ -110,7 +110,7 @@ account as your desktop, one card covers both.
 | Claude Code | ✅ | working, your turn, needs permission (with the command), ended; usage limits on Pro / Max |
 | Codex CLI (0.155+) | ✅ | the same, and usage limits; trust the hooks once with `/hooks` |
 | Qoder CLI and Qoder IDE (international and China editions) | ✅ from 0.0.3 (tested: CLI 1.1.68, IDE 1.1.66) | working, your turn, needs permission (with the command), ended; no usage limits |
-| Qwen Code, Gemini CLI | 🗓️ 0.0.5 | |
+| Qwen Code, Gemini CLI | 🗓️ 0.0.6 | |
 | Cursor, OpenCode, … | 🗓️ planned | |
 
 | Where | Status |
@@ -126,7 +126,7 @@ Download `agentail_<version>.deb` from
 [Releases](https://github.com/YeTianwei/Agentail/releases), then:
 
 ```bash
-sudo apt install ./agentail_0.0.4.deb
+sudo apt install ./agentail_0.0.5.deb
 ```
 
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.
@@ -350,7 +350,8 @@ session and usage files in `~/.local/state/agentail/` and your settings in
 
 - **0.0.3**: Qoder (CLI and IDE).
 - **0.0.4**: usage limits as a switch, several desktops and servers per machine, settings in the panel.
-- **0.0.5**: Qwen Code and Gemini CLI.
+- **0.0.5**: clear sessions from the panel, notification and language settings (English and Chinese), servers in the settings, a new mark.
+- **0.0.6**: Qwen Code and Gemini CLI.
 - **Later**: answering permission prompts from the panel.
 
 ## 📄 License
