@@ -172,6 +172,9 @@
 }
 .agentail-switch-button:hover, .agentail-switch-button:focus { background-color: rgba(255, 255, 255, 0.06); }
 .agentail-switch-row { spacing: 12px; }
+/* The shell theme's switch (Yaru: 46x26) is sized for Quick Settings; scaled to our 13px titles,
+   same 1.8:1 shape (its images are background-size: contain). */
+.agentail-panel .agentail-switch-row .toggle-switch { width: 36px; height: 20px; margin-top: 1px; }
 .agentail-switch-text { spacing: 3px; }
 .agentail-switch-title { font-size: 13px; font-weight: bold; }
 .agentail-switch-status { font-size: 12px; color: #ffbe6f; }
