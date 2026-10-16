@@ -20,16 +20,20 @@ export const STATUS = {
     ended: {label: N_('Ended'), order: 4, style: 'ended'},
 };
 
-// Tunnel state -> level: ok | pending | error | off.
+// Tunnel state -> level: ok | pending | error | off. Connecting is not an outage by itself
+// (every host connects after a daemon start or a resume); see UiState.troubled.
 const HOST_LEVEL = {
     local: 'ok',
     connected: 'ok',
-    connecting: 'pending',
+    connecting: 'off',
     backoff: 'pending',
     auth_failed: 'error',
     error: 'error',
     stopped: 'off',
 };
+
+// Tunnel states that mean a remote host is unreachable (agentail.ui.model.DOWN_STATES).
+const DOWN_STATES = ['backoff', 'auth_failed', 'error'];
 
 const HOST_STATE_TEXT = {
     local: N_('local'),
@@ -120,12 +124,16 @@ export class UiState {
         this.usage = new Map(); // host/agent -> subscription usage reading
         this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
         this.settings = {usage: null, notifications: null}; // the daemon's SETTINGS; null: not reported
+        // Remote hosts that failed and have not connected since -> the last reason. A host
+        // retrying goes backoff -> connecting -> backoff ...: it stays down while connecting.
+        this.troubled = new Map();
     }
 
     disconnect() {
         this.connected = false;
         this.sessions.clear();
         this.hosts.clear();
+        this.troubled.clear();
         this.usage.clear();
         this.usageApi.clear();
         this.settings = {usage: null, notifications: null};
@@ -144,6 +152,7 @@ export class UiState {
                     this.sessions.set(keyString(keyOf(s.key)), s);
             }
             this.hosts.clear();
+            this.troubled.clear();
             for (const h of Array.isArray(msg.hosts) ? msg.hosts : [])
                 this._setHost(h);
             this.usage.clear();
@@ -171,6 +180,7 @@ export class UiState {
             break;
         case 'host_remove':
             this.hosts.delete(clean(msg.alias));
+            this.troubled.delete(clean(msg.alias));
             break;
         case 'usage_update':
             this._setUsage(msg.usage);
@@ -188,8 +198,14 @@ export class UiState {
     }
 
     _setHost(h) {
-        if (h && typeof h === 'object')
-            this.hosts.set(clean(h.alias), h);
+        if (!h || typeof h !== 'object')
+            return;
+        const alias = clean(h.alias), state = clean(h.state);
+        this.hosts.set(alias, h);
+        if (DOWN_STATES.includes(state))
+            this.troubled.set(alias, clean(h.detail, LIMITS.hostDetail) || this.troubled.get(alias) || '');
+        else if (state !== 'connecting')
+            this.troubled.delete(alias);
     }
 
     _setUsage(u) {
@@ -257,12 +273,7 @@ export function summary(state) {
         }
         agents.add(keyOf(s.key)[1]);
     }
-    const hostsDown = [];
-    for (const [alias, h] of state.hosts) {
-        const level = HOST_LEVEL[clean(h.state)];
-        if (alias !== 'local' && (level === 'pending' || level === 'error'))
-            hostsDown.push(alias);
-    }
+    const hostsDown = [...state.hosts.keys()].filter(a => a !== 'local' && state.troubled.has(a));
     const parts = [];
     if (counts.attention)
         parts.push(_('{n} needs you', {n: counts.attention}));
@@ -353,8 +364,8 @@ export function agentGroups(state, now) {
     });
 }
 
-// Remote hosts in daemon order, with how many live sessions each has. This computer
-// is only listed when it has a problem (it never does today).
+// Remote hosts in daemon order, with how many live sessions each has; `down` while a host is
+// unreachable (UiState.troubled), with the reason in `problem`. This computer is not listed.
 export function hostRows(state) {
     const live = new Map();
     for (const s of state.sessions.values()) {
@@ -368,15 +379,18 @@ export function hostRows(state) {
         if (alias === 'local')
             continue;
         const hostState = clean(h.state);
-        const level = HOST_LEVEL[hostState] ?? 'off';
+        const down = state.troubled.has(alias);
+        let level = HOST_LEVEL[hostState] ?? 'off';
+        if (down && level === 'off')
+            level = 'pending';  // connecting again after a failure
         rows.push({
             alias,
             title: state.hostTitle(alias),
             level,
+            down,
             stateText: Object.hasOwn(HOST_STATE_TEXT, hostState)
                 ? _(HOST_STATE_TEXT[hostState]) : hostState || _('unknown'),
-            problem: level === 'pending' || level === 'error'
-                ? clean(h.detail, LIMITS.hostDetail) : '',
+            problem: down ? state.troubled.get(alias) : '',
             sessions: live.get(alias) ?? 0,
         });
     }
@@ -767,19 +781,6 @@ export function chipRows(aliases, maxWidth = 350, charWidth = 7.5, padding = 22,
     if (row.length)
         rows.push(row);
     return rows;
-}
-
-// One line for the collapsed Servers header: "2 connected", "1 unreachable", ...
-export function serversSummary(rows) {
-    if (!rows.length)
-        return {text: _('none yet'), level: 'off'};
-    const down = rows.filter(r => r.level === 'pending' || r.level === 'error').length;
-    if (down)
-        return {text: _('{n} unreachable', {n: down}), level: 'error'};
-    const ok = rows.filter(r => r.level === 'ok').length;
-    if (ok === rows.length)
-        return {text: _('{n} connected', {n: ok}), level: 'ok'};
-    return {text: _('{ok} of {total} connected', {ok, total: rows.length}), level: 'off'};
 }
 
 // Panel colours: the user's choice, else the desktop's colour scheme. GNOME Shell's own

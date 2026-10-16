@@ -72,7 +72,7 @@ def test_hosts_down_follow_tunnel_state():
     st = _state([])
     for state, down in [
         ("connected", False),
-        ("connecting", True),
+        ("connecting", False),  # after a start or a resume: not an outage
         ("backoff", True),
         ("auth_failed", True),
         ("error", True),
@@ -85,6 +85,15 @@ def test_hosts_down_follow_tunnel_state():
         if down:
             assert summ.label == "✕1" and "\x1b" not in summ.hosts_down[0]
     st.apply({"type": "host_remove", "alias": "gpu1"})
+    assert summary(st).hosts_down == ()
+
+
+def test_a_host_retrying_stays_down_until_it_connects():
+    st = _state([])
+    st.apply({"type": "host_status", "host": _host("gpu1", "backoff", detail="ssh exited (255)")})
+    st.apply({"type": "host_status", "host": _host("gpu1", "connecting")})
+    assert summary(st).hosts_down == ("gpu1: connecting (ssh exited (255))",)
+    st.apply({"type": "host_status", "host": _host("gpu1", "connected")})
     assert summary(st).hosts_down == ()
 
 

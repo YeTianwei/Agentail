@@ -160,13 +160,16 @@ with the package on one machine: a unit from `install-service` overrides the pac
 
 ## 🌐 Add your servers
 
-1. Open the panel and expand **Servers**.
+1. Open the panel's settings (the gear, top right) and find **Servers** at the bottom.
 2. Click **＋ Add server** and pick a host from your `~/.ssh/config` (or type its name).
 3. A few seconds later it shows as connected, and its sessions appear next to your local ones.
 
+The settings list every server with its state. The main panel shows a server only while it
+cannot be reached, with the reason; the capsule then has a red dot.
+
 The server needs key-based login (`ssh <alias> true` works without a prompt) and Python 3.6+.
 
-To remove one, click the trash can on its row: Agentail takes this desktop out of the server's Claude
+To remove one, click the trash can on its row in the settings: Agentail takes this desktop out of the server's Claude
 and Codex settings, and puts them back exactly as they were once no desktop is left in them. Their
 backups stay in the server's `~/.agentail/backups/` (readable only by you); delete that directory
 when you no longer need them. Removing needs the server reachable, also when it shares its home

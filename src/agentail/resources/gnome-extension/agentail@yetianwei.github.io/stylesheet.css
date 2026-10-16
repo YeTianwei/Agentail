@@ -137,7 +137,9 @@
   border: 1px solid rgba(255, 107, 107, 0.30);
   font-size: 12px;
   color: #f2c9c9;
+  spacing: 3px;
 }
+.agentail-host-problem-title { font-size: 13px; font-weight: bold; }
 
 /* empty and offline */
 .agentail-empty {

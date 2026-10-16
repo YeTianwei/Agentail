@@ -27,6 +27,15 @@
 
 ### Changed
 
+- **Servers moved to the settings.** Adding and removing a server is something you do once, so
+  the list, **＋ Add server** and the trash cans are now at the bottom of the panel's settings.
+  The main panel shows a server only while it cannot be reached, as a card with the reason.
+  Until you have a server, the empty panel says where to add one. Adding or removing goes on
+  when you close the menu; reopening it shows the progress or the result.
+- **A server that is connecting is no longer an outage.** After a daemon start or a resume
+  every server connects for a moment; that no longer counts as unreachable (no red dot). A
+  server that failed stays unreachable, with its last reason, until it has connected again
+  (it retries by connecting between failures). The AppIndicator fallback does the same.
 - **Removing a server is a trash can too**, in place of the ✕ at the end of its row.
 
 ## 0.0.4 — 2026-10-15

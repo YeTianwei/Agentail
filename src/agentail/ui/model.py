@@ -37,11 +37,15 @@ STATUS_LABEL = {
 }
 _STATUS_ORDER = {s: i for i, s in enumerate(STATUS_LABEL)}
 
-# Host state -> level (ok | pending | error | off).
+# Tunnel states that mean a remote host is unreachable.
+DOWN_STATES = frozenset({"backoff", "auth_failed", "error"})
+
+# Host state -> level (ok | pending | error | off). Connecting is not an outage by itself
+# (every host connects after a daemon start or a resume); see UiState.troubled.
 _HOST_LEVEL = {
     "local": "ok",
     "connected": "ok",
-    "connecting": "pending",
+    "connecting": "off",
     "backoff": "pending",
     "auth_failed": "error",
     "error": "error",
@@ -62,12 +66,16 @@ class UiState:
         self.sessions: dict[Key, dict[str, Any]] = {}
         self.hosts: dict[str, dict[str, Any]] = {}
         self.usage: dict[tuple[str, str], dict[str, Any]] = {}  # (host, agent) -> USAGE
+        # Remote hosts that failed and have not connected since -> the last reason. A host
+        # retrying goes backoff -> connecting -> backoff ...: it stays down while connecting.
+        self.troubled: dict[str, str] = {}
 
     def disconnect(self) -> None:
         self.connected = False
         self.sessions.clear()
         self.hosts.clear()
         self.usage.clear()
+        self.troubled.clear()
 
     def apply(self, msg: dict[str, Any]) -> dict[str, Any] | None:
         """Update from one message. Returns the message if it asks for a notification."""
@@ -78,6 +86,7 @@ class UiState:
                 key_tuple(s.get("key")): s for s in msg.get("sessions") or [] if isinstance(s, dict)
             }
             self.hosts = {}
+            self.troubled = {}
             for h in msg.get("hosts") or []:
                 self._set_host(h)
             self.usage = {}
@@ -95,14 +104,22 @@ class UiState:
         elif mtype == "host_status":
             self._set_host(msg.get("host"))
         elif mtype == "host_remove":
-            self.hosts.pop(clean(msg.get("alias")), None)
+            alias = clean(msg.get("alias"))
+            self.hosts.pop(alias, None)
+            self.troubled.pop(alias, None)
         elif mtype == "notify":
             return msg
         return None
 
     def _set_host(self, h: Any) -> None:
-        if isinstance(h, dict):
-            self.hosts[clean(h.get("alias"))] = h
+        if not isinstance(h, dict):
+            return
+        alias, host_state = clean(h.get("alias")), clean(h.get("state"))
+        self.hosts[alias] = h
+        if host_state in DOWN_STATES:
+            self.troubled[alias] = clean(h.get("detail")) or self.troubled.get(alias, "")
+        elif host_state != "connecting":
+            self.troubled.pop(alias, None)
 
     def _set_usage(self, u: Any) -> None:
         if isinstance(u, dict):
@@ -139,9 +156,9 @@ def summary(state: UiState) -> Summary:
         if status in counts:
             counts[status] += 1
     hosts_down = tuple(
-        _host_line(alias, h)
+        _host_line(alias, h, state.troubled[alias])
         for alias, h in state.hosts.items()
-        if alias != "local" and _HOST_LEVEL.get(clean(h.get("state"))) in ("pending", "error")
+        if alias != "local" and alias in state.troubled
     )
     marks = [f"{mark}{counts[s]}" for s, mark in LABEL_MARKS if counts[s]]
     if hosts_down:
@@ -160,9 +177,9 @@ def summary(state: UiState) -> Summary:
     return Summary(level, " ".join(marks), " · ".join(parts) or "no active sessions", hosts_down)
 
 
-def _host_line(alias: str, h: dict[str, Any]) -> str:
+def _host_line(alias: str, h: dict[str, Any], last: str = "") -> str:
     text = f"{alias}: {clean(h.get('state'))}"
-    detail = clean(h.get("detail"), 80)
+    detail = clean(h.get("detail") or last, 80)
     return f"{text} ({detail})" if detail else text
 
 

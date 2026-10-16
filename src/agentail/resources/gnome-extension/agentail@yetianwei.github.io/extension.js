@@ -59,10 +59,10 @@ function uiSocketPath() {
     return GLib.build_filenamev([base, 'agentail', 'ui.sock']);
 }
 
-// Panel preferences (theme, language, Usage and Servers expanded), kept in
-// ~/.config/agentail/panel.json. Only this extension writes the file; anything unreadable
-// falls back to the defaults. A null theme or language follows the desktop.
-const PREFS_DEFAULT = {theme: null, language: null, servers_open: false, usage_open: true};
+// Panel preferences (theme, language, Usage expanded), kept in ~/.config/agentail/panel.json.
+// Only this extension writes the file; anything unreadable falls back to the defaults. A null
+// theme or language follows the desktop.
+const PREFS_DEFAULT = {theme: null, language: null, usage_open: true};
 
 function prefsPath() {
     return GLib.build_filenamev([GLib.get_user_config_dir(), 'agentail', 'panel.json']);
@@ -75,7 +75,6 @@ function loadPrefs() {
         return {
             theme: data.theme === 'light' || data.theme === 'dark' ? data.theme : null,
             language: LANGUAGES.includes(data.language) ? data.language : null,
-            servers_open: data.servers_open === true,
             usage_open: data.usage_open !== false,
         };
     } catch {
@@ -268,9 +267,12 @@ class AgentailIndicator extends PanelMenu.Button {
                     return GLib.SOURCE_CONTINUE;
                 });
             } else {
-                this._view = 'main';
+                // Adding or removing a server goes on while the menu is closed: reopening shows
+                // its progress, or its result, in the settings where it started.
+                if (this._add.mode !== 'running')
+                    this._view = 'main';
                 this._settingsError = '';
-                if (this._add.mode === 'picking' || this._add.mode === 'result')
+                if (['picking', 'confirm', 'result'].includes(this._add.mode))
                     this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: ''};
                 if (this._ageTimer) {
                     GLib.source_remove(this._ageTimer);
@@ -442,11 +444,14 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         // Settings and the light/dark switch sit top right, on the first agent's row.
         groups.forEach((g, i) => content.add_child(this._agentGroup(g, i === 0)));
+        // Servers are managed in the settings; here only the ones that cannot be reached.
+        const down = M.hostRows(st).filter(h => h.down);
+        if (down.length)
+            content.add_child(this._serverProblems(down));
         const usage = M.usageCards(st, now);
         const hint = M.usageHint(st);
         if (usage.length || hint)
             content.add_child(this._usage(usage, hint));
-        content.add_child(this._hosts(M.hostRows(st)));
 
         const scroll = new St.ScrollView({
             style_class: 'agentail-scroll',
@@ -574,6 +579,7 @@ class AgentailIndicator extends PanelMenu.Button {
             err.clutter_text.line_wrap = true;
             page.add_child(err);
         }
+        page.add_child(this._serversGroup(M.hostRows(this._state)));
         return page;
     }
 
@@ -868,38 +874,26 @@ class AgentailIndicator extends PanelMenu.Button {
         }
     }
 
-    _hosts(rows) {
+    // On the main page, one card per server that cannot be reached, with the reason.
+    _serverProblems(rows) {
         const box = vbox('agentail-group', {x_expand: true});
-        const open = this._prefs.servers_open || this._add.mode !== 'idle';
-        const summary = M.serversSummary(rows);
-        const head = hbox('agentail-servers-head', {x_expand: true});
-        head.add_child(label(_('Servers'), 'agentail-section'));
-        head.add_child(label(summary.text, `agentail-servers-summary agentail-host-text-${summary.level}`,
-            {xExpand: true}));
-        head.add_child(new St.Icon({
-            icon_name: open ? 'pan-down-symbolic' : 'pan-end-symbolic',
-            icon_size: 14,
-            style_class: 'agentail-chevron',
-        }));
-        const toggle = new St.Button({
-            style_class: 'agentail-servers-toggle',
-            reactive: true,
-            can_focus: true,
-            track_hover: true,
-            x_expand: true,
-            accessible_name: open ? _('Hide servers') : _('Show servers'),
-            child: head,
-        });
-        toggle.connect('clicked', () => {
-            this._prefs.servers_open = !open;
-            savePrefs(this._prefs);
-            if (open && this._add.mode !== 'running')
-                this._add = {mode: 'idle', candidates: null, alias: '', ok: false, message: ''};
-            this._renderPanel();
-        });
-        box.add_child(toggle);
-        if (!open)
-            return box;
+        for (const h of rows) {
+            const card = vbox('agentail-host-problem', {x_expand: true});
+            card.add_child(label(_('{host} is unreachable', {host: h.title}), 'agentail-host-problem-title',
+                {ellipsize: true}));
+            const why = label(h.problem ? _('{problem}. Sessions may be out of date.', {problem: h.problem})
+                : _('Sessions may be out of date.'), '');
+            why.clutter_text.line_wrap = true;
+            card.add_child(why);
+            box.add_child(card);
+        }
+        return box;
+    }
+
+    // In the settings: every server with its state, a trash can each, and Add server.
+    _serversGroup(rows) {
+        const box = vbox('agentail-group', {x_expand: true});
+        box.add_child(label(_('Servers'), 'agentail-section'));
         const card = vbox('agentail-card agentail-hosts', {x_expand: true});
         for (const h of rows) {
             const row = hbox('agentail-host-row', {x_expand: true});
@@ -1149,6 +1143,12 @@ class AgentailIndicator extends PanelMenu.Button {
         const text = label(_('Start Claude Code or Codex in a terminal and it shows up here.'), 'agentail-empty-text');
         text.clutter_text.line_wrap = true;
         box.add_child(text);
+        // Servers live in the settings now: say where, until there is one.
+        if (![...this._state.hosts.keys()].some(alias => alias !== 'local')) {
+            const servers = label(_('Agents on SSH servers too? Add them in Settings (⚙).'), 'agentail-empty-text');
+            servers.clutter_text.line_wrap = true;
+            box.add_child(servers);
+        }
         return box;
     }
 

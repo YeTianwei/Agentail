@@ -62,17 +62,33 @@ test('summary counts and levels', () => {
 
 test('hosts down', () => {
     const st = make([]);
-    for (const [state, down] of [['connected', false], ['connecting', true], ['backoff', true],
+    for (const [state, down] of [['connected', false], ['connecting', false], ['backoff', true],
         ['auth_failed', true], ['error', true], ['stopped', false], ['weird\x1b[31m', false]]) {
         st.apply({type: 'host_status', host: host('gpu1', state, '', 'why')});
         eq(M.summary(st).hostsDown.length, down ? 1 : 0, state);
     }
     st.apply({type: 'host_status', host: host('gpu1', 'backoff', '', 'ssh exited (255)')});
     const h = M.hostRows(st).find(x => x.alias === 'gpu1');
-    eq([h.level, h.stateText, h.problem], ['pending', 'reconnecting', 'ssh exited (255)']);
+    eq([h.level, h.down, h.stateText, h.problem], ['pending', true, 'reconnecting', 'ssh exited (255)']);
     eq(M.summary(st).text, '1 host unreachable');
     st.apply({type: 'host_remove', alias: 'gpu1'});
     eq(M.summary(st).hostsDown, []);
+});
+
+test('a host retrying stays down until it connects', () => {
+    const st = make([], [host('local', 'local'), host('gpu1', 'connecting'), host('gpu2', 'connected')]);
+    const row = alias => M.hostRows(st).find(x => x.alias === alias);
+    eq([row('gpu1').down, row('gpu1').level], [false, 'off']);  // a start or a resume: not an outage
+    st.apply({type: 'host_status', host: host('gpu1', 'backoff', '', 'ssh exited (255); retry in 4s')});
+    st.apply({type: 'host_status', host: host('gpu1', 'connecting')});
+    eq([row('gpu1').down, row('gpu1').level, row('gpu1').stateText], [true, 'pending', 'connecting']);
+    eq(row('gpu1').problem, 'ssh exited (255); retry in 4s');  // the last reason
+    eq(M.summary(st).hostsDown, ['gpu1']);
+    st.apply({type: 'host_status', host: host('gpu1', 'connected')});
+    eq([row('gpu1').down, row('gpu1').problem], [false, '']);
+    st.apply({type: 'host_status', host: host('gpu2', 'auth_failed', '', 'Permission denied')});
+    st.apply({type: 'snapshot', sessions: [], hosts: [host('gpu2', 'connecting')]});  // daemon restarted
+    eq(row('gpu2').down, false);
 });
 
 test('agent groups, cards and ended count', () => {
@@ -175,12 +191,7 @@ test('add server helpers', () => {
     ok(Array.from(M.addHostMessage('y'.repeat(900), false)).length <= 240, 'bounded');
 });
 
-test('servers summary, alias order, theme', () => {
-    const r = (level) => ({level});
-    eq(M.serversSummary([]), {text: 'none yet', level: 'off'});
-    eq(M.serversSummary([r('ok'), r('ok')]), {text: '2 connected', level: 'ok'});
-    eq(M.serversSummary([r('ok'), r('pending'), r('error')]), {text: '2 unreachable', level: 'error'});
-    eq(M.serversSummary([r('ok'), r('off')]), {text: '1 of 2 connected', level: 'off'});
+test('alias order, theme', () => {
     eq(M.parseAliases('gpu10\ngpu2\ngpu1\nbastion\ngpu0'), ['bastion', 'gpu0', 'gpu1', 'gpu2', 'gpu10']);
     eq([M.resolveTheme('light', 'prefer-dark'), M.resolveTheme('dark', 'prefer-light'),
         M.resolveTheme(null, 'prefer-light'), M.resolveTheme(undefined, 'default'),
