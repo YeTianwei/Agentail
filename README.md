@@ -12,7 +12,7 @@ with your subscription limits one click away.
 ![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 
-<img src="docs/images/panel.png" alt="The Agentail panel: sessions grouped by agent, a permission request with its command, and two connected servers" width="440">
+<img src="docs/images/panel.png" alt="The Agentail panel: sessions grouped by agent, a permission request with its command, and the usage limits of Claude Code and Codex" width="440">
 
 </div>
 

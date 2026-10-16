@@ -349,8 +349,6 @@ git switch main && git merge --ff-only release-0.0.5
 git push origin main && git tag v0.0.5 && git push origin v0.0.5
 ```
 
-README 顶部的截图 `docs/images/panel.png` 还是 0.0.4 的面板(主面板里有 Servers 区),可以换一张新的。
-
 ### 0.0.6:Qwen Code、Gemini CLI
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
