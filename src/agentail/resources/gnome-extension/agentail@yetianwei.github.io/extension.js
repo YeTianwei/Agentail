@@ -1132,14 +1132,27 @@ class AgentailIndicator extends PanelMenu.Button {
         return text;
     }
 
-    _empty() {
-        const box = vbox('agentail-empty', {x_expand: true});
-        box.add_child(new St.Bin({
+    // The mark (a shooting star; grey while the daemon is away) over a centred title.
+    _mark(icon) {
+        return new St.Icon({
+            gicon: this._gicon(icon),
+            icon_size: 40,
             style_class: 'agentail-empty-icon',
             x_align: Clutter.ActorAlign.CENTER,
-            child: new St.Icon({gicon: this._gicon('agentail-mark.svg'), icon_size: 22}),
-        }));
-        box.add_child(label(_('All quiet'), 'agentail-empty-title'));
+        });
+    }
+
+    _emptyTitle(text) {
+        // text-align only centres wrapped lines: a one-line label is centred as an actor.
+        const l = label(text, 'agentail-empty-title');
+        l.x_align = Clutter.ActorAlign.CENTER;
+        return l;
+    }
+
+    _empty() {
+        const box = vbox('agentail-empty', {x_expand: true});
+        box.add_child(this._mark('agentail-mark.svg'));
+        box.add_child(this._emptyTitle(_('All quiet')));
         const text = label(_('Start Claude Code or Codex in a terminal and it shows up here.'), 'agentail-empty-text');
         text.clutter_text.line_wrap = true;
         box.add_child(text);
@@ -1154,13 +1167,11 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _offline() {
         const box = vbox('agentail-empty', {x_expand: true});
-        box.add_child(new St.Bin({
-            style_class: 'agentail-empty-icon',
-            x_align: Clutter.ActorAlign.CENTER,
-            child: new St.Icon({gicon: this._gicon('agentail-mark-offline.svg'), icon_size: 22}),
-        }));
-        box.add_child(label(_('The agentail daemon is not running'), 'agentail-empty-title'));
-        box.add_child(label(_('Retrying every few seconds. Start it with:'), 'agentail-empty-text'));
+        box.add_child(this._mark('agentail-mark-offline.svg'));
+        box.add_child(this._emptyTitle(_('The agentail daemon is not running')));
+        const retry = label(_('Retrying every few seconds. Start it with:'), 'agentail-empty-text');
+        retry.x_align = Clutter.ActorAlign.CENTER;
+        box.add_child(retry);
         const cmd = label('agentail daemon', 'agentail-command');
         cmd.x_align = Clutter.ActorAlign.CENTER;
         box.add_child(cmd);
@@ -1178,7 +1189,7 @@ class AgentailIndicator extends PanelMenu.Button {
     // replaced showNotification with addNotification); 45 takes positional arguments.
     _showNotification(n) {
         if (!this._source) {
-            const icon = this._gicon('agentail-mark.svg');
+            const icon = this._gicon('agentail-mark-small.svg');  // no sparkles at 16px
             let source;
             if (SHELL_MAJOR >= 46) {
                 source = new MessageTray.Source({title: 'Agentail', icon});

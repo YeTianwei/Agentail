@@ -27,6 +27,10 @@
 
 ### Changed
 
+- **A new mark: a shooting star.** A golden star with a curved two-tone tail replaces the "A"
+  in a dark circle, in the empty panel ("All quiet", with a few sparkles), while the daemon is
+  not running (the same star in grey) and as the source icon of notifications (without the
+  sparkles, which blur at 16px). "All quiet" and the other empty-panel titles are centred.
 - **Servers moved to the settings.** Adding and removing a server is something you do once, so
   the list, **＋ Add server** and the trash cans are now at the bottom of the panel's settings.
   The main panel shows a server only while it cannot be reached, as a card with the reason.

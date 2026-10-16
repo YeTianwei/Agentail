@@ -148,13 +148,7 @@
   background-color: #323236;
   spacing: 10px;
 }
-.agentail-empty-icon {
-  width: 44px;
-  height: 44px;
-  border-radius: 22px;
-  background-color: rgba(255, 255, 255, 0.06);
-  color: #b9b9be;
-}
+.agentail-empty-icon { margin-bottom: 2px; }
 .agentail-empty-title { font-size: 14px; font-weight: bold; text-align: center; }
 .agentail-empty-text { font-size: 12px; color: #9a9aa0; text-align: center; }
 
@@ -306,7 +300,6 @@
 .agentail-light .agentail-add-ok { background-color: rgba(38, 162, 105, 0.12); color: #1b6e47; }
 .agentail-light .agentail-add-fail { background-color: rgba(224, 27, 36, 0.08); border: 1px solid rgba(224, 27, 36, 0.25); color: #a51d2d; }
 .agentail-light .agentail-empty { background-color: #ffffff; }
-.agentail-light .agentail-empty-icon { background-color: #3a3a3f; }
 .agentail-light .agentail-update { background-color: rgba(28, 113, 216, 0.10); color: #1a4f91; }
 .agentail-light .agentail-usage-label { color: #3d3846; }
 .agentail-light .agentail-usage-track { background-color: rgba(0, 0, 0, 0.10); }
