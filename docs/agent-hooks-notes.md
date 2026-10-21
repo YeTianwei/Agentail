@@ -314,7 +314,7 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
   `allow` 还可带 `updatedInput`(整体替换工具输入)和 `updatedPermissions`(写入"总是允许"规则);`deny` 的 `message` 给模型看,`interrupt: true` 直接中止回合。**0.0.6 只用裸 `allow` / `deny` + `message`**,不改输入、不写规则。`allow` 之后 deny/ask 规则仍会评估 [文档],所以我们的 allow 不会越过用户自己配的 deny 规则。
 - **不表态** [文档]:"A hook that exits 2 without a `decision` object leaves the permission flow unchanged";退出 0 且无输出 = 无决定。`PreToolUse` 一节的原话 "staying silent doesn't approve it" 对 `PermissionRequest` 同样成立 [推断 + 二进制:无 `permissionRequestResult` 的结果被 `continue` 跳过]。
 - **何时触发** [文档]:"Runs when Claude Code is about to ask you for permission to use a tool"。不需要授权的调用(规则已允许、`bypassPermissions`、auto 模式放行)不触发。沙箱命令的网络访问请求不触发。
-- **竞态(关键)** [二进制]:交互式终端里,权限提示组件建立时就启动一个异步任务跑 `PermissionRequest` hook(`runHooks(...)`,不 await),提示**同时**显示;hook 结果回来时先检查该请求是否还在等待,已被人回答的就丢弃(常量文案 "The request this approval was for had already been withdrawn; the answer applied to nothing.")。传给 hook 执行器的取消信号是**整个回合**的 `abortController`,不是这一次提示的,所以 [推断] 人先在终端回答后,hook 进程不会被杀,会一直跑到自己退出或超时,结果被忽略;只有 Esc 中断回合才取消 hook(`hook_cancelled`)。**待实测**:`scripts/permission-hook-probe.sh`(见 5.4)。
+- **竞态(关键)** [二进制]:交互式终端里,权限提示组件建立时就启动一个异步任务跑 `PermissionRequest` hook(`runHooks(...)`,不 await),提示**同时**显示;hook 结果回来时先检查该请求是否还在等待,已被人回答的就丢弃(常量文案 "The request this approval was for had already been withdrawn; the answer applied to nothing.")。传给 hook 执行器的取消信号是**整个回合**的 `abortController`,不是这一次提示的,所以人先在终端回答后,hook 进程不会被杀,会一直跑到自己退出或超时,结果被忽略;只有 Esc 中断回合才取消 hook(`hook_cancelled`)。✅ 已实测证实(5.4 第 1 条)。
   - 对我们的意义:`--mode wait` 的 hook 在终端已回答后仍可能挂着,占一个 Python 进程直到 `--timeout`;daemon 收不到"终端已回答"的通知,面板卡片要靠后续事件(`PostToolUse` / `PostToolUseFailure` / `Stop`)自己消失,并且这时回复 hook 什么都不影响。
   - 文档在 `--permission-prompt-tool` / `canUseTool`(SDK、IDE 宿主)场景下明说了同样的规则:"the hooks run alongside your host, and whichever decides first applies"。
   - 例外 [二进制]:当"问人"这一决定来自插件(`hooksMayRefuse` 路径),hook 在提示之前先跑一遍,**只认 deny**,allow 被忽略;之后提示照常显示。不影响普通配置。
@@ -341,7 +341,11 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 
 ### 5.4 待你实测(👤,PR 里会再列一遍)
 
-1. **Claude 竞态**:在一个临时项目目录的 `.claude/settings.local.json` 里注册 `scripts/permission-hook-probe.sh`(脚本头部有配置片段;不要动 `~/.claude`),`claude` 里问一个要跑命令的问题。看:提示是否在 hook 结束前就出现(应该是);在终端批准后,`/tmp/permission-hook-probe.log` 里是 `signal TERM`(hook 被杀)还是 40 秒后的 `end`(推断是后者);Esc 中断时是否 `signal TERM`。
+1. ✅ **Claude 竞态**(2026-10-21,Claude Code 2.1.306,本机):在一个临时项目目录的 `.claude/settings.local.json` 里注册 `scripts/permission-hook-probe.sh`,问三次「运行 `touch …`」。
+   - 立刻批准:回合 3 秒就结束,hook 仍跑到第 40 秒才 `end`——**提示与 hook 并行,终端先答后 hook 不被杀,结果作废**。
+   - 不答、等满 40 秒:hook 静默退出后提示还在,之后批准正常——**不表态 ≠ 放行**。
+   - 提示出现后按 Esc:3 秒内 `signal TERM`——**中断回合会杀 hook**。
+   - 载荷:`tool_input` 里除 `command` 外还有 `description`(模型写的一句说明,如 "Create empty file a.txt",面板可显示);`permission_suggestions` 是 `[{"type":"addDirectories",…,"destination":"session"},{"type":"setMode","mode":"acceptEdits",…}]`,即终端里"总是允许"类选项的来源,0.0.6 不用。另有 `prompt_id`、`scratchpad_dir`、`effort`。
 2. **Codex 串行**:同一脚本放进 `~/.codex/hooks.json` 的 `PermissionRequest`,`/hooks` 信任后触发一次授权。确认 40 秒内终端**不**出现授权提示、TUI 上有没有"hook 运行中"的提示;然后决定 Codex 走 5.3 的 (a) 还是 (b)。
 3. 两边都确认:hook 睡满 40 秒不输出退出后,终端照常询问(不表态 ≠ 放行)。
 4. Claude 的 `permission_suggestions` 和 Codex 的 `tool_input.description` 实际长什么样(录一份,给面板用)。
