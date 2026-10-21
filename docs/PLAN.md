@@ -4,7 +4,9 @@
 
 ---
 
-## 0. 当前状态(0.0.1 候选:M0–M5 完成,界面重做和 deb 打包完成,待发布)
+## 0. 当前状态(0.0.5 已发布;下一步 0.0.6:在面板里审批,见 §3)
+
+下表是 0.0.1 时的模块清单,之后各版本的改动见 §3 各版本小节和 `CHANGELOG.md`。
 
 | 模块 | 状态 |
 |---|---|
@@ -53,7 +55,7 @@
 4. **远程载荷不可信**:UI 只用纯文本渲染;载荷字段绝不拼进 shell 命令;远程命令一律 argv 列表 + `shlex.quote`。
 5. **配置文件只合并不覆盖**:识别自己条目靠 `agentail-hook` 标记;写回前备份;卸载后能恢复原样。
 6. **不复制 GPL 代码**(open-vibe-island)和 vibe-island 的任何代码。项目是 MIT。
-7. **v1 不做审批**(不实现 `--mode wait`)。
+7. **审批只按 §3「0.0.6」的约束做**(2026-10-21 起 0.0.6 的范围):默认关闭;任何失败、超时、无人回答都是"不表态",交还 agent 在终端里询问,**绝不能放行**。在 0.0.6 的设计确定之前不要实现 `--mode wait`。
 
 ---
 
@@ -349,7 +351,25 @@ git switch main && git merge --ff-only release-0.0.5
 git push origin main && git tag v0.0.5 && git push origin v0.0.5
 ```
 
-### 0.0.6:Qwen Code、Gemini CLI
+### 0.0.6:在面板里审批(下一步)
+
+**范围**(2026-10-21 你决定):agent 请求授权时,面板里直接批准或拒绝,不用切回终端。先做 Claude Code;Codex 等核实后再定。Qwen Code、Gemini CLI 推迟到之后(见下一节)。
+
+**约束**(设计见 `research-and-design.md` §6.3、§6.4,不变量 1、7):
+
+- hook 脚本新增 `--mode wait`:阻塞等 daemon 回复,最多 `--timeout` 秒;任何失败(socket 不在、隧道断开、超时、daemon 不认识)都不输出、退出码 0 = 不表态,终端照常询问。**绝不能因失败而放行。**
+- daemon 在 agent 的 hook 超时之前主动返回"不表态";安装器写 hook 时显式设置 `timeout`。
+- 默认关闭,在设置里打开;面板关着、桌面锁屏或空闲时直接不表态(人可能在别的机器上 SSH 进服务器)。
+- 面板不抢焦点,不把 Enter 绑定为"批准";授权内容(命令、路径)仍按纯文本显示。
+- 线协议 `mode: wait` 目前是保留值(`docs/protocol.md`),要定义 daemon 的回复格式并升协议文档;服务器经 `ssh -R` 的同一条 socket 回复,不加新通道。
+
+**先核实**(TODO(M0),在 `agent-hooks-notes.md` 记录来源):
+
+- Claude Code 用哪个事件拦截(`PermissionRequest` 目前没注册,见 `agent-hooks-notes.md` §3.1),它的输出格式、批准 / 拒绝 / 不表态各怎么写,空输出是否等于不表态;hook 的默认超时(文档摘录见 §1.2)。
+- 竞态:面板和终端同时在等,用户先在终端回答时 hook 会怎样(进程被杀?结果被忽略?)。
+- Codex 的 `PermissionRequest` 能否返回决定(录制里它在提示出现时、用户回答前触发,见 `agent-hooks-notes.md` §3.5)。
+
+### 0.0.6 之后:Qwen Code、Gemini CLI(2026-10-21 从 0.0.6 推迟)
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
 
@@ -357,4 +377,4 @@ git push origin main && git tag v0.0.5 && git push origin v0.0.5
 
 ## 4. v1 之后(不在当前范围)
 
-Claude Code 审批(`--mode wait`,约束见设计文档 6.4)→ Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,Qwen、Gemini CLI 见 0.0.6;GNOME Shell 扩展前端(Wayland);集群计算节点的 JSONL 回退方案。
+Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,审批见 0.0.6,Qwen Code、Gemini CLI 见 0.0.6 之后;集群计算节点的 JSONL 回退方案。

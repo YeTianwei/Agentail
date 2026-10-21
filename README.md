@@ -7,6 +7,8 @@
 Claude Code and Codex — on your desktop and on every SSH server — in the GNOME top bar,
 with your subscription limits one click away.
 
+English · [简体中文](README.zh-CN.md)
+
 [![Release](https://img.shields.io/github/v/release/YeTianwei/Agentail?include_prereleases)](https://github.com/YeTianwei/Agentail/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
@@ -24,10 +26,10 @@ the one you never look at.
 
 Most tools that watch coding agents live in the macOS notch. **Agentail is made for the Linux
 desktop**, and for the servers you SSH into, where the long runs actually happen. A small capsule
-in the GNOME top bar shows what every agent is doing; it turns orange and names the project when
-one of them needs you. Click it for a card per session: which machine, which project, what it is
-doing, and for a permission prompt, the start of the command it wants to run (the full command
-is in the agent's own terminal, where you answer it).
+in the GNOME top bar shows what every agent is doing. When one of them needs you, it turns orange
+and names the project. Click it to see a card for each session with the machine, the project and
+what the agent is doing. For a permission prompt, the card also shows the start of the command it
+wants to run. The full command is in the agent's own terminal, where you answer it.
 
 Agentail only watches. You still answer agents in their own terminal.
 
@@ -35,20 +37,20 @@ Agentail only watches. You still answer agents in their own terminal.
 
 - 🐧 **Linux first.** A native GNOME Shell extension and a `.deb`, not a port of a Mac app.
 - 🌐 **Your servers are first class.** Sessions on remote machines reach your desktop through an
-  `ssh -R` tunnel. Add a server from the panel in two clicks; nothing runs on it but one small
+  `ssh -R` tunnel. Add a server from the panel in two clicks. Nothing runs on it but one small
   hook script.
 - 📦 **Install and forget.** `apt install`, log in again, done. The hooks, the daemon and the panel
   set themselves up.
 - 🛡️ **Never in the agent's way.** The hook sends one message and exits. If your desktop is not
-  listening it returns at once, prints nothing, and never blocks or fails a tool call.
+  listening, it returns at once, prints nothing, and never blocks or fails a tool call.
 - 📊 **Usage limits at a glance.** Claude Code's 5-hour and weekly limits and Codex's, with when
   each one resets. Your Claude login is used only if you say yes.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
-  account, no cloud, no telemetry. Agentail talks to no online service of its own accord; the
-  Claude usage query does, if you turn it on (Codex's limits are asked by Codex itself).
+  account, no cloud, no telemetry. Agentail contacts no online service on its own. The one
+  exception is the Claude usage query, and only if you turn it on (Codex asks for its own limits).
 - 🌗 **Light and dark.** One click, top right of the panel.
-- 🌐 **English and Chinese.** The panel and its notifications follow your desktop's language;
-  pick one in the panel's settings to override it.
+- 🌐 **English and Chinese.** The panel and its notifications follow your desktop's language. You
+  can pick another one in the panel's settings.
 - 🆓 **Open source.** MIT licensed, written from scratch.
 
 ## 👀 At a glance
@@ -67,10 +69,11 @@ names the project and the machine only, not your prompt or the command (see
 
 ## 📊 Usage limits
 
-The panel's **Usage** section shows how much of your subscription is left: one card per agent, a
-bar per window (5 hours, week), the percentage and when it resets. The bar turns orange from 70 %
-and red from 90 %. Don't need it? Turn off "Show usage limits" in the panel's settings (the gear,
-top right) or run `agentail usage off`: Agentail then collects no usage at all.
+The panel's **Usage** section shows how much of your subscription is left. Each agent has a card
+with a bar for each window (5 hours, week), the percentage used and when it resets. The bar turns
+orange from 70 % and red from 90 %. If you don't need it, turn off "Show usage limits" in the
+panel's settings (the gear, top right) or run `agentail usage off`. Agentail then collects no
+usage at all.
 
 | Agent | Where the numbers come from | When they refresh |
 |---|---|---|
@@ -78,37 +81,39 @@ top right) or run `agentail usage off`: Agentail then collects no usage at all.
 | Codex | Codex itself (`codex app-server`), else its session files | when you open the panel (at most once a minute) |
 
 **Claude and your login (off until you turn it on).** Claude Code only hands its limits to the
-status line of an interactive terminal session; the VS Code extension and Claude Desktop never do.
+status line of an interactive terminal session. The VS Code extension and Claude Desktop never do.
 Agentail can ask `api.anthropic.com` for them itself, the way Claude Code's `/usage` does, with the
 access token of Claude Code's login in `~/.claude/.credentials.json`. It does so only after you
-turn it on: open the panel's settings (the gear next to the light/dark button, top right), or run
-`agentail usage-api on`. You can switch it off there at any time. The token is then read
-for each request and sent only to that address; it is never refreshed (an expired login waits until
-you next run `claude`), written anywhere or logged. Nothing else from the file is used.
+turn it on in the panel's settings (the gear next to the light/dark button, top right) or with
+`agentail usage-api on`. You can switch it off there at any time. The token is read for each
+request and sent only to that address. It is never refreshed, written anywhere or logged, and
+nothing else from the file is used. An expired login waits until you next run `claude`.
 
 The token lasts only a few hours (eight, in our tests), and only Claude Code running on this
 computer renews the file, such as `claude` in a terminal. VS Code Remote runs Claude on the server,
-so it renews the server's login, not this one; Claude Desktop keeps a login of its own.
-If you rarely run `claude` here, the panel will often say "Sign-in expired: run claude once". Then
-turn on the Servers switch below: your servers' logins stay fresh while you use them.
+so it renews the server's login and not this one. Claude Desktop keeps a login of its own. If you
+rarely run `claude` here, the panel will often say "Sign-in expired: run claude once". In that
+case, turn on the Servers switch below. Your servers' logins stay fresh while you use them.
 
 Before you turn it on, know that Anthropic does not document this endpoint, that it may change, and
 that the requests say they come from Agentail, not from Claude Code. How Anthropic treats such
 requests from tools other than Claude Code is up to Anthropic.
 
 **Servers** have a switch of their own, next to it in the settings (`agentail usage-api on
---servers` in a terminal). With it, a server is asked over ssh with the server's own login when
-this computer's query cannot speak for it: its Claude account is another one, or this computer's
-switch is off or its login has expired. A short Python script runs there, nothing is
-installed, and the token never leaves the server. `agentail usage-api off --all` turns both off;
-`agentail doctor` shows how the query is doing. While this computer's switch is off, the Usage
-section says so in one line.
+--servers` in a terminal). With it on, Agentail asks a server over ssh with the server's own login
+whenever this computer's query cannot cover it. That happens when the server uses another Claude
+account, or when this computer's switch is off or its login has expired. A short Python script runs
+there, nothing is installed, and the token never leaves the server. `agentail usage-api off --all`
+turns both off. `agentail doctor` shows how the query is doing. While this computer's switch is
+off, the Usage section says so in one line.
 
-Agentail also wraps your status line command, so terminal sessions on your servers report too: it
-still gets the same input and prints the same output, and uninstalling puts it back. Agentail
-never reads `~/.codex/auth.json`. A card that has not been updated for 30 minutes is greyed out; a window
-that has reset since shows no old percentage. Usage is per account: if your servers use the same
-account as your desktop, one card covers both.
+Agentail also wraps your status line command so that terminal sessions on your servers report
+too. The command still gets the same input and prints the same output, and uninstalling puts it
+back. Agentail never reads `~/.codex/auth.json`.
+
+A card that has not been updated for 30 minutes is greyed out. A window that has reset since then
+shows no old percentage. Usage is per account, so if your servers use the same account as your
+desktop, one card covers both.
 
 ## 🤖 Supported
 
@@ -117,8 +122,7 @@ account as your desktop, one card covers both.
 | Claude Code | ✅ | working, your turn, needs permission (with the command), ended; usage limits on Pro / Max |
 | Codex CLI (0.155+) | ✅ | the same, and usage limits; trust the hooks once with `/hooks` |
 | Qoder CLI and Qoder IDE (international and China editions) | ✅ from 0.0.3 (tested: CLI 1.1.68, IDE 1.1.66) | working, your turn, needs permission (with the command), ended; no usage limits |
-| Qwen Code, Gemini CLI | 🗓️ 0.0.6 | |
-| Cursor, OpenCode, … | 🗓️ planned | |
+| Qwen Code, Gemini CLI, Cursor, OpenCode, … | 🗓️ planned | |
 
 | Where | Status |
 |---|---|
@@ -138,12 +142,12 @@ sudo apt install ./agentail_0.0.5.deb
 
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.
 
-Behind the scenes the package started the daemon, which merged the hooks into
+Behind the scenes, the package starts the daemon. The daemon merges the hooks into
 `~/.claude/settings.json`, `~/.codex/hooks.json` and `~/.qoder/settings.json` /
-`~/.qoder-cn/settings.json` for the agents you have (backing each up to
-`~/.agentail/backups/`) and enabled the panel.
+`~/.qoder-cn/settings.json` for the agents you have, backs each file up to
+`~/.agentail/backups/` first, and enables the panel.
 
-> **Codex** only runs hooks you trust: start `codex` once and approve the `agentail-hook` entries
+> **Codex** only runs hooks you trust. Start `codex` once and approve the `agentail-hook` entries
 > (or use `/hooks`).
 
 <details>
@@ -161,7 +165,7 @@ agentail install-gnome-extension    # the panel (--link for a symlink to the sou
 ```
 
 Build the package with `packaging/build-deb.sh` (output in `dist/`). Do not mix a source install
-with the package on one machine: a unit from `install-service` overrides the packaged one.
+with the package on one machine. A unit from `install-service` overrides the packaged one.
 
 </details>
 
@@ -172,18 +176,18 @@ with the package on one machine: a unit from `install-service` overrides the pac
 3. A few seconds later it shows as connected, and its sessions appear next to your local ones.
 
 The settings list every server with its state. The main panel shows a server only while it
-cannot be reached, with the reason; the capsule then has a red dot.
+cannot be reached, with the reason. The capsule then has a red dot.
 
 The server needs key-based login (`ssh <alias> true` works without a prompt) and Python 3.6+.
 
-To remove one, click the trash can on its row in the settings: Agentail takes this desktop out of the server's Claude
-and Codex settings, and puts them back exactly as they were once no desktop is left in them. Their
-backups stay in the server's `~/.agentail/backups/` (readable only by you); delete that directory
-when you no longer need them. Removing needs the server reachable, also when it shares its home
-with another server you keep; if it cannot be reached, **Forget it anyway** just stops watching it
-and leaves the server as it is.
+To remove one, click the trash can on its row in the settings. Agentail takes this desktop out of
+the server's Claude and Codex settings, and puts them back exactly as they were once no desktop is
+left in them. Their backups stay in the server's `~/.agentail/backups/` (readable only by you).
+Delete that directory when you no longer need them. Removing needs the server reachable, also
+when it shares its home with another server you keep. If it cannot be reached,
+**Forget it anyway** just stops watching it and leaves the server as it is.
 
-Prefer the terminal?
+From a terminal:
 
 ```bash
 agentail add-host gpu7 --dry-run    # probe the server and show the changes
@@ -191,18 +195,18 @@ agentail add-host gpu7
 agentail remove-host gpu7
 ```
 
-Servers that share one NFS home are recognised: the hook is installed once, each server's own
+Agentail recognises servers that share one NFS home. The hook is installed once, each server's own
 socket is removed when you remove that server, and the shared settings go back to the original
-with the last of them. It works even when your uid differs between them. On each server, run `codex`
-once to trust its hooks.
+with the last of them. It works even when your uid differs between them. On each server, run
+`codex` once to trust its hooks.
 
 One server can be watched from several desktops, and a desktop can itself be a server for another
-one: each receiver gets its own socket, the hook sends every event to all of them, and removing
+one. Each receiver gets its own socket, the hook sends every event to all of them, and removing
 one leaves the others working. Codex asks you to approve the hooks again whenever a receiver is
 added or removed on a machine.
 
 > **Upgrading from 0.0.3 or earlier:** run `agentail add-host <alias>` once more for each server
-> (from every desktop that watches it) to switch it to the new socket name; then approve the
+> (from every desktop that watches it) to switch it to the new socket name. Then approve the
 > changed hooks in `codex` on that server. Until then the old setup keeps working as before.
 
 ## ⚙️ How it works
@@ -228,7 +232,7 @@ added or removed on a machine.
   environment, so `agentail install-local` from a terminal tells it what your shell knows (see
   [Configuration](#-configuration)).
 - 🖥️ **Panel.** A GNOME Shell extension that reads the daemon's `ui.sock`. Payload text (prompts,
-  commands, paths) is untrusted: it is shown as plain text and never put into a shell command.
+  commands, paths) is untrusted. It is shown as plain text and never put into a shell command.
 
 ## 🔧 Configuration
 
@@ -260,21 +264,21 @@ details = false             # true: put the prompt and the command into notifica
 A session waiting for permission is never removed on a timer.
 
 **Why notifications leave out the details.** GNOME shows notification banners on the lock screen
-too, so anyone at your desk could read a prompt or a command (which may name a host, a path or a
-token). By default a notification only says which project on which machine is done or needs you;
-the panel, behind your login, still shows everything. Set `details = true` if your screen is
+too, so anyone at your desk could read a prompt or a command, which may name a host, a path or a
+token. By default a notification only says which project on which machine is done or needs you.
+The panel, behind your login, still shows everything. Set `details = true` if your screen is
 private.
 
-`[usage]` and `[notifications]` apply within a few seconds; after changing `[sessions]` or
-`[setup]`, restart the daemon: `systemctl --user restart agentail`.
+`[usage]` and `[notifications]` apply within a few seconds. After changing `[sessions]` or
+`[setup]`, restart the daemon with `systemctl --user restart agentail`.
 
 ## 🗄️ What Agentail keeps on disk
 
-Everything stays on your machines (the only outside request is the usage query to Anthropic,
-see [Usage limits](#-usage-limits)). Its state, settings and sockets live in
-`~/.local/state/agentail`, `~/.config/agentail`, `~/.agentail` and `$XDG_RUNTIME_DIR/agentail`;
-files that can hold your prompts, commands or secrets are readable only by you. Every file, what
-it holds and its permissions: [docs/files.md](docs/files.md).
+Everything stays on your machines. The only outside request is the usage query to Anthropic (see
+[Usage limits](#-usage-limits)). Its state, settings and sockets live in
+`~/.local/state/agentail`, `~/.config/agentail`, `~/.agentail` and `$XDG_RUNTIME_DIR/agentail`.
+Files that can hold your prompts, commands or secrets are readable only by you.
+[docs/files.md](docs/files.md) lists every file, what it holds and its permissions.
 
 ## 🩺 Troubleshooting
 
@@ -296,7 +300,7 @@ prints the command that fixes each problem.
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |
 
-After an upgrade, the panel tells you if GNOME Shell is still running the old version: press
+After an upgrade, the panel tells you if GNOME Shell is still running the old version. Press
 Alt+F2, `r`, Enter (X11) or log in again.
 
 ## 🧹 Uninstall
@@ -309,21 +313,22 @@ sudo apt remove agentail
 ```
 
 Run the first two before removing the package, while the `agentail` command is still there.
-Hooks left behind are harmless: without the daemon they do nothing.
+Hooks left behind are harmless. Without the daemon they do nothing.
 
 Both keep the backups of your agent configs in `~/.agentail/backups/` (on each server too) as a
-last way back, and say so; `~/.agentail` then stays. When you no longer need them:
+last way back, and say so. `~/.agentail` then stays. When you no longer need the backups, run
 `rm -r ~/.agentail` (and the same on each server, unless another Agentail desktop uses it). The
 session and usage files in `~/.local/state/agentail/` and your settings in
 `~/.config/agentail/` can be removed the same way.
 
 ## 🗺️ Roadmap
 
-- **0.0.3**: Qoder (CLI and IDE).
-- **0.0.4**: usage limits as a switch, several desktops and servers per machine, settings in the panel.
-- **0.0.5**: clear sessions from the panel, notification and language settings (English and Chinese), servers in the settings, a new mark.
-- **0.0.6**: Qwen Code and Gemini CLI.
-- **Later**: answering permission prompts from the panel.
+What each release brought is in the [changelog](CHANGELOG.md). Next:
+
+- **0.0.6**: answer permission prompts from the panel, Claude Code first. It is off until you turn
+  it on. Whenever the panel cannot answer (it is not running, the tunnel is down, nobody answers
+  in time), the agent asks in its terminal as it does today. Nothing is ever approved for you.
+- **Later**: Qwen Code and Gemini CLI, then Cursor and plugin-based agents such as OpenCode.
 
 ## 📄 License
 

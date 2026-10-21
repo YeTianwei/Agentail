@@ -46,7 +46,9 @@ agentail daemon --print-events      # manual smoke test
 5. Agent config files are merged, never overwritten; entries are identified by `agentail-hook`;
    back up before writing; uninstall restores the original.
 6. MIT project: never copy code from open-vibe-island (GPL) or vibe-island (any license).
-7. v1 has no approvals: do not implement `--mode wait`.
+7. Approvals (0.0.6) follow the constraints in docs/PLAN.md §3 "0.0.6": off by default; every
+   failure, timeout or unanswered prompt means "no opinion" (the agent asks in its terminal),
+   never "allow". Do not implement `--mode wait` before the items to verify there are settled.
 
 ## Working rules
 
