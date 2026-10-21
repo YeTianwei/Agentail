@@ -400,6 +400,8 @@ $A doctor                                   # claude / codex hooks ✓,approvals
 3. 锁屏后触发 Codex 授权 → 终端立刻出现提示(面板不在等)。
 4. 看一眼亮色主题、中文界面下的卡片和设置页;一条很长或多行的命令能完整显示并换行。
 
+✅ 已验证(2026-10-21,本机 GNOME 46 / X11,开发版 daemon + 扩展,Claude Code 2.1.306、codex-cli 0.163.0):Claude 和 Codex 的授权请求都出现在面板上(完整命令、理由、按钮、倒计时:Claude 从 120 秒、Codex 从 30 秒开始),点「Allow」「Deny」都生效;亮色主题、英文界面下显示正常。仍待验证:Claude 在终端先回答后按钮消失、Codex 不点时 30 秒后终端出现提示、改等待时长、锁屏与 5 分钟空闲、中文界面、多行长命令。
+
 ### 0.0.6 之后:Qwen Code、Gemini CLI(2026-10-21 从 0.0.6 推迟)
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
