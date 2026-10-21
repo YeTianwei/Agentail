@@ -353,7 +353,7 @@ git push origin main && git tag v0.0.5 && git push origin v0.0.5
 
 ### 0.0.6:在面板里审批(下一步)
 
-**范围**(2026-10-21 你决定):agent 请求授权时,面板里直接批准或拒绝,不用切回终端。先做 Claude Code;Codex 等核实后再定。Qwen Code、Gemini CLI 推迟到之后(见下一节)。
+**范围**(2026-10-21 你决定):agent 请求授权时,面板里直接批准或拒绝,不用切回终端。Claude Code 和 Codex 一起做(核实后仍然一起做,见下方「决定」)。Qwen Code、Gemini CLI 推迟到之后(见下一节)。
 
 **约束**(设计见 `research-and-design.md` §6.3、§6.4,不变量 1、7):
 
@@ -363,11 +363,20 @@ git push origin main && git tag v0.0.5 && git push origin v0.0.5
 - 面板不抢焦点,不把 Enter 绑定为"批准";授权内容(命令、路径)仍按纯文本显示。
 - 线协议 `mode: wait` 目前是保留值(`docs/protocol.md`),要定义 daemon 的回复格式并升协议文档;服务器经 `ssh -R` 的同一条 socket 回复,不加新通道。
 
-**先核实**(TODO(M0),在 `agent-hooks-notes.md` 记录来源):
+**先核实**(✅ 2026-10-21 完成,结论在 `agent-hooks-notes.md` §5,来源:官方文档 + Codex 源码 + 本机 Claude Code 2.1.306 二进制):
 
-- Claude Code 用哪个事件拦截(`PermissionRequest` 目前没注册,见 `agent-hooks-notes.md` §3.1),它的输出格式、批准 / 拒绝 / 不表态各怎么写,空输出是否等于不表态;hook 的默认超时(文档摘录见 §1.2)。
-- 竞态:面板和终端同时在等,用户先在终端回答时 hook 会怎样(进程被杀?结果被忽略?)。
-- Codex 的 `PermissionRequest` 能否返回决定(录制里它在提示出现时、用户回答前触发,见 `agent-hooks-notes.md` §3.5)。
+- Claude Code 用 `PermissionRequest` 拦截:输出 `{"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": {"behavior": "allow" | "deny", "message": "..."}}}`;退出 0 且无输出 = 不表态,走正常提示;默认超时 600 秒,超时 = 无决定。
+- 竞态:Claude 的终端提示与 hook **并行**,人先答则 hook 结果作废;[推断] hook 进程不会被杀,跑到自己超时。Codex 则是**串行**:hook 返回前终端不显示授权提示,所以 Codex 的面板审批会让终端多等 `timeout` 秒。
+- Codex 的 `PermissionRequest` 能返回同格式的决定(`updatedInput` / `interrupt` 等字段 fail closed,不要发);空输出、超时都是不表态;**退出码 2 + stderr = 拒绝**(我们始终退出 0)。改条目命令后要在 `/hooks` 重新信任。
+
+**决定**(2026-10-21 你定):**Claude Code 和 Codex 一起做**。两者的差别只在等待方式(`agent-hooks-notes.md` §5.1):Claude 的终端提示与 hook 并行,面板可以慢慢等;Codex 的 hook 返回前终端不弹提示,所以 Codex 的等待时长就是终端多等的时长。设计上统一为"每个 agent 一个等待上限":Claude 用长上限(建议 120 秒),Codex 用短上限(建议 30 秒,设置里可调),到时都回"不表态"、终端照常问;Codex 的 `PermissionRequest` 条目命令改了,服务器和本机都要在 `/hooks` 里重新信任一次。**👤 实测**(§5.4):用 `scripts/permission-hook-probe.sh` 分别在 Claude(项目级 `.claude/settings.local.json`)和 Codex(`~/.codex/hooks.json` + `/hooks` 信任)里触发一次授权,看提示何时出现、终端先答后 hook 是否被杀、睡满 40 秒后终端是否照常询问;Codex 顺带看 TUI 在等 hook 时显示什么,决定 30 秒这个默认值合不合适。
+
+**实现顺序**(设计定稿后):
+1. `docs/protocol.md`:`mode: wait` 的请求 / 回复格式(回复只有 `allow` / `deny` + 纯文本 `message`;无回复 = hook 超时自行退出)。
+2. hook 脚本 `--mode wait`(3.6 兼容、stdlib、fail-open;`--timeout` 必须小于安装器写入的 hook `timeout`)+ 测试。
+3. daemon:挂起的审批表(按 `session_id` + `tool_name` + `tool_input` 对应;Claude 载荷没有 `tool_use_id`),UI 协议新增审批消息;面板关着、锁屏、空闲、功能关闭时立刻回"不表态";`PostToolUse` / `Stop` 等事件收起过期卡片。
+4. 安装器:Claude 新增同步的 `PermissionRequest` 条目,Codex 的现有条目改为 `--mode wait`(都显式写 `timeout`,每个 agent 的等待上限由注册表给出;功能关闭时 daemon 立刻回"不表态");`doctor` 检查;Codex 提示重新信任。
+5. 面板:卡片上批准 / 拒绝按钮(不抢焦点、不绑 Enter),设置页开关(默认关)。
 
 ### 0.0.6 之后:Qwen Code、Gemini CLI(2026-10-21 从 0.0.6 推迟)
 

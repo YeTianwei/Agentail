@@ -165,7 +165,7 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 - 新增 `PostToolUseFailure` → `TOOL_END`(否则失败的工具调用会让 `active_tools` 计数一直不归零),也加入 `hook_events()`。
 - 状态机相应调整:`Attention.OTHER`(MCP 对话框、子 agent 要输入)也算 `needs_attention`。
 - `install/claude_config.py` 的配置结构已核对无误。**建议(M2)**:对 fire 模式的 hook 加 `"async": true`,彻底不阻塞 Claude(代价:timeout 不生效,但脚本自己有 `--timeout`)。SessionEnd 的 1.5 秒合计预算要留意,不要为 SessionEnd 注册多个 agentail 条目。
-- `PermissionRequest` 暂不注册:`Notification/permission_prompt` 已经覆盖"需要授权";等 v1 之后做审批时再用。
+- `PermissionRequest` 暂不注册:`Notification/permission_prompt` 已经覆盖"需要授权";0.0.6 做审批时再用(调研见 §5)。
 
 ### 3.2 `adapters/codex.py`(M2 实现,本 PR 不改代码)
 
@@ -277,3 +277,79 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 1. Qoder 国内版 `~/.qoder-cn/`:作为单独的 agent(显示名相同),还是只支持国际版?建议先只支持 `~/.qoder`,有需要再加。
 2. 三个 agent 的真实录制(A4):每个 agent 一个会话,至少包括一次工具调用、一次授权提示、正常结束和 Esc 中断;Gemini 另外在一个未信任目录里启动一次。
 3. 版本号记到 `docs/m0-verification.md`。
+
+---
+
+## 5. 0.0.6 审批(`PermissionRequest`)调研,2026-10-21
+
+查阅日期 **2026-10-21**,本机 Claude Code 2.1.306、codex-cli 0.160.1。标注同上;另加 **[二进制]**:本机 Claude Code 可执行文件(`~/.local/share/claude/versions/2.1.306`,Bun 打包的 JS)里直接读到的逻辑,只记录行为,没有复制代码。来源:
+
+- Claude Code:<https://code.claude.com/docs/en/hooks>("PermissionRequest"、"PreToolUse"、"Run hooks in the background" 各节)。
+- Codex:<https://developers.openai.com/codex/hooks>(现跳转到 <https://learn.chatgpt.com/docs/hooks>);仓库 <https://github.com/openai/codex> `main` commit `c7234c1`(2026-10-21):`codex-rs/hooks/schema/generated/permission-request.command.{input,output}.schema.json`、`codex-rs/hooks/src/events/permission_request.rs`、`codex-rs/hooks/src/engine/command_runner.rs`、`codex-rs/core/src/hook_runtime.rs`。
+
+### 5.1 结论一览
+
+| | Claude Code | Codex |
+|---|---|---|
+| 拦截事件 | `PermissionRequest`(目前未注册,见 3.1) | `PermissionRequest`(已注册,现在只用来显示"需要你") |
+| 批准 / 拒绝 | `hookSpecificOutput.decision.behavior`:`allow` / `deny` | 同一格式 [文档 + schema] |
+| 不表态 | 退出 0、stdout 为空 → 走正常授权流程 [文档] | 同左 [源码:`parse_completed`,空 stdout 时 `decision = None`] |
+| 超时 | 默认 600 秒(未对此事件另设)[文档];超时 = 取消 = 无决定 [二进制:`hook_cancelled`] | 默认 600 秒 [文档];超时 → `error: "hook timed out"` → `Failed`,无决定 → 正常流程 [源码] |
+| **终端提示与 hook 的关系** | **并行**:提示立即显示,hook 在后台跑,谁先决定听谁的;人先答则 hook 结果作废 [二进制 + 文档(`canUseTool` 一节)] | **串行**:hook 在"审批界面显示之前"运行,hook 返回(或超时)前终端**不出现**提示 [源码:`permission_request.rs` 文件头注释、`hook_runtime.rs`] |
+| 退出码 2 | 不生效,流程不变 [文档] | **stderr 非空时 = 拒绝** [源码];我们始终退出 0,不受影响 |
+| 多个 hook | 文档未写合并规则(`PreToolUse` 是 deny > defer > ask > allow) | 任一 deny 即 deny,否则有 allow 即 allow [源码] |
+| 载荷里有 `tool_use_id` | **没有**(文档明说 "without `tool_use_id`"),有 `permission_suggestions` | 没有;有 `turn_id` |
+
+两边**都满足不变量 7**:失败、超时、空输出都是"不表态",不会放行。差别在用户体验:Claude 可以"面板和终端同时等",Codex 做不到。
+
+### 5.2 Claude Code
+
+- **输出格式** [文档]:
+  ```json
+  {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+    "decision": {"behavior": "allow"}}}
+  {"hookSpecificOutput": {"hookEventName": "PermissionRequest",
+    "decision": {"behavior": "deny", "message": "原因", "interrupt": false}}}
+  ```
+  `allow` 还可带 `updatedInput`(整体替换工具输入)和 `updatedPermissions`(写入"总是允许"规则);`deny` 的 `message` 给模型看,`interrupt: true` 直接中止回合。**0.0.6 只用裸 `allow` / `deny` + `message`**,不改输入、不写规则。`allow` 之后 deny/ask 规则仍会评估 [文档],所以我们的 allow 不会越过用户自己配的 deny 规则。
+- **不表态** [文档]:"A hook that exits 2 without a `decision` object leaves the permission flow unchanged";退出 0 且无输出 = 无决定。`PreToolUse` 一节的原话 "staying silent doesn't approve it" 对 `PermissionRequest` 同样成立 [推断 + 二进制:无 `permissionRequestResult` 的结果被 `continue` 跳过]。
+- **何时触发** [文档]:"Runs when Claude Code is about to ask you for permission to use a tool"。不需要授权的调用(规则已允许、`bypassPermissions`、auto 模式放行)不触发。沙箱命令的网络访问请求不触发。
+- **竞态(关键)** [二进制]:交互式终端里,权限提示组件建立时就启动一个异步任务跑 `PermissionRequest` hook(`runHooks(...)`,不 await),提示**同时**显示;hook 结果回来时先检查该请求是否还在等待,已被人回答的就丢弃(常量文案 "The request this approval was for had already been withdrawn; the answer applied to nothing.")。传给 hook 执行器的取消信号是**整个回合**的 `abortController`,不是这一次提示的,所以 [推断] 人先在终端回答后,hook 进程不会被杀,会一直跑到自己退出或超时,结果被忽略;只有 Esc 中断回合才取消 hook(`hook_cancelled`)。**待实测**:`scripts/permission-hook-probe.sh`(见 5.4)。
+  - 对我们的意义:`--mode wait` 的 hook 在终端已回答后仍可能挂着,占一个 Python 进程直到 `--timeout`;daemon 收不到"终端已回答"的通知,面板卡片要靠后续事件(`PostToolUse` / `PostToolUseFailure` / `Stop`)自己消失,并且这时回复 hook 什么都不影响。
+  - 文档在 `--permission-prompt-tool` / `canUseTool`(SDK、IDE 宿主)场景下明说了同样的规则:"the hooks run alongside your host, and whichever decides first applies"。
+  - 例外 [二进制]:当"问人"这一决定来自插件(`hooksMayRefuse` 路径),hook 在提示之前先跑一遍,**只认 deny**,allow 被忽略;之后提示照常显示。不影响普通配置。
+- **无法显示提示的会话**(`claude -p` 等)[文档]:hook 照样运行;没有 hook 给出决定就拒绝。也就是说 0.0.6 的面板审批对 `-p` 会话也生效(hook 没开或超时则维持现状:拒绝)。
+- **超时**:`PermissionRequest` 没有单独默认值,沿用 600 秒 [文档];超时在二进制里走 `hook_cancelled`,与无输出相同。安装器要显式写 `timeout`(秒),hook 自己的 `--timeout` 要比它**小**,这样永远是我们先退出、由我们保证"不表态"。
+- `async: true` 的 hook 不能决定任何事 [文档],`PermissionRequest` 条目必须是同步的(现有 fire 模式条目不受影响)。
+- `agent` 类型 hook 不支持此事件 [二进制:报错文案],与我们无关。
+- 输入 [文档]:`tool_name`、`tool_input`、`permission_suggestions`(可选,与界面选项不完全对应),**没有 `tool_use_id`**;MCP 工具另有 `mcp_server`。面板卡片与这次请求的对应只能靠 `session_id` + `tool_name` + `tool_input`。
+- `hook_events()` 里加 `PermissionRequest` 后,该条目需要与 fire 模式条目分开(`--mode wait`、同步、显式 `timeout`);功能关闭时不写入这一条(或 daemon 一律立刻回"不表态")。
+
+### 5.3 Codex
+
+- **能返回决定** [文档 + schema]:输出与 Claude 同形;`behavior` 只有 `allow` / `deny`,`message` 可选。`updatedInput`、`updatedPermissions`、`interrupt: true` 目前 **fail closed**(schema 注释:"PermissionRequest hooks currently fail closed if this field is present")——不要发。
+- **触发时机** [源码]:`permission_request.rs` 文件头:"This event runs in the approval path, before guardian or user approval UI is shown";`hook_runtime.rs::run_permission_request_hooks` 先 `emit_hook_started_events`,然后 `await hooks.run_permission_request(...)`,拿到 `Option<decision>` 才继续。即 **hook 跑完之前终端不弹授权提示**;TUI 期间显示 hook 运行中的行 [源码:preview + started 事件,具体界面待实测]。
+  - 这与 3.5 里的实测一致:当时录到 `PermissionRequest` 在提示出现时触发(fire 模式约 1 秒内返回,看起来像同时)。
+  - 对我们的意义:Codex 上 `--mode wait` 等多久,终端就黑多久。只能二选一:(a)Codex 不做面板审批,保持 fire 模式;(b)短超时(如 10–30 秒)内面板可答,超时后终端再问——用户在终端前时会多等这段时间。你已决定(2026-10-21)**Codex 一起做**,走 (b):每个 agent 一个等待上限,Codex 的短(建议 30 秒,可调),Claude 的长;到时回"不表态"。
+- **不表态** [源码:`parse_completed`]:退出 0 且 stdout 空白 → 无决定;stdout 像 JSON 但解析失败 → `Failed`,无决定;退出 0 的纯文本 stdout 被忽略 [文档]。
+- **退出码 2 + 非空 stderr = 拒绝** [源码]。我们的 hook 任何情况下都退出 0 且不写 stderr(安装器还加了 `2>/dev/null || true`),所以不会误拒绝;但这是 Codex 与 Claude 的一个差异,改 hook 脚本时要记得。
+- **超时** [源码:`command_runner.rs`]:`tokio::time::timeout(handler.timeout_sec)` 到期 → `error: "hook timed out after Ns"` → `Failed` → 无决定 → 正常审批流程。默认 600 秒 [文档]。
+- **多个 hook** [源码:`resolve_permission_request_decision`]:任一 deny 即 deny;否则有 allow 即 allow;都没决定 → `None`。
+- **信任**:改 hooks.json 里 `PermissionRequest` 条目的命令(加 `--mode wait`)会改变 hash,需要在 `/hooks` 里**重新信任**(2.3、3.5)。
+- 输入 [schema]:`session_id`、`turn_id`、`tool_name`、`tool_input`(`Bash` / `apply_patch` 用 `tool_input.command`;另有 `tool_input.description` = 审批原因)、`model`、`permission_mode`、`cwd`、`transcript_path`;没有 `tool_use_id`。
+- 适用范围 [源码]:在 core 里执行,TUI、`codex exec`、app-server(IDE)都走同一条路。
+
+### 5.4 待你实测(👤,PR 里会再列一遍)
+
+1. **Claude 竞态**:在一个临时项目目录的 `.claude/settings.local.json` 里注册 `scripts/permission-hook-probe.sh`(脚本头部有配置片段;不要动 `~/.claude`),`claude` 里问一个要跑命令的问题。看:提示是否在 hook 结束前就出现(应该是);在终端批准后,`/tmp/permission-hook-probe.log` 里是 `signal TERM`(hook 被杀)还是 40 秒后的 `end`(推断是后者);Esc 中断时是否 `signal TERM`。
+2. **Codex 串行**:同一脚本放进 `~/.codex/hooks.json` 的 `PermissionRequest`,`/hooks` 信任后触发一次授权。确认 40 秒内终端**不**出现授权提示、TUI 上有没有"hook 运行中"的提示;然后决定 Codex 走 5.3 的 (a) 还是 (b)。
+3. 两边都确认:hook 睡满 40 秒不输出退出后,终端照常询问(不表态 ≠ 放行)。
+4. Claude 的 `permission_suggestions` 和 Codex 的 `tool_input.description` 实际长什么样(录一份,给面板用)。
+
+### 5.5 对 0.0.6 设计的直接约束(补充 PLAN.md §3 的列表)
+
+- hook `--timeout` < 安装器写入的 `timeout`,两者都由安装器显式写;面板审批超时后终端照常询问。
+- daemon 的 `wait` 回复只需三种:`allow`、`deny`(+ 给模型的 `message`)、无(hook 自己超时退出)。协议里把 `deny` 的 `message` 固定为纯文本,不回传任何载荷内容。
+- 用户在终端先回答时 daemon 不会得到通知(Claude、Codex 都没有"提示已关闭"事件):面板卡片用 `PostToolUse` / `PostToolUseFailure` / `Stop` / 下一个 `PermissionRequest` 来收起;等待中的 hook 让它自然超时。
+- 一个会话同一时刻只会有一个等待中的授权(Claude 工具按顺序请求授权;Codex 串行)[推断,实测 5.4 时顺带看并行工具调用的情况]。
+- 等待上限按 agent 区分(5.3):Claude 长、Codex 短;hook 的 `--timeout` 和安装器写的 `timeout` 都从注册表的同一个值派生。
