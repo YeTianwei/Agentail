@@ -372,8 +372,8 @@ git push origin main && git tag v0.0.5 && git push origin v0.0.5
 **决定**(2026-10-21 你定):**Claude Code 和 Codex 一起做**。两者的差别只在等待方式(`agent-hooks-notes.md` §5.1):Claude 的终端提示与 hook 并行,面板可以慢慢等;Codex 的 hook 返回前终端不弹提示,所以 Codex 的等待时长就是终端多等的时长。设计上统一为"每个 agent 一个等待上限":Claude 用长上限(建议 120 秒),Codex 用短上限(建议 30 秒,设置里可调),到时都回"不表态"、终端照常问;Codex 的 `PermissionRequest` 条目命令改了,服务器和本机都要在 `/hooks` 里重新信任一次。**👤 实测**(§5.4):用 `scripts/permission-hook-probe.sh` 分别在 Claude(项目级 `.claude/settings.local.json`)和 Codex(`~/.codex/hooks.json` + `/hooks` 信任)里触发一次授权,看提示何时出现、终端先答后 hook 是否被杀、睡满 40 秒后终端是否照常询问;Codex 顺带看 TUI 在等 hook 时显示什么,决定 30 秒这个默认值合不合适。
 
 **实现顺序**(设计定稿后):
-1. `docs/protocol.md`:`mode: wait` 的请求 / 回复格式(回复只有 `allow` / `deny` + 纯文本 `message`;无回复 = hook 超时自行退出)。
-2. hook 脚本 `--mode wait`(3.6 兼容、stdlib、fail-open;`--timeout` 必须小于安装器写入的 hook `timeout`)+ 测试。
+1. ✅ `docs/protocol.md`「Waiting for a reply」(2026-10-21):请求在线上仍是 `mode: fire` 再加 `wait_ms`(0.0.5 及更早的 daemon 拒收其他 mode,会连状态一起丢;现在它们照常记录事件、不回复 = 不表态);回复 `{"v": 1, "stdout": "..."}`,hook 原样打印,agent 的决定 JSON 由 daemon 的适配器生成,hook 仍不含 agent 逻辑;多个接收端时第一个非空 `stdout` 生效,全部不表态则立即结束。
+2. ✅ hook 脚本 `--mode wait`(`HOOK_VERSION = 3`;`selectors` 同时等所有接收端;回复按 UTF-8 写出,不受服务器 `LANG=C` 影响;无回复、空回复、坏回复、超时、socket 不在都打印空、退出 0)+ `protocol.encode_reply` / `wait_ms` 解析 + 测试(`tests/test_hook.py`、`tests/test_protocol.py`)。注意:旧脚本不认识 `--mode wait` 会直接退出、连事件都不发,所以安装器只对版本 ≥ 3 的脚本写 `--mode wait`(第 4 步)。
 3. daemon:挂起的审批表(按 `session_id` + `tool_name` + `tool_input` 对应;Claude 载荷没有 `tool_use_id`),UI 协议新增审批消息;面板关着、锁屏、空闲、功能关闭时立刻回"不表态";`PostToolUse` / `Stop` 等事件收起过期卡片。
 4. 安装器:Claude 新增同步的 `PermissionRequest` 条目,Codex 的现有条目改为 `--mode wait`(都显式写 `timeout`,每个 agent 的等待上限由注册表给出;功能关闭时 daemon 立刻回"不表态");`doctor` 检查;Codex 提示重新信任。
 5. 面板:卡片上批准 / 拒绝按钮(不抢焦点、不绑 Enter),设置页开关(默认关)。

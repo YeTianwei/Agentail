@@ -144,8 +144,9 @@ REMOTE_DIR = "~/.agentail"  # expanded on the remote side via $HOME
 HOOK_FILENAME = "agentail-hook.py"
 HOOK_MARKER = "agentail-hook"  # identifies our entries in agent configs
 # Mirrors HOOK_VERSION in the hook script (a test keeps them in sync). Bump when the hook's
-# command line changes in a way older scripts do not understand (2: several --sock, {uid}).
-HOOK_VERSION = 2
+# command line changes in a way older scripts do not understand (2: several --sock, {uid};
+# 3: --mode wait).
+HOOK_VERSION = 3
 _HOOK_VERSION_RE = re.compile(r"^HOOK_VERSION = (\d+)$", re.M)
 
 

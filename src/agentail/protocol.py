@@ -17,7 +17,12 @@ MAX_STDIN_BYTES = 256 * 1024
 # stdin plus envelope; anything longer is rejected by the daemon.
 MAX_LINE_BYTES = MAX_STDIN_BYTES * 2 + 64 * 1024
 PING_EVENT = "__ping__"
-MODES = ("fire",)  # "wait" arrives with approvals in v2
+# A hook in --mode wait also sends "fire" (plus wait_ms): daemons before 0.0.6 drop other modes.
+MODES = ("fire",)
+# The longest reply line a hook accepts in wait mode (without the newline).
+MAX_REPLY_BYTES = 64 * 1024
+# wait_ms above this is treated as this: no agent waits on a hook longer.
+MAX_WAIT_MS = 600_000
 
 ENV_WHITELIST = (
     "TERM",
@@ -45,11 +50,17 @@ class HookMessage:
     env: dict[str, str] = field(default_factory=dict)
     stdin: str = ""
     truncated: bool = False
+    # Set when the hook waits for a reply (--mode wait): milliseconds it will wait.
+    wait_ms: int | None = None
     v: int = PROTOCOL_VERSION
 
     @property
     def is_ping(self) -> bool:
         return self.event == PING_EVENT
+
+    @property
+    def waits(self) -> bool:
+        return self.wait_ms is not None
 
     def payload(self) -> dict[str, Any] | None:
         """The agent's hook payload (stdin) parsed as JSON, or None."""
@@ -96,6 +107,11 @@ def parse_line(line: bytes) -> HookMessage:
         stdin = ""
     if not isinstance(stdin, str):
         raise ProtocolError("field 'stdin' must be a string")
+    wait_ms = obj.get("wait_ms")
+    if wait_ms is not None:
+        if not isinstance(wait_ms, int) or isinstance(wait_ms, bool) or wait_ms < 0:
+            raise ProtocolError("field 'wait_ms' must be a non-negative integer")
+        wait_ms = min(wait_ms, MAX_WAIT_MS)
     return HookMessage(
         v=v,
         agent=_req(obj, "agent", str),
@@ -107,4 +123,17 @@ def parse_line(line: bytes) -> HookMessage:
         env=env,
         stdin=stdin,
         truncated=bool(obj.get("truncated", False)),
+        wait_ms=wait_ms,
     )
+
+
+def encode_reply(stdout: str) -> bytes:
+    """The reply line to a waiting hook: it prints ``stdout`` verbatim to the agent.
+    An empty ``stdout`` means no opinion. Raises ProtocolError if the line would be longer
+    than the hook accepts (it would read that as no opinion anyway)."""
+    line = json.dumps(
+        {"v": PROTOCOL_VERSION, "stdout": stdout}, ensure_ascii=False, separators=(",", ":")
+    ).encode("utf-8")
+    if len(line) > MAX_REPLY_BYTES:
+        raise ProtocolError("reply too long")
+    return line + b"\n"

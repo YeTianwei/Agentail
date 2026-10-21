@@ -3,7 +3,8 @@
 ## 1. Wire protocol v1 (hook client → daemon)
 
 Transport: Unix stream socket. One connection carries exactly one UTF-8 JSON object
-followed by `\n`. The client half-closes after sending; in v1 the daemon never replies.
+followed by `\n`. The client half-closes after sending. The daemon replies only to a message
+with `wait_ms` (approvals, since 0.0.6; see "Waiting for a reply" below).
 
 ```json
 {"v": 1, "agent": "claude", "event": "PreToolUse", "mode": "fire",
@@ -16,7 +17,8 @@ followed by `\n`. The client half-closes after sending; in v1 the daemon never r
 |---|---|
 | `v` | Must be `1`. |
 | `agent`, `event` | From the command line written by the installer (`--agent`, `--event`). |
-| `mode` | v1: only `fire`. `wait` (blocking approvals) is reserved for v2. |
+| `mode` | Always `fire` on the wire, also from a hook started with `--mode wait` (see below). |
+| `wait_ms` | Since 0.0.6, only from `--mode wait`: how many milliseconds the hook will wait for a reply. Absent otherwise. |
 | `env` | Whitelist only: `TERM TERM_PROGRAM COLORTERM TMUX TMUX_PANE STY SSH_TTY`. The daemon drops anything else. |
 | `stdin` | The agent's hook payload, verbatim, decoded with `errors="replace"`; see `truncated`. |
 | `truncated` | `true` if the payload exceeded 256 KiB and was changed to fit: since 0.0.4 a JSON payload of up to 8 MiB is sent with every string cut to 2 KiB (still valid JSON, with its small fields intact); anything else is cut to its first 256 KiB. |
@@ -55,6 +57,40 @@ The hook command carries one `--sock` per receiver, e.g.
 - Installers add or remove only their own socket. The sockets are written sorted, so the same
   receivers always give the same command string (Codex trusts a hook by a hash of its command:
   adding or removing a receiver means approving the hooks again).
+
+### Waiting for a reply (`--mode wait`, since 0.0.6)
+
+Used for the agents' permission hooks (`PermissionRequest`), so the panel can answer them. The
+hook sends the ordinary envelope with `"mode": "fire"` plus `"wait_ms"`, half-closes, and reads
+one line back on the same connection:
+
+```json
+{"v": 1, "stdout": "<text the hook prints to the agent, verbatim>"}
+```
+
+- `mode` stays `fire` because daemons before 0.0.6 reject any other mode and would drop the
+  event, and with it the "needs you" state. They ignore `wait_ms`, record the event and close
+  without replying, which the hook reads as no opinion.
+- The hook prints `stdout` exactly as received and exits 0. It never prints anything else, never
+  writes to stderr, and never exits non-zero (Codex reads exit code 2 with stderr as "deny").
+  The daemon's adapter writes the agent's own decision JSON into `stdout`; the hook knows nothing
+  about any agent.
+- **No opinion** is an empty `stdout`, or the daemon closing without a reply, or anything the
+  hook cannot use: not one JSON object, `v` other than 1, `stdout` not a string, a reply longer
+  than `MAX_REPLY_BYTES` (64 KiB). The hook then prints nothing and the agent asks in its
+  terminal as usual. The same holds when the socket is missing, refuses, or the budget runs out.
+  Nothing that goes wrong ever turns into "allow".
+- `wait_ms` is what is left of the hook's `--timeout` when it sends. The daemon must answer
+  before then, with an empty `stdout` if nobody decided; the hook stops waiting at its own
+  deadline anyway. The installer sets the agent's hook `timeout` above `--timeout`, so the hook
+  always ends first.
+- With several `--sock`, the message goes to every socket that exists (each send takes at most
+  1 second of the budget) and the hook waits on all of them at once: the **first non-empty
+  `stdout` wins**; once every receiver has answered empty or closed, the hook ends at once with
+  no opinion.
+- `HOOK_VERSION` 3 is the first script that understands `--mode wait`. An older script exits
+  on the unknown flag without sending anything, so installers write `--mode wait` only for a
+  script of version 3 or later.
 
 The **source host is the socket the message arrived on** (`local.sock` → `local`,
 `hosts/<alias>.sock` → `<alias>`). Nothing in the message can change it.

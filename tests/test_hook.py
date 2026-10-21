@@ -10,6 +10,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 from agentail import paths, protocol
 
 HOOK = paths.hook_script_source()
@@ -139,10 +141,11 @@ def test_constants_in_sync_with_protocol():
                 "ENV_WHITELIST",
                 "UID_PLACEHOLDER",
                 "HOOK_VERSION",
+                "MAX_REPLY_BYTES",
             ):
                 consts[name] = (
                     ast.literal_eval(node.value)
-                    if name != "MAX_STDIN_BYTES"
+                    if name not in ("MAX_STDIN_BYTES", "MAX_REPLY_BYTES")
                     else eval(compile(ast.Expression(node.value), "x", "eval"))
                 )
     assert consts["PROTOCOL_VERSION"] == protocol.PROTOCOL_VERSION
@@ -151,6 +154,7 @@ def test_constants_in_sync_with_protocol():
     assert tuple(consts["ENV_WHITELIST"]) == protocol.ENV_WHITELIST
     assert consts["UID_PLACEHOLDER"] == paths.UID_PLACEHOLDER
     assert consts["HOOK_VERSION"] == paths.HOOK_VERSION
+    assert consts["MAX_REPLY_BYTES"] == protocol.MAX_REPLY_BYTES
     assert paths.hook_version(paths.hook_script_source().read_bytes()) == paths.HOOK_VERSION
     assert paths.hook_version(b"import sys\n") == 0
 
@@ -256,3 +260,210 @@ def test_oversized_non_json_payload_is_cut(short_tmp):
     assert r.returncode == 0
     msg = protocol.parse_line(got[0].rstrip(b"\n"))
     assert msg.truncated is True and len(msg.stdin) == protocol.MAX_STDIN_BYTES
+
+
+# --mode wait: the hook prints a daemon's reply verbatim, and nothing for anything else.
+
+DECISION = json.dumps(
+    {
+        "hookSpecificOutput": {
+            "hookEventName": "PermissionRequest",
+            "decision": {"behavior": "deny", "message": "不行"},
+        }
+    },
+    ensure_ascii=False,
+)
+
+
+def _serve_reply(sock_path: Path, reply, out: list, delay: float = 0.0):
+    """Accept one connection, read the message, wait ``delay``, then send ``reply`` (bytes;
+    None: close without replying; "hang": keep the connection open without replying)."""
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sock_path))
+    srv.listen(1)
+    srv.settimeout(5)
+    done = threading.Event()
+
+    def run():
+        try:
+            conn, _ = srv.accept()
+            buf = b""
+            while chunk := conn.recv(65536):
+                buf += chunk
+            out.append(buf)
+            time.sleep(delay)
+            if reply == "hang":
+                done.wait(10)
+            elif reply is not None:
+                try:
+                    conn.sendall(reply)
+                except OSError:
+                    pass  # the hook already gave up (its timeout)
+            conn.close()
+        finally:
+            srv.close()
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    t.release = done.set
+    return t
+
+
+def _wait_args(*socks, timeout="3"):
+    args = ["--agent", "claude", "--event", "PermissionRequest", "--mode", "wait"]
+    args += ["--timeout", timeout]
+    for s in socks:
+        args += ["--sock", str(s)]
+    return args
+
+
+PAYLOAD = json.dumps({"session_id": "s1", "tool_name": "Bash"}).encode()
+
+
+def test_wait_prints_the_reply_verbatim(short_tmp):
+    sock = short_tmp / "w.sock"
+    got = []
+    t = _serve_reply(sock, protocol.encode_reply(DECISION), got)
+    r = _run_hook(_wait_args(sock), PAYLOAD)
+    t.join(5)
+    assert r.returncode == 0 and r.stderr == b""
+    assert r.stdout == DECISION.encode("utf-8")
+    msg = protocol.parse_line(got[0].rstrip(b"\n"))
+    # On the wire it is still "fire", so daemons before 0.0.6 keep recording the event.
+    assert msg.mode == "fire" and msg.waits and 0 < msg.wait_ms <= 3000
+    assert msg.payload() == {"session_id": "s1", "tool_name": "Bash"}
+
+
+def test_wait_reply_is_utf8_whatever_the_locale(short_tmp):
+    sock = short_tmp / "w.sock"
+    t = _serve_reply(sock, protocol.encode_reply(DECISION), [])
+    r = _run_hook(_wait_args(sock), PAYLOAD, {"LANG": "C", "LC_ALL": "C", "PYTHONIOENCODING": ""})
+    t.join(5)
+    assert r.returncode == 0 and r.stdout == DECISION.encode("utf-8")
+
+
+def test_fire_mode_sends_no_wait_ms(short_tmp):
+    sock = short_tmp / "f.sock"
+    got = []
+    t = _serve_once(sock, got)
+    _run_hook(["--agent", "claude", "--event", "Stop", "--sock", str(sock)], b"{}")
+    t.join(5)
+    assert b"wait_ms" not in got[0]
+    assert not protocol.parse_line(got[0].rstrip(b"\n")).waits
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        None,  # an old daemon: records the event, closes without a word
+        protocol.encode_reply(""),  # nobody decided
+        b"not json\n",
+        b'{"v": 2, "stdout": "x"}\n',
+        b'{"v": true, "stdout": "x"}\n',
+        b'{"v": 1, "stdout": 5}\n',
+        b'{"v": 1}\n',
+        b"[1]\n",
+        b'{"v": 1, "stdout": "x"}',  # no newline: a cut line is not used
+        b'{"v": 1, "stdout": "' + b"x" * protocol.MAX_REPLY_BYTES + b'"}\n',  # too long
+    ],
+)
+def test_wait_prints_nothing_for_anything_else(short_tmp, reply):
+    sock = short_tmp / "w.sock"
+    t = _serve_reply(sock, reply, [])
+    start = time.monotonic()
+    r = _run_hook(_wait_args(sock, timeout="5"), PAYLOAD)
+    t.join(5)
+    assert r.returncode == 0 and r.stdout == b"" and r.stderr == b""
+    assert time.monotonic() - start < 4  # ends when the receiver is done, not at the timeout
+
+
+def test_wait_without_a_reply_ends_at_the_timeout(short_tmp):
+    sock = short_tmp / "w.sock"
+    t = _serve_reply(sock, "hang", [])
+    try:
+        start = time.monotonic()
+        r = _run_hook(_wait_args(sock, timeout="1"), PAYLOAD)
+        took = time.monotonic() - start
+        assert r.returncode == 0 and r.stdout == b"" and r.stderr == b""
+        assert 0.9 < took < 3
+    finally:
+        t.release()
+        t.join(5)
+
+
+def test_wait_reply_after_the_timeout_is_not_used(short_tmp):
+    sock = short_tmp / "w.sock"
+    t = _serve_reply(sock, protocol.encode_reply(DECISION), [], delay=2)
+    r = _run_hook(_wait_args(sock, timeout="0.5"), PAYLOAD)
+    t.join(5)
+    assert r.returncode == 0 and r.stdout == b""
+
+
+def test_wait_missing_or_refusing_sockets_are_silent_and_fast(short_tmp):
+    stale = short_tmp / "stale.sock"
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.bind(str(stale))
+    s.close()  # exists, nobody listening
+    start = time.monotonic()
+    r = _run_hook(_wait_args(short_tmp / "none.sock", stale, timeout="5"), PAYLOAD)
+    assert r.returncode == 0 and r.stdout == b"" and r.stderr == b""
+    assert time.monotonic() - start < 2
+
+
+def test_wait_first_decision_from_any_receiver_wins(short_tmp):
+    """One desktop has no opinion right away, another decides later: the decision is used.
+    Both get the message."""
+    a, b = short_tmp / "a.sock", short_tmp / "b.sock"
+    got_a, got_b = [], []
+    ta = _serve_reply(a, protocol.encode_reply(""), got_a)
+    tb = _serve_reply(b, protocol.encode_reply(DECISION), got_b, delay=0.5)
+    r = _run_hook(_wait_args(a, b), PAYLOAD)
+    ta.join(5)
+    tb.join(5)
+    assert r.returncode == 0 and r.stdout == DECISION.encode("utf-8")
+    assert len(got_a) == len(got_b) == 1
+
+
+def test_wait_does_not_wait_for_the_others_after_a_decision(short_tmp):
+    a, b = short_tmp / "a.sock", short_tmp / "b.sock"
+    ta = _serve_reply(a, "hang", [])
+    tb = _serve_reply(b, protocol.encode_reply(DECISION), [])
+    try:
+        start = time.monotonic()
+        r = _run_hook(_wait_args(a, b, timeout="5"), PAYLOAD)
+        assert r.stdout == DECISION.encode("utf-8") and time.monotonic() - start < 3
+    finally:
+        ta.release()
+        ta.join(5)
+        tb.join(5)
+
+
+def test_wait_all_receivers_without_opinion_end_at_once(short_tmp):
+    a, b = short_tmp / "a.sock", short_tmp / "b.sock"
+    ta = _serve_reply(a, None, [])
+    tb = _serve_reply(b, protocol.encode_reply(""), [], delay=0.2)
+    start = time.monotonic()
+    r = _run_hook(_wait_args(a, b, timeout="5"), PAYLOAD)
+    ta.join(5)
+    tb.join(5)
+    assert r.returncode == 0 and r.stdout == b"" and time.monotonic() - start < 3
+
+
+def test_wait_a_hung_receiver_does_not_keep_the_others_from_the_message(short_tmp):
+    """A receiver that never reads (its buffer full) costs at most SEND_TIMEOUT; the next one
+    still gets the message and its decision is used."""
+    hung = short_tmp / "hung.sock"
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(hung))
+    srv.listen(0)
+    got = []
+    t = _serve_reply(short_tmp / "ok.sock", protocol.encode_reply(DECISION), got)
+    try:
+        big = json.dumps({"session_id": "s1", "x": "y" * (protocol.MAX_STDIN_BYTES - 100)})
+        start = time.monotonic()
+        r = _run_hook(_wait_args(hung, short_tmp / "ok.sock", timeout="5"), big.encode())
+        t.join(5)
+        assert r.returncode == 0 and r.stdout == DECISION.encode("utf-8")
+        assert len(got) == 1 and time.monotonic() - start < 4
+    finally:
+        srv.close()

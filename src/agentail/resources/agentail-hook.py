@@ -14,6 +14,12 @@ with this process's uid, so one command works on hosts that share an NFS $HOME b
 give the user different uids. The message goes to every socket that exists; the
 ``--timeout`` budget is shared between them and a dead receiver never stops the others.
 
+``--mode wait`` (permission hooks, since HOOK_VERSION 3) then waits up to ``--timeout``
+for a reply ``{"v": 1, "stdout": "..."}`` and prints that text verbatim: the first
+non-empty one from any receiver wins. Anything else -- no reply, an empty or unusable
+one, a timeout -- prints nothing, which the agent reads as "no opinion" and asks in its
+terminal. See docs/protocol.md, "Waiting for a reply".
+
 Design rules (see docs/PLAN.md, "Invariants"):
 
 * No agent-specific logic lives here. Everything agent-specific is decided by
@@ -21,8 +27,8 @@ Design rules (see docs/PLAN.md, "Invariants"):
 * Standard library only, compatible with Python 3.6 (servers are old).
   No dataclasses, no walrus, no ``from __future__ import annotations``.
 * FAIL-OPEN MEANS "DO NOT INTERFERE": in hook mode this script never prints
-  anything and always exits 0, whatever goes wrong. It must never block the
-  agent for longer than ``--timeout``.
+  anything (except a daemon's reply in wait mode) and always exits 0, whatever
+  goes wrong. It must never block the agent for longer than ``--timeout``.
 * Only whitelisted environment variables are forwarded (servers often have
   API keys and tokens in their environment).
 
@@ -33,14 +39,16 @@ Exit codes: hook mode always 0. ``--ping`` returns 0 when the ping reached every
 import argparse
 import json
 import os
+import selectors
 import socket
 import sys
 import time
 
 PROTOCOL_VERSION = 1
 # The script's own interface version (agentail.paths.HOOK_VERSION mirrors it): 2 = several
-# --sock and {uid}. add-host and the daemon's first start never replace a newer script.
-HOOK_VERSION = 2
+# --sock and {uid}; 3 = --mode wait. add-host and the daemon's first start never replace a
+# newer script.
+HOOK_VERSION = 3
 MAX_STDIN_BYTES = 256 * 1024
 # An oversized payload (a tool's output, a file being written) is read up to this much and
 # its long strings are cut, so the JSON stays valid and the small fields (session id, event,
@@ -48,6 +56,10 @@ MAX_STDIN_BYTES = 256 * 1024
 SHRINK_MAX_BYTES = 8 * 1024 * 1024
 SHRINK_STRING_CHARS = 2048
 DEFAULT_TIMEOUT = 1.0
+# In wait mode, sending to one receiver may take at most this long; the rest of the
+# budget is for the reply.
+SEND_TIMEOUT = 1.0
+MAX_REPLY_BYTES = 64 * 1024
 PING_EVENT = "__ping__"
 UID_PLACEHOLDER = "{uid}"
 
@@ -67,7 +79,7 @@ def _parse_args(argv):
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--agent", default="unknown")
     p.add_argument("--event", default="unknown")
-    p.add_argument("--mode", default="fire", choices=["fire"])  # "wait" is v2
+    p.add_argument("--mode", default="fire", choices=["fire", "wait"])
     p.add_argument("--sock", action="append", required=True)
     p.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     p.add_argument("--ping", action="store_true")
@@ -117,7 +129,7 @@ def _read_stdin():
         return "", False
 
 
-def _build_message(args, stdin_text, truncated):
+def _build_message(args, stdin_text, truncated, wait_ms=None):
     env = {}
     for key in ENV_WHITELIST:
         val = os.environ.get(key)
@@ -127,10 +139,11 @@ def _build_message(args, stdin_text, truncated):
         cwd = os.getcwd()
     except Exception:
         cwd = ""
-    return {
+    message = {
         "v": PROTOCOL_VERSION,
         "agent": args.agent,
         "event": PING_EVENT if args.ping else args.event,
+        # Also "fire" in wait mode: daemons before 0.0.6 drop any other mode.
         "mode": "fire",
         "ts": time.time(),
         "ppid": os.getppid(),
@@ -139,6 +152,9 @@ def _build_message(args, stdin_text, truncated):
         "stdin": stdin_text,
         "truncated": truncated,
     }
+    if wait_ms is not None:
+        message["wait_ms"] = wait_ms
+    return message
 
 
 def _sock_paths(socks):
@@ -185,7 +201,88 @@ def _send_all(socks, message, timeout):
     return sent
 
 
+def _reply_stdout(line):
+    """The ``stdout`` of one reply line (bytes, without the newline); "" means no opinion."""
+    try:
+        obj = json.loads(line.decode("utf-8"))
+    except Exception:
+        return ""
+    if not isinstance(obj, dict) or type(obj.get("v")) is not int or obj["v"] != PROTOCOL_VERSION:
+        return ""
+    out = obj.get("stdout")
+    return out if isinstance(out, str) else ""
+
+
+def _send_and_wait(socks, message, deadline):
+    """Send ``message`` to every socket, then wait until ``deadline`` for the first reply
+    with a non-empty ``stdout`` and return it. Returns "" (no opinion) when every receiver
+    has closed or answered empty, or when the deadline passes."""
+    line = (json.dumps(message, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    sel = selectors.DefaultSelector()
+    bufs = {}
+    try:
+        for sock_path in socks:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                break
+            s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            try:
+                s.settimeout(min(SEND_TIMEOUT, left))
+                s.connect(sock_path)
+                s.sendall(line)
+                try:
+                    s.shutdown(socket.SHUT_WR)
+                except OSError:
+                    pass
+                s.setblocking(False)
+                sel.register(s, selectors.EVENT_READ)
+                bufs[s] = b""
+            except Exception:
+                s.close()
+        while bufs:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return ""
+            for key, _ in sel.select(left):
+                s = key.fileobj
+                try:
+                    chunk = s.recv(65536)
+                except (BlockingIOError, InterruptedError):
+                    continue
+                except Exception:
+                    chunk = b""
+                data = bufs[s] + chunk
+                if chunk and b"\n" not in data and len(data) <= MAX_REPLY_BYTES:
+                    bufs[s] = data
+                    continue
+                # This receiver is done: a full line, the end of the connection, or too much.
+                sel.unregister(s)
+                s.close()
+                del bufs[s]
+                if b"\n" in data:
+                    reply = data.split(b"\n", 1)[0]
+                    if len(reply) <= MAX_REPLY_BYTES:
+                        out = _reply_stdout(reply)
+                        if out:
+                            return out
+        return ""
+    finally:
+        for s in bufs:
+            s.close()
+        sel.close()
+
+
+def _print_reply(text):
+    """Write the daemon's reply as UTF-8, whatever the locale (old servers run with LANG=C)."""
+    try:
+        sys.stdout.buffer.write(text.encode("utf-8"))
+        sys.stdout.buffer.flush()
+    except Exception:
+        pass
+
+
 def main(argv=None):
+    start = time.monotonic()
     try:
         args = _parse_args(sys.argv[1:] if argv is None else argv)
     except SystemExit:
@@ -207,7 +304,14 @@ def main(argv=None):
     stdin_text, truncated = _read_stdin()
     try:
         socks = [s for s in socks if os.path.exists(s)]
-        if socks:
+        if socks and args.mode == "wait":
+            deadline = start + args.timeout
+            wait_ms = int(max(0.0, deadline - time.monotonic()) * 1000)
+            message = _build_message(args, stdin_text, truncated, wait_ms)
+            out = _send_and_wait(socks, message, deadline)
+            if out:
+                _print_reply(out)
+        elif socks:
             _send_all(socks, _build_message(args, stdin_text, truncated), args.timeout)
     except Exception:
         pass
