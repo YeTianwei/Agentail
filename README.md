@@ -86,13 +86,20 @@ turn it on: open the panel's settings (the gear next to the light/dark button, t
 for each request and sent only to that address; it is never refreshed (an expired login waits until
 you next run `claude`), written anywhere or logged. Nothing else from the file is used.
 
+The token lasts only a few hours (eight, in our tests), and only Claude Code running on this
+computer renews the file, such as `claude` in a terminal. VS Code Remote runs Claude on the server,
+so it renews the server's login, not this one; Claude Desktop keeps a login of its own.
+If you rarely run `claude` here, the panel will often say "Sign-in expired: run claude once". Then
+turn on the Servers switch below: your servers' logins stay fresh while you use them.
+
 Before you turn it on, know that Anthropic does not document this endpoint, that it may change, and
 that the requests say they come from Agentail, not from Claude Code. How Anthropic treats such
 requests from tools other than Claude Code is up to Anthropic.
 
 **Servers** have a switch of their own, next to it in the settings (`agentail usage-api on
---servers` in a terminal). With it, a server whose Claude account is not the one on this computer
-is asked over ssh with the server's own login: a short Python script runs there, nothing is
+--servers` in a terminal). With it, a server is asked over ssh with the server's own login when
+this computer's query cannot speak for it: its Claude account is another one, or this computer's
+switch is off or its login has expired. A short Python script runs there, nothing is
 installed, and the token never leaves the server. `agentail usage-api off --all` turns both off;
 `agentail doctor` shows how the query is doing. While this computer's switch is off, the Usage
 section says so in one line.
