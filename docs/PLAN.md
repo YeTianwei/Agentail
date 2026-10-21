@@ -382,14 +382,17 @@ git push origin main && git tag v0.0.5 && git push origin v0.0.5
    - 就绪:每次连上 daemon 发 `approvals_ready`;锁屏(`Main.sessionMode.isLocked`;GNOME 锁屏时本来也会停用扩展、断开连接)或 5 分钟无操作(Mutter 的 idle monitor)时发 `false`,有操作后再发 `true`。
    - 测试:`tests/js/test_model.js`(状态、卡片、设置、`cleanLines`)、`tests/test_gnome_extension.py`(只有点击能发决定、就绪信号与清理、CLI 参数)、`tests/test_approvals_install.py`(CLI、`approval_wait_s`)。AppIndicator 退路(`agentail ui`)不做审批。
 
-**👤 第 5 步真机验证**(你的 GNOME 桌面,开发安装):
+**👤 第 5 步真机验证**(你的 GNOME 桌面)。装了 .deb 的机器上 `agentail` 是 `/usr/bin/agentail`(包里的旧版本),systemd 起的 daemon 和 `--link` 链接到的扩展也都是包里的:开发版要用仓库的 `.venv/bin/agentail`,并先停掉包里的 daemon。
 
 ```bash
-agentail install-gnome-extension --link     # 然后 Alt+F2 → r → 回车(X11),或注销再登录
-systemctl --user restart agentail           # 或者另开终端 `agentail daemon`
-agentail install-local                      # 写入 wait 模式条目;之后在 codex 里 /hooks 重新信任 PermissionRequest
-agentail approvals on
-agentail doctor                             # claude / codex hooks ✓,approvals ✓
+A=/data2/Personal/Development/Agentail/.venv/bin/agentail
+cp /tmp/hooks.json.bak ~/.codex/hooks.json  # 若 Codex 实测(§5.4)的探针条目还在
+systemctl --user stop agentail              # 包里的 daemon
+$A install-gnome-extension --link           # 链接到仓库;然后 Alt+F2 → r → 回车(X11),或注销再登录
+$A install-local                            # 写入 wait 模式条目;之后在 codex 里 /hooks 重新信任 PermissionRequest
+$A approvals on
+$A daemon --print-events                    # 另开终端,前台运行;测完 Ctrl+C,再 systemctl --user start agentail
+$A doctor                                   # claude / codex hooks ✓,approvals ✓
 ```
 
 1. Claude:让它跑一个要授权的命令。面板卡片变橙色,显示完整命令、理由、「批准 / 拒绝」和倒计时;终端里的提示同时存在。点「批准」→ 命令执行;再来一次点「拒绝」→ Claude 收到拒绝;再来一次在终端里回答 → 面板上的按钮消失。
