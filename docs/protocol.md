@@ -202,8 +202,14 @@ when it changes.
 ```
 SETTINGS = {"usage": true,   # since 0.0.4
             "notifications": {"turn_done": true, "attention": true, "details": false},  # since 0.0.5
-            "approvals": false}   # since 0.0.6
+            "approvals": false,   # since 0.0.6
+            "approval_wait_s": {"claude": 120, "codex": 30}}   # since 0.0.6
 ```
+
+`approvals` is `[approvals] enabled`; `approval_wait_s` says how long a request of each agent
+that can be approved waits for a client (`[approvals.wait_s]`, or the agent's default; never more
+than the cap the installer wrote into the hook command: 120 s for Claude Code, 60 s for Codex).
+`agentail approvals on|off` and `agentail approvals wait AGENT SECONDS` change them.
 
 `SETTINGS` holds switches that are not about one agent; `settings` is sent when it changes.
 `usage` is `[usage] enabled` in `config.toml` (default on; `agentail usage on|off`): while it is

@@ -376,7 +376,26 @@ git push origin main && git tag v0.0.5 && git push origin v0.0.5
 2. ✅ hook 脚本 `--mode wait`(`HOOK_VERSION = 3`;`selectors` 同时等所有接收端;回复按 UTF-8 写出,不受服务器 `LANG=C` 影响;无回复、空回复、坏回复、超时、socket 不在都打印空、退出 0)+ `protocol.encode_reply` / `wait_ms` 解析 + 测试(`tests/test_hook.py`、`tests/test_protocol.py`)。注意:旧脚本不认识 `--mode wait` 会直接退出、连事件都不发,所以安装器只对版本 ≥ 3 的脚本写 `--mode wait`(第 4 步)。
 3. ✅ daemon(2026-10-21,协议见 `protocol.md`「Approvals」):`daemon/approvals.py` 挂起表,每个请求一个 future,所有结束方式(面板决定、到期、hook 连接断开、同会话的 `Stop` / `SessionEnd` / 新 prompt / 同一调用的 `PostToolUse` / 更新的 `PermissionRequest`、删除会话、开关关闭、最后一个就绪客户端离开、主机断线、daemon 退出)都经过它,只有面板的 allow 能产生 allow。UI 新消息 `approval` / `approval_remove`,客户端发 `approvals_ready`(GNOME 面板在锁屏、空闲时发 `false`,第 5 步)和 `approval_decision`;快照带 `approvals`,`SETTINGS` 带 `approvals`。`[approvals] enabled` 默认关(`config.load_approvals_enabled` / `set_approvals_enabled`,CLI 留到第 5 步)。只有 Claude、Codex 能审批(Qoder 等未验证);载荷被截断、主命令超过 4096 字符时不挂起,面板必须显示完整命令。hook 的 wait 模式改为不半关闭,daemon 由此发现 hook 被杀(Esc)。Claude 适配器解码 `PermissionRequest`(→ 需要你),但 `hook_events()` 不含它,由第 4 步的 wait 条目注册。测试 `tests/test_approvals.py`(经真实 hook 脚本端到端)。
 4. ✅ 安装器(2026-10-21):Claude 新增、Codex 改为 wait 模式的 `PermissionRequest` 条目,**不管开关开没开都写**(开关切换不改 agent 配置,Codex 不用重新信任;关着时 daemon 立刻回不表态,代价是每次授权多一次 Python 启动)。每个 agent 两个数:命令里的 `--timeout` 是硬上限(注册表 `approval_timeout_s`,Claude 120、Codex 60),agent 配置的 `timeout` 再加 10 秒;面板实际等多久由 daemon 决定(`[approvals.wait_s]`,默认 Claude 120、Codex 30,改了不用重装)。`hookjson` 解析和重写命令时保留 wait 模式(`remove-host` 只去掉一个接收端时不会退回 fire)。`firstrun.SETUP_VERSION = 4`:升级后自动补上一次,Codex 会要求重新信任改过的那一条。`doctor`:`PermissionRequest` 不是 wait 模式时警告,另有一行显示审批开关。测试 `tests/test_approvals_install.py`(含用 `sh -c` 跑安装器写出的命令,对真 daemon 拿到面板的批准)。
-5. 面板:卡片上批准 / 拒绝按钮(不抢焦点、不绑 Enter),设置页开关(默认关)。
+5. ✅ 面板与 CLI(2026-10-21,代码与测试;**界面未在真机上看过**):
+   - 卡片:有挂起请求时显示完整命令(换行保留、不截断,控制字符替换为 `?`)、agent 给的理由、「批准 / 拒绝」和剩余秒数;按钮 `can_focus: false`,回车不能批准,面板不会自己弹开;点击后显示「正在发送…」直到 daemon 收起。Claude 卡片提示"也可以在终端里回答",Codex 提示"之后 Codex 会在终端里询问"。
+   - 设置页新增「审批」组:开关(`agentail approvals on|off`),打开后可选 Codex 等待 10 / 20 / 30 / 60 秒(`agentail approvals wait codex N`,上限是 hook 的 60 秒)。`SETTINGS` 新增 `approval_wait_s`。
+   - 就绪:每次连上 daemon 发 `approvals_ready`;锁屏(`Main.sessionMode.isLocked`;GNOME 锁屏时本来也会停用扩展、断开连接)或 5 分钟无操作(Mutter 的 idle monitor)时发 `false`,有操作后再发 `true`。
+   - 测试:`tests/js/test_model.js`(状态、卡片、设置、`cleanLines`)、`tests/test_gnome_extension.py`(只有点击能发决定、就绪信号与清理、CLI 参数)、`tests/test_approvals_install.py`(CLI、`approval_wait_s`)。AppIndicator 退路(`agentail ui`)不做审批。
+
+**👤 第 5 步真机验证**(你的 GNOME 桌面,开发安装):
+
+```bash
+agentail install-gnome-extension --link     # 然后 Alt+F2 → r → 回车(X11),或注销再登录
+systemctl --user restart agentail           # 或者另开终端 `agentail daemon`
+agentail install-local                      # 写入 wait 模式条目;之后在 codex 里 /hooks 重新信任 PermissionRequest
+agentail approvals on
+agentail doctor                             # claude / codex hooks ✓,approvals ✓
+```
+
+1. Claude:让它跑一个要授权的命令。面板卡片变橙色,显示完整命令、理由、「批准 / 拒绝」和倒计时;终端里的提示同时存在。点「批准」→ 命令执行;再来一次点「拒绝」→ Claude 收到拒绝;再来一次在终端里回答 → 面板上的按钮消失。
+2. Codex:同样触发一次。30 秒内终端没有提示、面板上有按钮;点「批准」→ 执行。再来一次不点 → 30 秒后终端出现 Codex 自己的提示。设置里改成 10 秒再试一次。
+3. 锁屏后触发 Codex 授权 → 终端立刻出现提示(面板不在等)。
+4. 看一眼亮色主题、中文界面下的卡片和设置页;一条很长或多行的命令能完整显示并换行。
 
 ### 0.0.6 之后:Qwen Code、Gemini CLI(2026-10-21 从 0.0.6 推迟)
 

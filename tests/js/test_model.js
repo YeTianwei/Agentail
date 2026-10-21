@@ -464,7 +464,7 @@ test('settings: the Usage switch', () => {
     st.apply({type: 'settings', settings: {usage: 'yes'}});
     eq([M.usageSettings(st).available, M.usageSettings(st).usage.enabled], [false, false]);
     st.disconnect();
-    eq(st.settings, {usage: null, notifications: null});
+    eq(st.settings, {usage: null, notifications: null, approvals: null, approvalWait: null});
 });
 
 test('usage: each card says where its numbers come from', () => {
@@ -622,6 +622,88 @@ test('every string marked for translation has a Chinese entry', () => {
     }
     for (const key of Object.keys(I.ZH))
         ok(keys.has(key), `unused Chinese entry "${key}"`);
+});
+
+
+// ---- approvals (0.0.6) -------------------------------------------------------------------
+
+const ID = 'a'.repeat(32);
+const approval = (sid, kw = {}) => ({
+    id: kw.id ?? ID,
+    key: {host: kw.host ?? 'local', agent: kw.agent ?? 'claude', session_id: sid},
+    tool: 'Bash',
+    detail: kw.detail ?? 'rm -rf build',
+    description: kw.description ?? 'Remove the build directory',
+    created_ts: NOW - 5,
+    expires_ts: kw.expires ?? NOW + 42.2,
+});
+
+test('approvals: kept from the snapshot and messages, malformed ones dropped', () => {
+    const st = new M.UiState();
+    st.apply({type: 'snapshot', sessions: [s('local', 'a', 'needs_attention')], hosts: [],
+        approvals: [approval('a'), approval('a', {id: 'xyz'}), approval('a', {id: 'b'.repeat(32), detail: 5}),
+            approval('a', {id: 'c'.repeat(32), detail: ''}),
+            approval('a', {id: 'd'.repeat(32), detail: 'x'.repeat(M.APPROVAL_DETAIL_CHARS + 1)}), null, 'junk']});
+    eq([...st.approvals.keys()], [ID]);
+    st.apply({type: 'approval', approval: approval('a', {id: 'e'.repeat(32)})});
+    eq(st.approvals.size, 2);
+    st.apply({type: 'approval_remove', id: ID});
+    eq([...st.approvals.keys()], ['e'.repeat(32)]);
+    st.disconnect();
+    eq(st.approvals.size, 0);
+});
+
+test('approvals: shown on their session card, in full', () => {
+    const long = `echo ${'x'.repeat(300)}`;
+    const st = make([s('local', 'a', 'needs_attention'), s('gpu1', 'b', 'needs_attention', {agent: 'codex'}),
+        s('local', 'c', 'running')]);
+    st.apply({type: 'approval', approval: approval('a', {detail: `cat <<EOF\n${long}\n\u001b[31mEOF`})});
+    st.apply({type: 'approval', approval: approval('b', {id: 'f'.repeat(32), host: 'gpu1', agent: 'codex'})});
+    const cards = M.agentGroups(st, NOW).flatMap(g => g.cards);
+    const byId = Object.fromEntries(cards.map(c => [c.id, c]));
+    const a = byId.a.approval;
+    // Every line, nothing cut, escapes neutralised.
+    eq(a.detail, `cat <<EOF\n${long}\n?[31mEOF`);
+    eq([a.id, a.tool, a.description, a.leftText, a.sent], [ID, 'Bash', 'Remove the build directory', '43s left', null]);
+    eq(a.after, 'You can also answer it in the terminal.');
+    eq(byId.b.approval.after, 'Then Codex asks in its terminal.');
+    eq(byId.c.approval, null);
+    // Clicked: no buttons until the daemon removes it.
+    st.markSent(ID, 'allow');
+    eq(M.agentGroups(st, NOW)[0].cards.find(c => c.id === 'a').approval.leftText, 'Sending…');
+    // Expired but not removed yet: no negative countdown.
+    eq(M.approvalOf(st, s('gpu1', 'b', 'needs_attention', {agent: 'codex'}), NOW + 100).leftText, '0s left');
+});
+
+test('approvals: settings', () => {
+    const old = make([]);
+    old.apply({type: 'settings', settings: {usage: true, notifications: {turn_done: true, attention: true, details: false}}});
+    eq(M.approvalSettings(old).available, false);  // a 0.0.5 daemon
+    eq(M.approvalSettings(old).toggle.enabled, false);
+    const st = make([]);
+    st.apply({type: 'settings', settings: {usage: true, approvals: false, approval_wait_s: {claude: 120, codex: 30, x: 'no'}}});
+    eq(st.settings.approvalWait, {claude: 120, codex: 30});
+    let v = M.approvalSettings(st);
+    eq([v.available, v.toggle.id, v.toggle.on, v.toggle.enabled, v.wait.enabled], [true, 'approvals', false, true, false]);
+    // Switched on in the panel: shown at once as saving, the wait choices with it.
+    let pending = {approvals: true};
+    v = M.approvalSettings(st, pending);
+    eq([v.toggle.on, v.toggle.saving, v.wait.enabled], [true, true, true]);
+    eq(v.wait.choices.map(c => [c.value, c.on]), [[10, false], [20, false], [30, true], [60, false]]);
+    st.apply({type: 'settings', settings: {usage: true, approvals: true, approval_wait_s: {claude: 120, codex: 30}}});
+    pending = M.settlePending(st, pending);
+    eq(pending, {});
+    pending = {wait_codex: 10};
+    v = M.approvalSettings(st, pending);
+    eq([v.wait.saving, v.wait.choices.find(c => c.on).value], [true, 10]);
+    eq(M.settlePending(st, pending), {wait_codex: 10});
+    st.apply({type: 'settings', settings: {usage: true, approvals: true, approval_wait_s: {claude: 120, codex: 10}}});
+    eq(M.settlePending(st, pending), {});
+});
+
+test('cleanLines keeps line breaks only', () => {
+    eq(M.cleanLines('a\r\nb\rc\n\td‮'), 'a\nb\nc\n d?');
+    eq(M.cleanLines(null), '');
 });
 
 for (const [name, fn] of tests) {

@@ -264,9 +264,8 @@ class Daemon:
         request = adapter.approval(msg)
         if request is None:
             return None
-        spec = agents.get(msg.agent)
-        wait_s = self._approval_waits.get(msg.agent) or (spec.approval_wait_s if spec else 0)
-        return self.approvals.hold(key, request, msg.wait_ms, time.time(), wait_s or None)
+        wait_s = self.approval_waits().get(msg.agent)
+        return self.approvals.hold(key, request, msg.wait_ms, time.time(), wait_s)
 
     def _withdraw_answered(self, key: SessionKey, event: AgentEvent) -> None:
         """A held request is over once the session shows it was answered elsewhere: the turn
@@ -306,6 +305,16 @@ class Daemon:
             self.approvals.decide(approval_id, reply)
         else:
             self.approvals.withdraw_session(p.key)
+
+    def approval_waits(self) -> dict[str, int]:
+        """How long a request of each approving agent waits for the panel: ``[approvals.wait_s]``
+        or the agent's default, never beyond the hook's own cap."""
+        out = {}
+        for spec in agents.AGENTS:
+            if spec.approval_event:
+                wait = self._approval_waits.get(spec.name) or spec.approval_wait_s
+                out[spec.name] = min(wait, spec.approval_timeout_s)
+        return out
 
     def _approvers_changed(self, count: int) -> None:
         if count == 0:
@@ -381,6 +390,7 @@ class Daemon:
             "usage": self._usage_on,
             "notifications": self.notify.as_dict(),
             "approvals": self._approvals_on,
+            "approval_wait_s": self.approval_waits(),
         }
 
     @property
@@ -598,14 +608,19 @@ class Daemon:
             self._settings_mtime = mtime
             notify = load_notify_switches(path)
             approvals = load_approvals_enabled(path)
-            self._approval_waits = load_approval_waits(path)
-            if (notify, approvals) != (self.notify, self._approvals_on):
+            waits = load_approval_waits(path)
+            if (notify, approvals, waits) != (
+                self.notify,
+                self._approvals_on,
+                self._approval_waits,
+            ):
                 if approvals != self._approvals_on:
                     log.info("approvals from the panel %s", "on" if approvals else "off")
                     if not approvals:
                         self.approvals.withdraw_all()
                 self.notify = notify
                 self._approvals_on = approvals
+                self._approval_waits = waits
                 log.info("notifications %s", notify.as_dict())
                 if self.ui is not None:
                     self.ui.broadcast({"type": "settings", "settings": self.settings()})

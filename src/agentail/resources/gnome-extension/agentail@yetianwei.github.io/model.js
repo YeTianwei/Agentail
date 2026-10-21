@@ -56,6 +56,13 @@ export const AGENT_NAME = {
 
 export const LIMITS = {project: 40, subtitle: 140, detail: 160, hostDetail: 160};
 export const NOTIFY_INTERVAL_S = 10;
+// Approvals (0.0.6): a request's command as the daemon sends it, in full (it holds none longer).
+export const APPROVAL_DETAIL_CHARS = 4096;
+// After this long without input the panel tells the daemon nobody can answer here.
+export const READY_IDLE_S = 300;
+// The choices offered for how long a Codex request waits (the hook gives up at 60 s).
+export const CODEX_WAIT_CHOICES = [10, 20, 30, 60];
+const APPROVAL_ID = /^[0-9a-f]{32}$/;
 export const USAGE_STALE_S = 30 * 60;
 export const USAGE_WARN = 70;
 export const USAGE_CRIT = 90;
@@ -77,6 +84,13 @@ export function clean(value, limit = 0) {
     if (limit && chars.length > limit)
         text = `${chars.slice(0, limit - 1).join('')}…`;
     return text;
+}
+
+// clean() that keeps line breaks: a command shown for approval keeps its lines (a heredoc, a
+// script), every other control character still becomes "?".
+export function cleanLines(value) {
+    const text = typeof value === 'string' ? value : '';
+    return text.replace(/\r\n?/g, '\n').split('\n').map(line => clean(line)).join('\n');
 }
 
 export function keyOf(key) {
@@ -123,7 +137,8 @@ export class UiState {
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
         this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
-        this.settings = {usage: null, notifications: null}; // the daemon's SETTINGS; null: not reported
+        this.settings = {usage: null, notifications: null, approvals: null, approvalWait: null}; // the daemon's SETTINGS; null: not reported
+        this.approvals = new Map(); // id -> held permission request (docs/protocol.md, "Approvals")
         // Remote hosts that failed and have not connected since -> the last reason. A host
         // retrying goes backoff -> connecting -> backoff ...: it stays down while connecting.
         this.troubled = new Map();
@@ -136,7 +151,8 @@ export class UiState {
         this.troubled.clear();
         this.usage.clear();
         this.usageApi.clear();
-        this.settings = {usage: null, notifications: null};
+        this.approvals.clear();
+        this.settings = {usage: null, notifications: null, approvals: null, approvalWait: null};
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -164,6 +180,9 @@ export class UiState {
                     this._setUsageApi(agent, status);
             }
             this._setSettings(msg.settings);
+            this.approvals.clear();
+            for (const a of Array.isArray(msg.approvals) ? msg.approvals : [])
+                this._setApproval(a);
             break;
         case 'settings':
             this._setSettings(msg.settings);
@@ -191,6 +210,12 @@ export class UiState {
         case 'usage_api_status':
             this._setUsageApi(msg.agent, msg.status);
             break;
+        case 'approval':
+            this._setApproval(msg.approval);
+            break;
+        case 'approval_remove':
+            this.approvals.delete(clean(msg.id));
+            break;
         case 'notify':
             return msg;
         }
@@ -217,11 +242,41 @@ export class UiState {
         const s = settings && typeof settings === 'object' ? settings : {};
         const n = s.notifications && typeof s.notifications === 'object' ? s.notifications : null;
         const flag = v => typeof v === 'boolean' ? v : null;
+        const waits = s.approval_wait_s && typeof s.approval_wait_s === 'object' ? s.approval_wait_s : null;
         this.settings = {
             usage: flag(s.usage),
             // Since 0.0.5; null from an older daemon.
             notifications: n && {turn_done: flag(n.turn_done), attention: flag(n.attention), details: flag(n.details)},
+            // Since 0.0.6.
+            approvals: flag(s.approvals),
+            approvalWait: waits && Object.fromEntries(Object.entries(waits)
+                .filter(([, v]) => Number.isInteger(v) && v > 0).map(([k, v]) => [clean(k, 20), v])),
         };
+    }
+
+    // A held request, kept only if it is well formed. `detail` is kept whole (the user must
+    // see all of what they allow); a longer one than the daemon ever sends is not kept.
+    _setApproval(a) {
+        if (!a || typeof a !== 'object' || typeof a.id !== 'string' || !APPROVAL_ID.test(a.id))
+            return;
+        if (typeof a.detail !== 'string' || !a.detail || Array.from(a.detail).length > APPROVAL_DETAIL_CHARS)
+            return;
+        this.approvals.set(a.id, {
+            id: a.id,
+            session: keyString(keyOf(a.key)),
+            tool: clean(a.tool, 30),
+            detail: cleanLines(a.detail),
+            description: clean(a.description, 200),
+            expiresTs: typeof a.expires_ts === 'number' ? a.expires_ts : 0,
+            sent: null,
+        });
+    }
+
+    // The user clicked Allow or Deny: the buttons go until the daemon removes the request.
+    markSent(id, decision) {
+        const a = this.approvals.get(id);
+        if (a)
+            a.sent = decision;
     }
 
     _setUsageApi(agent, status) {
@@ -301,6 +356,31 @@ export function summary(state) {
 
 // ---- panel -----------------------------------------------------------------------
 
+// The request held for a session, the one that expires last; null if there is none.
+export function approvalOf(state, s, now) {
+    const sk = keyString(keyOf(s.key));
+    let found = null;
+    for (const a of state.approvals.values()) {
+        if (a.session === sk && (!found || a.expiresTs > found.expiresTs))
+            found = a;
+    }
+    if (!found)
+        return null;
+    const agent = keyOf(s.key)[1];
+    const left = Math.max(0, Math.ceil(found.expiresTs - now));
+    return {
+        id: found.id,
+        tool: found.tool,
+        detail: found.detail,
+        description: found.description,
+        sent: found.sent,
+        leftText: found.sent ? _('Sending…') : _('{n}s left', {n: left}),
+        // Claude Code keeps its own prompt open meanwhile; Codex shows it only afterwards.
+        after: agent === 'codex' ? _('Then Codex asks in its terminal.')
+            : _('You can also answer it in the terminal.'),
+    };
+}
+
 export function card(s, now) {
     const [, agent, sid] = keyOf(s.key);
     const status = statusOf(s);
@@ -359,7 +439,7 @@ export function agentGroups(state, now) {
             .sort((a, b) =>
                 STATUS[statusOf(a)].order - STATUS[statusOf(b)].order ||
                 (b.last_ts || 0) - (a.last_ts || 0))
-            .map(s => card(s, now));
+            .map(s => ({...card(s, now), approval: approvalOf(state, s, now)}));
         return {agent, name: AGENT_NAME[agent] ?? agent, count: cards.length, cards};
     });
 }
@@ -676,6 +756,8 @@ function switchValues(state) {
         turn_done: n?.turn_done ?? null,
         attention: n?.attention ?? null,
         details: n?.details ?? null,
+        approvals: state.settings.approvals,
+        wait_codex: state.settings.approvalWait?.codex ?? null,
     };
 }
 
@@ -742,12 +824,34 @@ export function usageSettings(state, pending = {}, now = 0) {
     };
 }
 
+// The Approvals group (0.0.6): the switch, and how long a Codex request waits for you (Codex
+// shows its own prompt only after that). `available` is false for an older daemon.
+export function approvalSettings(state, pending = {}) {
+    const actual = switchValues(state);
+    const toggle = switchRow(actual, pending, 'approvals', _('Answer permission prompts here'),
+        [_('Claude Code and Codex. Only while you are at this computer: not while the screen is locked or after 5 minutes away.')],
+        true);
+    const want = Number.isInteger(pending.wait_codex) ? pending.wait_codex : null;
+    const current = want ?? actual.wait_codex;
+    return {
+        available: actual.approvals !== null,
+        toggle,
+        wait: {
+            title: _('How long Codex waits for you'),
+            note: _('Codex shows its own prompt only after this.'),
+            enabled: toggle.on && actual.wait_codex !== null,
+            saving: want !== null && want !== actual.wait_codex,
+            choices: CODEX_WAIT_CHOICES.map(n => ({value: n, text: _('{n} s', {n}), on: n === current})),
+        },
+    };
+}
+
 // Drops the pending choices the daemon now reports (or that no longer differ).
 export function settlePending(state, pending) {
     const actual = switchValues(state);
     const out = {};
     for (const [id, want] of Object.entries(pending)) {
-        if (typeof want === 'boolean' && actual[id] !== want)
+        if ((typeof want === 'boolean' || Number.isInteger(want)) && actual[id] !== want)
             out[id] = want;
     }
     return out;

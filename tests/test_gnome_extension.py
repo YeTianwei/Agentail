@@ -267,3 +267,52 @@ def test_extension_spawns_only_argv_lists():
     assert "Gio.Subprocess.new([bin, ...argv]" in code
     assert "['usage', value]" in code and "['usage-api', value," in code
     assert "M.validAlias(alias)" in code  # checked before the alias reaches the tool
+
+
+def test_only_a_click_answers_a_permission_request():
+    """No keyboard focus on Allow / Deny (Enter must never approve), nothing else sends a
+    decision, and the panel does not open itself for a request."""
+    code = _code()
+    button = _block(code, "_decisionButton(text, styleClass, id, decision) {")
+    assert "can_focus: false" in button and "can_focus: true" not in button
+    assert "b.connect('clicked', () => this._decide(id, decision));" in button
+    assert code.count("this._decide(") == 1  # only from the button
+    assert code.count("approval_decision") == 1 and "approval_decision" in _block(
+        code, "_decide(id, decision) {"
+    )
+    assert "key-press-event" not in code and "KEY_Return" not in code
+    assert code.count("this.menu.open()") == 1  # clicking a notification, as before
+
+
+def test_ready_follows_lock_and_idle_and_is_cleaned_up():
+    code = _code()
+    init = _block(code, "_init(extension) {")
+    assert "Main.sessionMode.connect('updated'" in init and "Main.sessionMode.isLocked" in init
+    assert "add_idle_watch(M.READY_IDLE_S * 1000" in init and "add_user_active_watch(" in init
+    sync = _block(code, "_syncReady(force = false) {")
+    assert "const ready = !this._locked && !this._idle;" in sync
+    assert "{type: 'approvals_ready', ready}" in sync
+    assert "this._syncReady(true)" in _block(code, "_onMessage(msg) {")  # every new connection
+    destroy = _block(code, "destroy() {")
+    assert "Main.sessionMode.disconnect(this._sessionModeId)" in destroy
+    assert "remove_watch(this._idleWatch)" in destroy
+    assert "remove_watch(this._activeWatch)" in destroy
+
+
+def test_approval_settings_run_the_cli():
+    code = _code()
+    assert "approvals: ['approvals', value]" in code
+    assert "['approvals', 'wait', 'codex', String(choice.value)]" in code
+    # The choices fit under the hook's own cap for Codex.
+    src = (EXT / "model.js").read_text()
+    choices = re.search(r"export const CODEX_WAIT_CHOICES = \[([\d, ]+)\];", src).group(1)
+    cap = agents.get("codex").approval_timeout_s
+    assert all(5 <= int(n) <= cap for n in choices.split(","))
+    assert f"{agents.get('codex').approval_wait_s}" in choices.split(", ")  # the default is one
+
+
+def test_approval_limits_match_python():
+    from agentail.adapters.base import APPROVAL_DETAIL_CHARS
+
+    src = (EXT / "model.js").read_text()
+    assert re.search(rf"export const APPROVAL_DETAIL_CHARS = {APPROVAL_DETAIL_CHARS};", src)

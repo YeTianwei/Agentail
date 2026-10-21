@@ -340,6 +340,23 @@ def load_approval_waits(path: Path | None = None) -> dict[str, int]:
     }
 
 
+def set_approval_wait(agent: str, seconds: int, path: Path | None = None) -> None:
+    """Write ``[approvals.wait_s] <agent> = <seconds>``; the rest of config.toml is kept.
+    The caller checks the value (``agentail approvals wait``)."""
+    path = path or paths.settings_file()
+    doc = _load_doc(path)
+    section = doc.get("approvals")
+    if section is None:
+        section = tomlkit.table()
+        doc.append("approvals", section)
+    waits = section.get("wait_s")
+    if waits is None:
+        waits = tomlkit.table()
+        section.append("wait_s", waits)
+    waits[agent] = seconds
+    _write_doc(path, doc)
+
+
 def set_approvals_enabled(on: bool, path: Path | None = None) -> None:
     """Write ``[approvals] enabled``; the rest of config.toml is kept."""
     path = path or paths.settings_file()

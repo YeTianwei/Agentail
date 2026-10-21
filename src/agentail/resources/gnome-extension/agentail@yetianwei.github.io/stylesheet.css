@@ -117,6 +117,15 @@
   margin: 6px 0 0 17px;
 }
 .agentail-hint { font-size: 11.5px; color: #c9b39c; padding: 4px 0 0 17px; }
+/* approvals: a request held for the panel */
+.agentail-approval { spacing: 2px; }
+.agentail-approval-command { margin-top: 6px; }
+.agentail-approval-row { spacing: 8px; padding: 8px 0 0 17px; }
+.agentail-approval-left { font-size: 11.5px; color: #c9b39c; }
+.agentail-btn-allow { background-color: rgba(87, 227, 137, 0.20); color: #8ff0a4; font-weight: bold; }
+.agentail-btn-allow:hover { background-color: rgba(87, 227, 137, 0.32); }
+.agentail-btn-deny { background-color: rgba(255, 107, 107, 0.18); color: #ffb4b4; font-weight: bold; }
+.agentail-btn-deny:hover { background-color: rgba(255, 107, 107, 0.30); }
 
 /* servers */
 .agentail-section { font-size: 12px; font-weight: bold; color: #8e8e94; padding: 0 4px; }
@@ -324,3 +333,6 @@
 .agentail-light .agentail-btn-lang-on,
 .agentail-light .agentail-btn-lang-on:hover,
 .agentail-light .agentail-btn-lang-on:focus { background-color: rgba(28, 113, 216, 0.16); color: #1a4f91; }
+.agentail-light .agentail-approval-left { color: #8a5a2b; }
+.agentail-light .agentail-btn-allow { background-color: rgba(38, 162, 105, 0.14); color: #1f7a4d; }
+.agentail-light .agentail-btn-deny { background-color: rgba(224, 27, 36, 0.12); color: #c01c28; }

@@ -235,6 +235,27 @@ class AgentailIndicator extends PanelMenu.Button {
         this._settingsError = '';
         // Switches just flipped in the settings that the daemon has not reported yet.
         this._pending = {};
+        // Approvals: the panel says whether someone can answer here (docs/protocol.md,
+        // "Approvals"): not while the screen is locked, nor after READY_IDLE_S without input.
+        this._locked = Main.sessionMode.isLocked;
+        this._idle = false;
+        this._sentReady = null;  // what the daemon was last told; null: nothing yet
+        this._sessionModeId = Main.sessionMode.connect('updated', () => {
+            this._locked = Main.sessionMode.isLocked;
+            this._syncReady();
+        });
+        this._idleMonitor = global.backend.get_core_idle_monitor();
+        this._activeWatch = 0;
+        this._idleWatch = this._idleMonitor.add_idle_watch(M.READY_IDLE_S * 1000, () => {
+            this._idle = true;
+            this._syncReady();
+            // One-shot: fires at the next input.
+            this._activeWatch = this._idleMonitor.add_user_active_watch(() => {
+                this._activeWatch = 0;
+                this._idle = false;
+                this._syncReady();
+            });
+        });
 
         // The "island": a dark capsule inside the panel button. Its content is rebuilt
         // by _renderTopBar() whenever the summary changes.
@@ -286,6 +307,7 @@ class AgentailIndicator extends PanelMenu.Button {
             msg => this._onMessage(msg),
             () => {
                 this._state.disconnect();
+                this._sentReady = null;
                 this._scheduleRender();
             });
         this._renderTopBar();
@@ -298,6 +320,8 @@ class AgentailIndicator extends PanelMenu.Button {
 
     _onMessage(msg) {
         const notify = this._state.apply(msg);
+        if (msg?.type === 'snapshot')
+            this._syncReady(true);  // a new connection: the daemon knows nothing yet
         this._pending = M.settlePending(this._state, this._pending);
         if (notify) {
             const n = M.notice(notify, this._state);
@@ -306,6 +330,23 @@ class AgentailIndicator extends PanelMenu.Button {
         } else {
             this._scheduleRender();
         }
+    }
+
+    // Tell the daemon whether permission requests can be answered here, when that changes.
+    _syncReady(force = false) {
+        const ready = !this._locked && !this._idle;
+        if (!this._state.connected || (!force && ready === this._sentReady))
+            return;
+        this._client.send({type: 'approvals_ready', ready});
+        this._sentReady = ready;
+    }
+
+    // Allow or Deny on a card. Only a click does this: the buttons never take keyboard focus,
+    // so Enter cannot answer a request, and the panel never opens by itself.
+    _decide(id, decision) {
+        this._state.markSent(id, decision);
+        this._client.send({type: 'approval_decision', id, decision});
+        this._renderPanel();
     }
 
     _scheduleRender() {
@@ -547,6 +588,7 @@ class AgentailIndicator extends PanelMenu.Button {
         page.add_child(head);
         page.add_child(this._languageGroup());
         page.add_child(this._notificationGroup());
+        page.add_child(this._approvalGroup());
 
         const settings = M.usageSettings(this._state, this._pending, Date.now() / 1000);
         // One group: the Usage switch, and under a divider (while it is on) Claude's two,
@@ -625,6 +667,53 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         for (const r of settings.rows)
             card.add_child(this._switchRow(r));
+        group.add_child(card);
+        return group;
+    }
+
+    // Answer permission prompts here: the switch, then how long a Codex request waits.
+    _approvalGroup() {
+        const settings = M.approvalSettings(this._state, this._pending);
+        const group = vbox('agentail-group', {x_expand: true});
+        group.add_child(label(_('Approvals'), 'agentail-section'));
+        const card = vbox('agentail-card agentail-settings', {x_expand: true});
+        if (!settings.available) {
+            const off = label(_('The agentail daemon is not running, or is too old for this setting.'),
+                'agentail-add-note');
+            off.clutter_text.line_wrap = true;
+            card.add_child(off);
+        }
+        card.add_child(this._switchRow(settings.toggle));
+        if (settings.toggle.on) {
+            const w = settings.wait;
+            card.add_child(new St.Widget({style_class: 'agentail-settings-divider', x_expand: true}));
+            const sub = vbox('agentail-settings-sub', {x_expand: true});
+            sub.add_child(label(w.title, 'agentail-settings-subtitle'));
+            const note = label(w.saving ? _('Saving…') : w.note, 'agentail-add-note agentail-settings-intro');
+            note.clutter_text.line_wrap = true;
+            sub.add_child(note);
+            const row = hbox('agentail-lang-row', {x_expand: true});
+            for (const choice of w.choices) {
+                const text = label(choice.text, '');
+                text.x_align = Clutter.ActorAlign.CENTER;
+                const b = new St.Button({
+                    style_class: `agentail-btn agentail-btn-lang${choice.on ? ' agentail-btn-lang-on' : ''}`,
+                    reactive: w.enabled,
+                    can_focus: w.enabled,
+                    track_hover: w.enabled,
+                    x_expand: true,
+                    accessible_name: choice.text,
+                    child: text,
+                });
+                if (!w.enabled)
+                    b.opacity = 128;
+                b.connect('clicked', () => this._runSetting('wait_codex', choice.value,
+                    ['approvals', 'wait', 'codex', String(choice.value)]));
+                row.add_child(b);
+            }
+            sub.add_child(row);
+            card.add_child(sub);
+        }
         group.add_child(card);
         return group;
     }
@@ -724,7 +813,9 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         box.add_child(second);
 
-        if (c.style === 'attention') {
+        if (c.approval) {
+            box.add_child(this._approval(c.approval));
+        } else if (c.style === 'attention') {
             if (c.toolDetail)
                 box.add_child(label(c.toolDetail, 'agentail-command', {ellipsize: true}));
             const where = c.local ? _('Answer it in the terminal')
@@ -732,6 +823,45 @@ class AgentailIndicator extends PanelMenu.Button {
             box.add_child(label(where, 'agentail-hint', {ellipsize: true}));
         }
         return box;
+    }
+
+    // A request held for the panel: the whole command (wrapped, never cut: the user must see
+    // all of what they allow), the agent's reason, then Allow / Deny and the time left.
+    _approval(a) {
+        const box = vbox('agentail-approval', {x_expand: true});
+        const cmd = label(a.detail, 'agentail-command agentail-approval-command');
+        cmd.clutter_text.line_wrap = true;
+        cmd.clutter_text.line_wrap_mode = Pango.WrapMode.WORD_CHAR;
+        box.add_child(cmd);
+        if (a.description) {
+            const why = label(a.description, 'agentail-hint');
+            why.clutter_text.line_wrap = true;
+            box.add_child(why);
+        }
+        const row = hbox('agentail-approval-row', {x_expand: true});
+        if (!a.sent) {
+            row.add_child(this._decisionButton(_('Allow'), 'agentail-btn-allow', a.id, 'allow'));
+            row.add_child(this._decisionButton(_('Deny'), 'agentail-btn-deny', a.id, 'deny'));
+        }
+        row.add_child(label(a.leftText, 'agentail-approval-left', {xExpand: true}));
+        box.add_child(row);
+        const after = label(a.after, 'agentail-hint');
+        after.clutter_text.line_wrap = true;
+        box.add_child(after);
+        return box;
+    }
+
+    _decisionButton(text, styleClass, id, decision) {
+        const b = new St.Button({
+            style_class: `agentail-btn ${styleClass}`,
+            reactive: true,
+            can_focus: false,  // never reachable with the keyboard: Enter must not approve
+            track_hover: true,
+            accessible_name: text,
+            child: label(text, ''),
+        });
+        b.connect('clicked', () => this._decide(id, decision));
+        return b;
     }
 
     // A small trash can: removes a session card (under its age) or a server (end of its row).
@@ -831,9 +961,8 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    // Runs `agentail usage on|off`, `agentail usage-api on|off [--servers]` or
-    // `agentail notifications on|off --<kind>` (argv list, no shell). The switch shows the new
-    // value at once; the daemon confirms it within seconds (M.settlePending).
+    // A switch: `agentail usage on|off`, `agentail usage-api on|off [--servers]`,
+    // `agentail notifications on|off --<kind>` or `agentail approvals on|off`.
     _setSwitch(id, on) {
         const value = on ? 'on' : 'off';
         const argv = {
@@ -843,16 +972,22 @@ class AgentailIndicator extends PanelMenu.Button {
             turn_done: ['notifications', value, '--turn-done'],
             attention: ['notifications', value, '--attention'],
             details: ['notifications', value, '--details'],
+            approvals: ['approvals', value],
         }[id];
-        if (!argv)
-            return;
+        if (argv)
+            this._runSetting(id, on, argv);
+    }
+
+    // Runs `agentail <argv>` (argv list, no shell). The setting shows the new value at once;
+    // the daemon confirms it within seconds (M.settlePending).
+    _runSetting(id, value, argv) {
         const fail = () => {
             delete this._pending[id];
             this._settingsError = _('Could not save that. Run agentail {args} in a terminal.', {args: argv.join(' ')});
             this._renderPanel();
         };
         this._settingsError = '';
-        this._pending = {...this._pending, [id]: on};
+        this._pending = {...this._pending, [id]: value};
         this._renderPanel();
         const bin = this._agentailBinary();
         if (!bin) {
@@ -1228,6 +1363,12 @@ class AgentailIndicator extends PanelMenu.Button {
 
     destroy() {
         this._client.stop();
+        Main.sessionMode.disconnect(this._sessionModeId);
+        if (this._idleWatch)
+            this._idleMonitor.remove_watch(this._idleWatch);
+        if (this._activeWatch)
+            this._idleMonitor.remove_watch(this._activeWatch);
+        this._idleWatch = this._activeWatch = 0;
         if (this._schemeId)
             this._interface.disconnect(this._schemeId);
         this._addCancel?.cancel();

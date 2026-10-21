@@ -104,6 +104,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the prompt and the command in them (also on the lock screen; default off)",
     )
 
+    ap = sub.add_parser(
+        "approvals",
+        help="answer agents' permission prompts from the panel (default: off)",
+        description="on|off|status, or `wait AGENT SECONDS`: how long a request of that agent "
+        "waits for the panel before the agent asks in its terminal.",
+    )
+    ap.add_argument("action", choices=["on", "off", "status", "wait"])
+    ap.add_argument("wait", nargs="*", metavar="AGENT SECONDS", help="with `wait` only")
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -215,6 +223,8 @@ def main(argv: list[str] | None = None) -> int:
             f"Prompt and command in them: {word[sw.details]}. ({paths.settings_file()})"
         )
         return 0
+    if args.command == "approvals":
+        return _approvals(args.action, args.wait)
     if args.command == "paths":
         print(f"runtime dir : {paths.runtime_dir()}")
         print(f"local socket: {paths.local_sock()}")
@@ -269,3 +279,38 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return run_ui()
     raise AssertionError(f"unhandled command {args.command}")
+
+
+def _approvals(action: str, rest: list[str]) -> int:
+    """``agentail approvals on|off|status`` and ``agentail approvals wait AGENT SECONDS``."""
+    from agentail import agents, config
+
+    approving = {a.name: a for a in agents.AGENTS if a.approval_event}
+    if action == "wait":
+        agent, seconds = rest if len(rest) == 2 else ("", "")
+        spec = approving.get(agent)
+        lo = config.APPROVAL_WAIT_RANGE_S[0]
+        if spec is None or not seconds.isdigit():
+            names = ", ".join(approving)
+            print(f"usage: agentail approvals wait AGENT SECONDS (AGENT: {names})")
+            return 2
+        if not lo <= int(seconds) <= spec.approval_timeout_s:
+            print(
+                f"{agent}: between {lo} and {spec.approval_timeout_s} seconds "
+                f"(the hook itself gives up after {spec.approval_timeout_s})"
+            )
+            return 2
+        config.set_approval_wait(agent, int(seconds))
+    elif rest:
+        print("only `agentail approvals wait` takes arguments")
+        return 2
+    elif action != "status":
+        config.set_approvals_enabled(action == "on")
+    on = config.load_approvals_enabled()
+    waits = config.load_approval_waits()
+    print(f"Answering permission prompts from the panel: {'on' if on else 'off'}.")
+    for name, spec in approving.items():
+        wait = min(waits.get(name) or spec.approval_wait_s, spec.approval_timeout_s)
+        print(f"  {spec.display_name}: waits up to {wait} s, then asks in its terminal.")
+    print(f"({paths.settings_file()})")
+    return 0

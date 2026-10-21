@@ -248,3 +248,52 @@ async def test_the_configured_wait_applies_without_reinstalling(runtime_env, iso
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)
+
+
+# -- agentail approvals ---------------------------------------------------------------------
+
+
+def test_cli(runtime_env, capsys):
+    from agentail import cli
+
+    assert cli.main(["approvals", "status"]) == 0
+    out = capsys.readouterr().out
+    assert (
+        "off" in out
+        and "Codex: waits up to 30 s" in out
+        and "Claude Code: waits up to 120 s" in out
+    )
+    assert cli.main(["approvals", "on"]) == 0
+    assert config.load_approvals_enabled(paths.settings_file())
+    assert cli.main(["approvals", "wait", "codex", "20"]) == 0
+    assert config.load_approval_waits(paths.settings_file()) == {"codex": 20}
+    assert "Codex: waits up to 20 s" in capsys.readouterr().out
+    for bad in (
+        ["wait", "codex", "61"],
+        ["wait", "codex", "4"],
+        ["wait", "codex", "x"],
+        ["wait", "qoder", "20"],
+        ["wait", "codex"],
+        ["on", "codex"],
+    ):
+        assert cli.main(["approvals", *bad]) == 2, bad
+    assert config.load_approval_waits(paths.settings_file()) == {"codex": 20}
+    assert cli.main(["approvals", "off"]) == 0
+    assert not config.load_approvals_enabled(paths.settings_file())
+    assert config.load_approval_waits(paths.settings_file()) == {"codex": 20}  # kept
+
+
+async def test_settings_report_the_waits(runtime_env):
+    d = Daemon(hosts_poll=0.1)
+    task = asyncio.create_task(d.run(handle_signals=False))
+    await asyncio.wait_for(d.started.wait(), 5)
+    try:
+        r, w, snap = await _ui(ready=False)
+        assert snap["settings"]["approval_wait_s"] == {"claude": 120, "codex": 30}
+        config.set_approval_wait("codex", 15, paths.settings_file())
+        msg = await _next(r, "settings")
+        assert msg["settings"]["approval_wait_s"] == {"claude": 120, "codex": 15}
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)
