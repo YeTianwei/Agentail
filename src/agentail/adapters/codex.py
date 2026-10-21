@@ -1,4 +1,4 @@
-"""Codex CLI adapter (v1: status only).
+"""Codex CLI adapter.
 
 Hook payloads arrive as JSON on stdin. Event and field names follow the
 openai/codex sources (hook input JSON schemas, commit bcd6d9a, checked
@@ -11,6 +11,10 @@ openai/codex sources (hook input JSON schemas, commit bcd6d9a, checked
   the user answers (verified with codex-cli 0.160.0 on 2026-10-05,
   tests/fixtures/codex/recorded-0.160.0.jsonl). Its payload has no
   ``tool_use_id``.
+* ``PermissionRequest`` can return a decision in the same format as Claude Code's. Codex
+  runs it before it shows its own prompt and waits for it (verified with codex-cli 0.163.0
+  on 2026-10-21, agent-hooks-notes.md section 5.3), so the hook's wait is time the terminal
+  shows no prompt: the installer gives Codex a short one.
 * A user interrupt fires ``Interrupt`` instead of ``Stop``.
 * Unknown fields are ignored; the installer does not use the legacy ``notify``
   program, but its ``agent-turn-complete`` shape (``thread-id``) still decodes.
@@ -22,9 +26,12 @@ from typing import Any
 
 from agentail.adapters.base import (
     AgentEvent,
+    ApprovalRequest,
     Attention,
     Capabilities,
     EventKind,
+    approval_request,
+    permission_decision_output,
     prompt_preview,
     str_field,
     tool_preview,
@@ -50,7 +57,7 @@ _SESSION_KEYS = ("session_id", "thread-id")
 
 class CodexAdapter:
     name = "codex"
-    capabilities = Capabilities(can_approve=False)
+    capabilities = Capabilities(can_approve=True)
 
     def hook_events(self) -> list[str]:
         return [k for k in _KINDS if k != "agent-turn-complete"]
@@ -87,3 +94,14 @@ class CodexAdapter:
 
     def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
         return None  # Codex hooks carry no usage; the daemon reads it from the session files
+
+    def approval(self, msg: HookMessage) -> ApprovalRequest | None:
+        """``tool_input.command`` for Bash and apply_patch, all arguments for MCP tools;
+        ``tool_input.description`` is the model's reason, in the session's language."""
+        payload = msg.payload() or {}
+        if msg.truncated or str_field(payload, "hook_event_name") != "PermissionRequest":
+            return None
+        return approval_request(payload)
+
+    def decision_output(self, allow: bool) -> str:
+        return permission_decision_output(allow)

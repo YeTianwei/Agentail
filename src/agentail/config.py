@@ -297,6 +297,35 @@ def set_notify_switches(
     _write_doc(path, doc)
 
 
+def load_approvals_enabled(path: Path | None = None) -> bool:
+    """``[approvals] enabled`` in config.toml: whether the daemon may hold an agent's permission
+    request for the panel to answer (docs/protocol.md, "Approvals"). Off unless it is exactly
+    ``true``; anything unreadable means off.
+
+        [approvals]
+        enabled = false   # true: answer permission prompts from the panel
+    """
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            section = tomllib.load(fh).get("approvals", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return False
+    return isinstance(section, dict) and section.get("enabled") is True
+
+
+def set_approvals_enabled(on: bool, path: Path | None = None) -> None:
+    """Write ``[approvals] enabled``; the rest of config.toml is kept."""
+    path = path or paths.settings_file()
+    doc = _load_doc(path)
+    section = doc.get("approvals")
+    if section is None:
+        section = tomlkit.table()
+        doc.append("approvals", section)
+    section["enabled"] = on
+    _write_doc(path, doc)
+
+
 def set_claude_usage_api(
     on: bool | None = None,
     path: Path | None = None,

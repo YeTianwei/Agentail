@@ -22,12 +22,13 @@ from typing import Any
 
 from agentail import agents, paths
 from agentail.adapters import get_adapter
-from agentail.adapters.base import EventKind
+from agentail.adapters.base import AgentEvent, EventKind
 from agentail.config import (
     Host,
     NotifySwitches,
     cwd_ignored,
     default_ignore_cwd,
+    load_approvals_enabled,
     load_hosts,
     load_ignore_cwd,
     load_notify_switches,
@@ -36,6 +37,7 @@ from agentail.config import (
 )
 from agentail.daemon import usage_claude_api as claude_api
 from agentail.daemon import usage_claude_remote as claude_remote
+from agentail.daemon.approvals import Approvals, Pending, pending_to_dict
 from agentail.daemon.codex_appserver import (
     default_argv,
     local_env,
@@ -164,6 +166,9 @@ class Daemon:
         }
         # [notifications] details: notify messages ask clients to show prompt and command.
         self.notify = NotifySwitches()
+        # [approvals] enabled: permission requests may wait for an answer from the panel.
+        self._approvals_on = False
+        self.approvals = Approvals(on_add=self._on_approval_add, on_remove=self._on_approval_remove)
         self._dirty = False  # sessions changed since they were last saved
         self._usage_dirty = False
         self.print_events = print_events
@@ -188,7 +193,9 @@ class Daemon:
             }
         }
 
-    async def handle(self, source: str, msg: HookMessage) -> None:
+    async def handle(self, source: str, msg: HookMessage) -> asyncio.Future[str] | None:
+        """Process one hook message. For a hook that waits (``wait_ms``), returns the future of
+        its reply when the request is held for the panel, else None ("no opinion" at once)."""
         if msg.is_ping:
             # Pings are health checks, not agent payloads: never recorded as fixtures.
             log.info("ping from %s", source)
@@ -197,7 +204,7 @@ class Daemon:
                 remote.tunnel.ping_received()
             if self.print_events:
                 print(json.dumps({"source": source, "ping": True}), flush=True)
-            return
+            return None
         if self.record_dir is not None:
             self._record(source, msg)
         adapter = get_adapter(msg.agent)
@@ -241,10 +248,63 @@ class Daemon:
                 flush=True,
             )
         if event is None or cwd_ignored(event.cwd, self.ignore_cwd):
-            return
+            return None
+        key = SessionKey(event.host, event.agent, event.session_id)
+        self._withdraw_answered(key, event)
         change = self.store.apply(event)
         if change is not None:
             self._publish(change)
+        if msg.wait_ms is None or not self._approvals_on or self.ui is None:
+            return None
+        if not self.ui.approvers or adapter is None or not adapter.capabilities.can_approve:
+            return None
+        request = adapter.approval(msg)
+        if request is None:
+            return None
+        return self.approvals.hold(key, request, msg.wait_ms, time.time())
+
+    def _withdraw_answered(self, key: SessionKey, event: AgentEvent) -> None:
+        """A held request is over once the session shows it was answered elsewhere: the turn
+        ended or a new one began, the call itself finished, or the agent asks something new
+        (Claude Code and Codex ask one permission at a time)."""
+        if not self.approvals.pending:
+            return
+        if event.kind in (EventKind.STOP, EventKind.SESSION_END, EventKind.PROMPT_SUBMIT):
+            self.approvals.withdraw_session(key)
+        elif event.kind is EventKind.TOOL_END:
+            self.approvals.withdraw_session(key, event.tool, event.tool_detail)
+        elif event.raw_event == "PermissionRequest":
+            self.approvals.withdraw_session(key)
+
+    def _on_approval_add(self, p: Pending) -> None:
+        if self.ui is not None:
+            self.ui.broadcast({"type": "approval", "approval": pending_to_dict(p)})
+        if self.print_events:
+            print(json.dumps({"approval": p.id, "key": list(p.key)}), flush=True)
+
+    def _on_approval_remove(self, p: Pending) -> None:
+        if self.ui is not None:
+            self.ui.broadcast({"type": "approval_remove", "id": p.id})
+        if self.print_events:
+            answered = p.answer.done() and not p.answer.cancelled() and p.answer.result() != ""
+            print(json.dumps({"approval_remove": p.id, "answered": answered}), flush=True)
+
+    def decide_approval(self, approval_id: str, allow: bool) -> None:
+        """A client sent ``approval_decision``."""
+        p = self.approvals.pending.get(approval_id)
+        if p is None:
+            return
+        adapter = get_adapter(p.key.agent)
+        reply = adapter.decision_output(allow) if adapter is not None else ""
+        if reply:
+            log.info("approval %s: %s from the panel", p.key.agent, "allow" if allow else "deny")
+            self.approvals.decide(approval_id, reply)
+        else:
+            self.approvals.withdraw_session(p.key)
+
+    def _approvers_changed(self, count: int) -> None:
+        if count == 0:
+            self.approvals.withdraw_all()
 
     def snapshot(self) -> dict[str, Any]:
         return {
@@ -253,6 +313,7 @@ class Daemon:
             "usage": [usage_to_dict(r) for r in self.usage.readings.values()],
             "usage_api": {"claude": dict(self.claude_api_status)},
             "settings": self.settings(),
+            "approvals": [pending_to_dict(p) for p in self.approvals.pending.values()],
         }
 
     def _on_usage(self, reading: UsageReading, full: bool = False) -> None:
@@ -304,13 +365,18 @@ class Daemon:
 
     def dismiss_session(self, key: SessionKey) -> None:
         """A client sent ``dismiss_session``: the user removed a card from the panel."""
+        self.approvals.withdraw_session(key)
         change = self.store.remove(key)
         if change is not None:
             self._publish(change)
 
     def settings(self) -> dict[str, Any]:
         """The SETTINGS record of the UI protocol: switches that are not about one agent."""
-        return {"usage": self._usage_on, "notifications": self.notify.as_dict()}
+        return {
+            "usage": self._usage_on,
+            "notifications": self.notify.as_dict(),
+            "approvals": self._approvals_on,
+        }
 
     @property
     def notify_details(self) -> bool:
@@ -526,8 +592,14 @@ class Daemon:
         if mtime != self._settings_mtime:
             self._settings_mtime = mtime
             notify = load_notify_switches(path)
-            if notify != self.notify:
+            approvals = load_approvals_enabled(path)
+            if (notify, approvals) != (self.notify, self._approvals_on):
+                if approvals != self._approvals_on:
+                    log.info("approvals from the panel %s", "on" if approvals else "off")
+                    if not approvals:
+                        self.approvals.withdraw_all()
                 self.notify = notify
+                self._approvals_on = approvals
                 log.info("notifications %s", notify.as_dict())
                 if self.ui is not None:
                     self.ui.broadcast({"type": "settings", "settings": self.settings()})
@@ -746,6 +818,7 @@ class Daemon:
                 self._set_host(st.alias, st.state.value, st.detail)
 
     def _on_offline(self, alias: str) -> None:
+        self.approvals.withdraw_host(alias)
         for change in self.store.mark_host_offline(alias):
             self._publish(change)
 
@@ -831,6 +904,7 @@ class Daemon:
                             )
                     if self.ui is not None:
                         self.ui.broadcast({"type": "host_remove", "alias": alias})
+                    self.approvals.withdraw_host(alias)
                     for change in self.store.drop_host(alias):
                         self._publish(change)
         for alias, host in wanted.items():
@@ -934,6 +1008,8 @@ class Daemon:
             self.snapshot,
             on_refresh_usage=self.panel_opened,
             on_dismiss_session=self.dismiss_session,
+            on_decision=self.decide_approval,
+            on_approvers_changed=self._approvers_changed,
         )
         try:
             self._sync_claude_api()  # the switches, before the first snapshot
@@ -977,6 +1053,8 @@ class Daemon:
             ):
                 if task is not None:
                     task.cancel()
+            # Waiting hooks get "no opinion" now, so their connections end before the listeners.
+            self.approvals.withdraw_all()
             self._save_sessions()
             self._save_usage()
             for alias in list(self.remotes):

@@ -384,7 +384,8 @@ async def test_switched_off_notifications_are_not_sent(runtime_env):
         os.utime(cfg, ns=(1, 1))
         msg = json.loads(await asyncio.wait_for(r.readline(), 5))
         on = {**want, "turn_done": True}
-        assert msg == {"type": "settings", "settings": {"usage": True, "notifications": on}}
+        want_settings = {"usage": True, "notifications": on, "approvals": False}
+        assert msg == {"type": "settings", "settings": want_settings}
         assert (await turn("b"))["kind"] == "turn_done"
         w.close()
     finally:

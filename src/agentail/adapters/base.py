@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -103,6 +104,54 @@ def tool_preview(tool_input: Any) -> str:
     return ""
 
 
+@dataclass(frozen=True)
+class ApprovalRequest:
+    """A permission request a client may answer (docs/protocol.md, "Approvals")."""
+
+    tool: str
+    detail: str  # the call's main input in full: the user must see what they allow
+    description: str = ""  # the agent's one-line reason
+
+
+# A call whose main input is longer than this is left to the terminal.
+APPROVAL_DETAIL_CHARS = 4096
+DENY_MESSAGE = "The user denied this from the Agentail panel."
+
+
+def approval_request(payload: dict[str, Any]) -> ApprovalRequest | None:
+    """The request in a ``PermissionRequest`` payload in the format Claude Code and Codex share
+    (``tool_name``, ``tool_input`` with ``command`` / ``file_path`` / ... and ``description``),
+    or None when it cannot be shown in full."""
+    tool = str_field(payload, "tool_name")
+    tool_input = payload.get("tool_input")
+    if not tool or not isinstance(tool_input, dict):
+        return None
+    detail = ""
+    for key in _TOOL_INPUT_KEYS:
+        val = tool_input.get(key)
+        if isinstance(val, list) and val and all(isinstance(v, str) for v in val):
+            val = " ".join(val)
+        if isinstance(val, str) and val.strip():
+            detail = val
+            break
+    if not detail or len(detail) > APPROVAL_DETAIL_CHARS:
+        return None
+    return ApprovalRequest(tool, detail, preview(tool_input.get("description"), 200))
+
+
+def permission_decision_output(allow: bool) -> str:
+    """A ``PermissionRequest`` hook's reply in the format Claude Code and Codex share
+    (docs/agent-hooks-notes.md section 5). Nothing else: Codex fails closed on
+    ``updatedInput``, ``updatedPermissions`` and ``interrupt``."""
+    decision: dict[str, Any] = {"behavior": "allow" if allow else "deny"}
+    if not allow:
+        decision["message"] = DENY_MESSAGE
+    return json.dumps(
+        {"hookSpecificOutput": {"hookEventName": "PermissionRequest", "decision": decision}},
+        separators=(",", ":"),
+    )
+
+
 def str_field(payload: dict[str, Any], key: str) -> str:
     """``payload[key]`` if it is a string, else "". Payloads are untrusted and
     real ones carry undocumented fields, so never assume a type."""
@@ -124,4 +173,12 @@ class Adapter(Protocol):
 
     def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
         """Subscription usage carried by this message (Claude's StatusLine), or None."""
+        ...
+
+    def approval(self, msg: HookMessage) -> ApprovalRequest | None:
+        """The permission request a client may answer, or None (only with ``can_approve``)."""
+        ...
+
+    def decision_output(self, allow: bool) -> str:
+        """What the waiting hook prints to the agent for the user's decision."""
         ...

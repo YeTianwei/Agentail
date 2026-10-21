@@ -3,8 +3,9 @@
 Protocol (docs/protocol.md, "UI protocol"): on connect the daemon sends one
 ``{"type": "snapshot", "sessions": [...], "hosts": [...], "usage": [...], "usage_api": {...}}``
 line, then ``session_update`` / ``session_remove`` / ``host_status`` / ``usage_update`` /
-``usage_remove`` / ``usage_api_status`` / ``notify`` lines. Clients may send
-``refresh_usage`` and ``dismiss_session`` lines.
+``usage_remove`` / ``usage_api_status`` / ``notify`` / ``approval`` / ``approval_remove``
+lines. Clients may send ``refresh_usage``, ``dismiss_session``, ``approvals_ready`` and
+``approval_decision`` lines.
 The UI holds no business state and rebuilds from a new snapshot after reconnecting.
 
 Each client has a bounded queue. ``broadcast`` never awaits: a client whose
@@ -95,6 +96,8 @@ class _Client:
     def __init__(self, writer: asyncio.StreamWriter, queue_size: int) -> None:
         self.writer = writer
         self.queue: asyncio.Queue[bytes] = asyncio.Queue(queue_size)
+        # Said approvals_ready: someone can answer a permission request from this client.
+        self.ready = False
 
     def drop(self) -> None:
         # abort() discards buffered data and wakes any pending drain() with an error.
@@ -109,11 +112,15 @@ class UiServer:
         queue_size: int = QUEUE_SIZE,
         on_refresh_usage: Callable[[], None] | None = None,
         on_dismiss_session: Callable[[SessionKey], None] | None = None,
+        on_decision: Callable[[str, bool], None] | None = None,
+        on_approvers_changed: Callable[[int], None] | None = None,
     ) -> None:
         self.path = path
         self.snapshot = snapshot
         self.on_refresh_usage = on_refresh_usage
         self.on_dismiss_session = on_dismiss_session
+        self.on_decision = on_decision
+        self.on_approvers_changed = on_approvers_changed
         self.queue_size = queue_size
         self._clients: set[_Client] = set()
         self._server: asyncio.base_events.Server | None = None
@@ -121,6 +128,19 @@ class UiServer:
     @property
     def client_count(self) -> int:
         return len(self._clients)
+
+    @property
+    def approvers(self) -> int:
+        """Connected clients that said they are ready to answer permission requests."""
+        return sum(1 for c in self._clients if c.ready)
+
+    def _set_ready(self, client: _Client, ready: bool) -> None:
+        if client.ready == ready:
+            return
+        before = self.approvers
+        client.ready = ready
+        if self.approvers != before and self.on_approvers_changed is not None:
+            self.on_approvers_changed(self.approvers)
 
     async def start(self) -> None:
         ensure_private_dir(self.path.parent)
@@ -134,6 +154,8 @@ class UiServer:
         for client in list(self._clients):
             client.drop()
         self._clients.clear()
+        if self.on_approvers_changed is not None:
+            self.on_approvers_changed(0)
         if self._server is not None:
             self._server.close()
             await self._server.wait_closed()
@@ -150,8 +172,13 @@ class UiServer:
                 client.queue.put_nowait(line)
             except asyncio.QueueFull:
                 log.warning("ui client too slow; disconnecting it")
-                self._clients.discard(client)
+                self._forget(client)
                 client.drop()
+
+    def _forget(self, client: _Client) -> None:
+        if client in self._clients:
+            self._set_ready(client, False)
+            self._clients.discard(client)
 
     def publish(self, change: Change, details: bool = False) -> None:
         for msg in change_messages(change, details):
@@ -164,11 +191,11 @@ class UiServer:
         client.queue.put_nowait(encode({"type": "snapshot", **self.snapshot()}))
         self._clients.add(client)
         sender = asyncio.create_task(self._send_loop(client))
-        eof = asyncio.create_task(self._read_requests(reader))
+        eof = asyncio.create_task(self._read_requests(reader, client))
         try:
             await asyncio.wait({sender, eof}, return_when=asyncio.FIRST_COMPLETED)
         finally:
-            self._clients.discard(client)
+            self._forget(client)
             for task in (sender, eof):
                 task.cancel()
             for task in (sender, eof):
@@ -188,10 +215,11 @@ class UiServer:
         except (ConnectionError, OSError):
             pass
 
-    async def _read_requests(self, reader: asyncio.StreamReader) -> None:
-        """A client may send ``{"type": "refresh_usage"}`` (the panel was opened) and
-        ``{"type": "dismiss_session", "key": {...}}`` (the user removed a card); anything else
-        is ignored. A client that sends junk lines is disconnected."""
+    async def _read_requests(self, reader: asyncio.StreamReader, client: _Client) -> None:
+        """A client may send ``{"type": "refresh_usage"}`` (the panel was opened),
+        ``{"type": "dismiss_session", "key": {...}}`` (the user removed a card),
+        ``{"type": "approvals_ready", "ready": bool}`` and ``{"type": "approval_decision",
+        "id": "...", "decision": "allow" | "deny"}``; anything else is ignored."""
         try:
             while True:
                 line = await reader.readline()
@@ -209,5 +237,11 @@ class UiServer:
                     key = key_from_dict(msg.get("key"))
                     if key is not None:
                         self.on_dismiss_session(key)
+                elif msg.get("type") == "approvals_ready":
+                    self._set_ready(client, msg.get("ready") is True)
+                elif msg.get("type") == "approval_decision" and self.on_decision is not None:
+                    approval_id, decision = msg.get("id"), msg.get("decision")
+                    if isinstance(approval_id, str) and decision in ("allow", "deny"):
+                        self.on_decision(approval_id, decision == "allow")
         except (ConnectionError, OSError, ValueError):  # ValueError: line over the stream limit
             pass

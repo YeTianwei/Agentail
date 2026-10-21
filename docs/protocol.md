@@ -3,8 +3,8 @@
 ## 1. Wire protocol v1 (hook client → daemon)
 
 Transport: Unix stream socket. One connection carries exactly one UTF-8 JSON object
-followed by `\n`. The client half-closes after sending. The daemon replies only to a message
-with `wait_ms` (approvals, since 0.0.6; see "Waiting for a reply" below).
+followed by `\n`. The client half-closes after sending, except in wait mode. The daemon replies
+only to a message with `wait_ms` (approvals, since 0.0.6; see "Waiting for a reply" below).
 
 ```json
 {"v": 1, "agent": "claude", "event": "PreToolUse", "mode": "fire",
@@ -61,8 +61,11 @@ The hook command carries one `--sock` per receiver, e.g.
 ### Waiting for a reply (`--mode wait`, since 0.0.6)
 
 Used for the agents' permission hooks (`PermissionRequest`), so the panel can answer them. The
-hook sends the ordinary envelope with `"mode": "fire"` plus `"wait_ms"`, half-closes, and reads
-one line back on the same connection:
+hook sends the ordinary envelope with `"mode": "fire"` plus `"wait_ms"` and reads one line back on
+the same connection. It does **not** half-close: the end of the connection tells the daemon the
+hook has gone (the agent killed it, e.g. Claude Code after Esc, or a tunnel dropped), and the
+daemon withdraws the request. Daemons before 0.0.6 read up to the newline, so this changes
+nothing for them.
 
 ```json
 {"v": 1, "stdout": "<text the hook prints to the agent, verbatim>"}
@@ -80,9 +83,9 @@ one line back on the same connection:
   than `MAX_REPLY_BYTES` (64 KiB). The hook then prints nothing and the agent asks in its
   terminal as usual. The same holds when the socket is missing, refuses, or the budget runs out.
   Nothing that goes wrong ever turns into "allow".
-- `wait_ms` is what is left of the hook's `--timeout` when it sends. The daemon must answer
-  before then, with an empty `stdout` if nobody decided; the hook stops waiting at its own
-  deadline anyway. The installer sets the agent's hook `timeout` above `--timeout`, so the hook
+- `wait_ms` is what is left of the hook's `--timeout` when it sends. The daemon answers at the
+  latest 0.5 seconds before then, with an empty `stdout` if nobody decided; the hook stops
+  waiting at its own deadline anyway. The installer sets the agent's hook `timeout` above `--timeout`, so the hook
   always ends first.
 - With several `--sock`, the message goes to every socket that exists (each send takes at most
   1 second of the budget) and the hook waits on all of them at once: the **first non-empty
@@ -118,6 +121,8 @@ Then any number of:
 {"type": "usage_api_status", "agent": "claude", "status": USAGE_API}
 {"type": "settings", "settings": SETTINGS}
 {"type": "notify", "kind": "turn_done|attention", "key": {...}, "details": false}
+{"type": "approval", "approval": APPROVAL}          # since 0.0.6
+{"type": "approval_remove", "id": "9f2c..."}       # since 0.0.6
 ```
 
 `notify` asks clients for a desktop notification. Notification banners show on the lock screen,
@@ -196,7 +201,8 @@ when it changes.
 
 ```
 SETTINGS = {"usage": true,   # since 0.0.4
-            "notifications": {"turn_done": true, "attention": true, "details": false}}  # since 0.0.5
+            "notifications": {"turn_done": true, "attention": true, "details": false},  # since 0.0.5
+            "approvals": false}   # since 0.0.6
 ```
 
 `SETTINGS` holds switches that are not about one agent; `settings` is sent when it changes.
@@ -223,13 +229,57 @@ created); `detail` says why. When a tunnel drops, that host's sessions become `s
 All strings in `SESSION` come from hook payloads and are untrusted: render as plain text and strip
 control characters before writing to a terminal (`agentail tail` / `status` do).
 
+### Approvals (since 0.0.6)
+
+When an agent asks for permission through a hook in wait mode, the daemon may hold the request
+and let a client answer it. The snapshot then has `"approvals": [APPROVAL...]` and each new one
+comes as an `approval` message:
+
+```
+APPROVAL = {"id": "9f2c...",            # random, 32 hex digits
+            "key": {"host", "agent", "session_id"},
+            "tool": "Bash",              # the agent's tool name
+            "detail": "rm -rf build",    # the call's main input in full (command, path, URL)
+            "description": "Remove the build directory",  # the agent's one-line reason, may be ""
+            "created_ts": 1791772000.0, "expires_ts": 1791772110.0}
+```
+
+A client answers with `{"type": "approval_decision", "id": "9f2c...", "decision": "allow" |
+"deny"}`. The daemon turns that into the agent's own reply (adapters), sends it to the hook, and
+sends `approval_remove`. An unknown or finished `id`, or any other `decision`, is ignored.
+
+`approval_remove` is sent however the request ends: a client's decision; `expires_ts` (the hook's
+wait, then the agent asks in its terminal); the hook's connection closing; a later event of the
+same session that shows the prompt is over (`Stop`, `SessionEnd`, a new prompt, the same call's
+`PostToolUse`, a newer permission request); the session dismissed; approvals switched off; or no
+client being ready any more. In every case but a decision the hook gets "no opinion" and the agent
+asks in its terminal as usual. With Claude Code the terminal prompt is open the whole time and
+whoever answers first wins; Codex shows its prompt only after the hook ends.
+
+The daemon holds a request only when all of these hold; otherwise it answers "no opinion" at once:
+
+- `[approvals] enabled = true` in `config.toml` (default `false`; re-read while running, and
+  sent as `approvals` in `SETTINGS`);
+- at least one client has said it is ready, with `{"type": "approvals_ready", "ready": true}`.
+  A client says `false` (or disconnects) when nobody can answer from it: the GNOME panel does
+  so while the screen is locked or the user is idle. Clients that never send it (all before
+  0.0.6, `agentail tail`) never count;
+- the agent's adapter can approve (Claude Code, Codex), the payload was not truncated, and the
+  call has a main input of at most 4096 characters: the user must see in full what they allow;
+- the session's directory is not ignored (`[sessions] ignore_cwd`), and fewer than 32 requests
+  are already held.
+
+`detail` and `description` come from the agent's payload: plain text only, like every `SESSION`
+string. Approvals are not kept across a daemon restart: the hooks' connections end with it.
+
 Clients hold no state of their own; after a reconnect they rebuild from the next snapshot.
 A client that cannot keep up (more than 1024 queued messages) is disconnected rather than slowing
 the daemon. A client may send one line, `{"type": "refresh_usage"}`, when the user opens the panel: the daemon
 then asks `codex app-server` for Codex's current limits (at most once a minute, here and on each
 connected server where Codex has been seen) and, when its
 reading is over a minute old, Anthropic's usage endpoint for Claude's; both answer with an
-ordinary `usage_update`. Since 0.0.5 a client may also send `{"type": "dismiss_session", "key": {"host", "agent",
+ordinary `usage_update`. Since 0.0.6 a client may also send `approvals_ready` and `approval_decision` (see "Approvals"
+above). Since 0.0.5 a client may also send `{"type": "dismiss_session", "key": {"host", "agent",
 "session_id"}}` when the user removes a session from the panel; the key is the one the daemon sent,
 unchanged. The daemon forgets the session (`session_remove`) until its next event, which
 brings it back as a new session. A key that is not exactly three strings is ignored. Nothing else a

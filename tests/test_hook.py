@@ -288,7 +288,8 @@ def _serve_reply(sock_path: Path, reply, out: list, delay: float = 0.0):
         try:
             conn, _ = srv.accept()
             buf = b""
-            while chunk := conn.recv(65536):
+            # The hook keeps its side open while it waits: read up to the newline.
+            while b"\n" not in buf and (chunk := conn.recv(65536)):
                 buf += chunk
             out.append(buf)
             time.sleep(delay)
@@ -318,6 +319,42 @@ def _wait_args(*socks, timeout="3"):
 
 
 PAYLOAD = json.dumps({"session_id": "s1", "tool_name": "Bash"}).encode()
+
+
+def test_wait_keeps_its_side_open_until_it_ends(short_tmp):
+    """The daemon notices a hook that has gone (killed by the agent) by the connection's end,
+    so the hook must not half-close while it waits."""
+    sock = short_tmp / "w.sock"
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(str(sock))
+    srv.listen(1)
+    srv.settimeout(5)
+    proc = subprocess.Popen(
+        [sys.executable, str(HOOK), *_wait_args(sock, timeout="5")],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    try:
+        proc.stdin.write(PAYLOAD)
+        proc.stdin.close()
+        conn, _ = srv.accept()
+        conn.settimeout(0.5)
+        buf = b""
+        while b"\n" not in buf:
+            buf += conn.recv(65536)
+        with pytest.raises(socket.timeout):
+            conn.recv(1)  # no EOF while the hook waits
+        proc.kill()
+        proc.wait(5)
+        conn.settimeout(2)
+        assert conn.recv(1) == b""  # its end is visible at once
+        conn.close()
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+        srv.close()
 
 
 def test_wait_prints_the_reply_verbatim(short_tmp):

@@ -230,10 +230,8 @@ def _send_and_wait(socks, message, deadline):
                 s.settimeout(min(SEND_TIMEOUT, left))
                 s.connect(sock_path)
                 s.sendall(line)
-                try:
-                    s.shutdown(socket.SHUT_WR)
-                except OSError:
-                    pass
+                # No half-close: the daemon reads the end of the connection as this process
+                # having gone (the agent killed it) and withdraws the request.
                 s.setblocking(False)
                 sel.register(s, selectors.EVENT_READ)
                 bufs[s] = b""

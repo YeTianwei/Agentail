@@ -14,13 +14,13 @@ and also sends SessionStart. TODO(M0): Qoder CN is checked against the docs only
 from __future__ import annotations
 
 from agentail.adapters import claude
-from agentail.adapters.base import AgentEvent, Capabilities
+from agentail.adapters.base import AgentEvent, ApprovalRequest, Capabilities
 from agentail.protocol import HookMessage
 from agentail.usage import UsageReading
 
 
 class ClaudeCompatAdapter:
-    capabilities = Capabilities(can_approve=False)  # v1: status only
+    capabilities = Capabilities(can_approve=False)  # status only: approvals are unverified
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -33,3 +33,9 @@ class ClaudeCompatAdapter:
 
     def usage(self, msg: HookMessage, host: str) -> UsageReading | None:
         return None
+
+    def approval(self, msg: HookMessage) -> ApprovalRequest | None:
+        return None
+
+    def decision_output(self, allow: bool) -> str:
+        return ""

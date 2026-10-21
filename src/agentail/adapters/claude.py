@@ -13,9 +13,12 @@ from __future__ import annotations
 
 from agentail.adapters.base import (
     AgentEvent,
+    ApprovalRequest,
     Attention,
     Capabilities,
     EventKind,
+    approval_request,
+    permission_decision_output,
     preview,
     prompt_preview,
     str_field,
@@ -31,6 +34,8 @@ _KINDS = {
     "PostToolUse": EventKind.TOOL_END,
     "PostToolUseFailure": EventKind.TOOL_END,
     "Notification": EventKind.ATTENTION,
+    # Runs when the permission prompt opens, alongside it (agent-hooks-notes.md section 5.2).
+    "PermissionRequest": EventKind.ATTENTION,
     "Stop": EventKind.STOP,
     "StopFailure": EventKind.STOP,  # turn ended by an API error
     "SubagentStop": EventKind.SUBAGENT_STOP,
@@ -65,6 +70,7 @@ def _classify_notification(payload: dict) -> Attention | None:
 
 
 STATUS_LINE_EVENT = "StatusLine"
+PERMISSION_REQUEST = "PermissionRequest"
 # Documented rate_limits windows and their lengths (https://code.claude.com/docs/en/statusline,
 # checked 2026-10-08): the 5-hour and the 7-day window.
 _WINDOWS = (("five_hour", 300), ("seven_day", 10080))
@@ -83,7 +89,9 @@ def decode_claude_style(msg: HookMessage, host: str, agent: str) -> AgentEvent |
         return None
     attention = None
     detail = tool_preview(payload.get("tool_input"))
-    if kind is EventKind.ATTENTION:
+    if event_name == PERMISSION_REQUEST:
+        attention = Attention.PERMISSION
+    elif kind is EventKind.ATTENTION:
         attention = _classify_notification(payload)
         if attention is None:
             kind = EventKind.OTHER
@@ -110,13 +118,23 @@ def decode_claude_style(msg: HookMessage, host: str, agent: str) -> AgentEvent |
 
 
 def hook_events() -> list[str]:
-    """Claude-format events we register (all but PreCompact)."""
-    return [k for k in _KINDS if k != "PreCompact"]
+    """Claude-format events we register in fire mode (all but PreCompact and
+    PermissionRequest, which only the approvals entry uses, in wait mode)."""
+    return [k for k in _KINDS if k not in ("PreCompact", PERMISSION_REQUEST)]
+
+
+def approval(msg: HookMessage) -> ApprovalRequest | None:
+    """A Claude-format ``PermissionRequest`` the panel may answer (agent-hooks-notes.md
+    section 5.2: no ``tool_use_id``; ``tool_input.description`` is Claude's own one line)."""
+    payload = msg.payload() or {}
+    if msg.truncated or str_field(payload, "hook_event_name") != PERMISSION_REQUEST:
+        return None
+    return approval_request(payload)
 
 
 class ClaudeAdapter:
     name = "claude"
-    capabilities = Capabilities(can_approve=False)  # v1: status only
+    capabilities = Capabilities(can_approve=True)
 
     def hook_events(self) -> list[str]:
         return hook_events()
@@ -145,3 +163,9 @@ class ClaudeAdapter:
         return UsageReading(
             host=host, agent=self.name, windows=ordered, ts=msg.ts, source=SOURCE_STATUS_LINE
         )
+
+    def approval(self, msg: HookMessage) -> ApprovalRequest | None:
+        return approval(msg)
+
+    def decision_output(self, allow: bool) -> str:
+        return permission_decision_output(allow)
