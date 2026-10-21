@@ -346,9 +346,13 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
    - 不答、等满 40 秒:hook 静默退出后提示还在,之后批准正常——**不表态 ≠ 放行**。
    - 提示出现后按 Esc:3 秒内 `signal TERM`——**中断回合会杀 hook**。
    - 载荷:`tool_input` 里除 `command` 外还有 `description`(模型写的一句说明,如 "Create empty file a.txt",面板可显示);`permission_suggestions` 是 `[{"type":"addDirectories",…,"destination":"session"},{"type":"setMode","mode":"acceptEdits",…}]`,即终端里"总是允许"类选项的来源,0.0.6 不用。另有 `prompt_id`、`scratchpad_dir`、`effort`。
-2. **Codex 串行**:同一脚本放进 `~/.codex/hooks.json` 的 `PermissionRequest`,`/hooks` 信任后触发一次授权。确认 40 秒内终端**不**出现授权提示、TUI 上有没有"hook 运行中"的提示;然后决定 Codex 走 5.3 的 (a) 还是 (b)。
-3. 两边都确认:hook 睡满 40 秒不输出退出后,终端照常询问(不表态 ≠ 放行)。
-4. Claude 的 `permission_suggestions` 和 Codex 的 `tool_input.description` 实际长什么样(录一份,给面板用)。
+2. ✅ **Codex 串行**(2026-10-21,codex-cli 0.163.0,本机,`~/.codex/hooks.json` + `/hooks` 信任):两次「运行 `touch /tmp/probe-codex.txt`」。
+   - Codex 先在沙箱里跑一次(失败),再请求沙箱外执行,这时才触发 `PermissionRequest`;hook 睡满 40 秒 `end` 之后终端才出现审批提示,批准后执行成功(回合共 1m25s ≈ 40 秒 hook + 回答)。**hook 返回前没有提示,证实串行**。
+   - 第二次在提示出现后取消:`You canceled the request`,命令 `Failed (exit 1)`,hook 同样跑满 40 秒,没有 `signal TERM`。
+   - 载荷:`tool_input.command` + `tool_input.description`(模型写的审批理由,跟随会话语言,如「沙箱限制导致命令失败,是否允许在沙箱外运行 …?」);`turn_id`、`model`、`permission_mode: "default"`;没有 `tool_use_id`。
+   - 未看清:hook 运行的 40 秒里 TUI 具体显示什么;Esc 在那 40 秒里能否杀掉 hook。
+3. ✅ 两边都确认:hook 睡满 40 秒不输出退出后,终端照常询问(不表态 ≠ 放行)。
+4. ✅ 两边的 `tool_input.description` 都可用于面板(Claude 英文一句话,Codex 跟随会话语言);Claude 的 `permission_suggestions` 见第 1 条。
 
 ### 5.5 对 0.0.6 设计的直接约束(补充 PLAN.md §3 的列表)
 
