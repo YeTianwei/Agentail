@@ -53,6 +53,7 @@ def merge_hooks(
     hook_path: str,
     sock: str,
     drop: SockFilter | None = None,
+    wait_events: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Return a copy of a hooks.json document with exactly one agentail entry per event.
 
@@ -69,6 +70,7 @@ def merge_hooks(
         matcher=None,
         filename="hooks.json",
         drop=drop,
+        wait_events=wait_events,
     )
 
 

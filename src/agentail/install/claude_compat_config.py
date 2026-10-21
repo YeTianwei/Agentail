@@ -16,8 +16,8 @@ from agentail.install.hookjson import SockFilter
 
 
 def merger(agent: str) -> Callable[..., dict[str, Any]]:
-    """``merge_hooks(doc, events, python, hook_path, sock, drop=None)`` writing
-    ``--agent <agent>``."""
+    """``merge_hooks(doc, events, python, hook_path, sock, drop=None, wait_events=None)``
+    writing ``--agent <agent>``."""
 
     def merge_hooks(
         doc: dict[str, Any],
@@ -26,6 +26,7 @@ def merger(agent: str) -> Callable[..., dict[str, Any]]:
         hook_path: str,
         sock: str,
         drop: SockFilter | None = None,
+        wait_events: dict[str, int] | None = None,
     ) -> dict[str, Any]:
         return hookjson.merge_hooks(
             doc,
@@ -38,6 +39,7 @@ def merger(agent: str) -> Callable[..., dict[str, Any]]:
             matcher="",
             filename="settings.json",
             drop=drop,
+            wait_events=wait_events,
         )
 
     return merge_hooks

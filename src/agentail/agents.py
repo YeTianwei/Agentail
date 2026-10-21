@@ -1,8 +1,8 @@
 """The agents Agentail supports: one registry for installers, doctor and the UIs.
 
 Adding an agent means: an adapter in ``agentail.adapters``, a config module in
-``agentail.install`` with ``merge_hooks(doc, events, python, hook_path, sock, drop=None)``
-(``hookjson.merge_hooks`` does the work), one
+``agentail.install`` with ``merge_hooks(doc, events, python, hook_path, sock, drop=None,
+wait_events=None)`` (``hookjson.merge_hooks`` does the work), one
 ``AgentSpec`` below, an icon (``icons/agent-<name>.png``, listed in ``icons/NOTICE.md``)
 and the display name in the GNOME extension's ``model.js`` (a test keeps it in sync).
 
@@ -32,8 +32,9 @@ from agentail import paths
 from agentail.adapters import get_adapter
 from agentail.install import claude_compat_config, claude_config, codex_config
 
-# (doc, events, python, hook_path, sock, drop=None) -> new doc; ``drop`` selects the
-# receivers (sockets) already in ``doc`` that the installer replaces (hookjson.merge_hooks).
+# (doc, events, python, hook_path, sock, drop=None, wait_events=None) -> new doc; ``drop``
+# selects the receivers (sockets) already in ``doc`` that the installer replaces, and
+# ``wait_events`` the events written in wait mode (hookjson.merge_hooks).
 MergeFn = Callable[..., dict[str, Any]]
 
 # {agent: absolute config dir} as resolved by the last `install-local` from a shell, for
@@ -63,6 +64,13 @@ class AgentSpec:
     dir_env_is_parent: bool = False  # dir_env replaces $HOME, not the dir (e.g. GEMINI_CLI_HOME)
     trust_note: str = ""  # what the user must do before the agent runs new hooks
     warnings: Callable[[Path], list[str]] | None = None  # problems in the local config dir
+    # Approvals from the panel (0.0.6; the adapter must be able to approve). The event is
+    # written in wait mode with ``approval_timeout_s`` as the hook's --timeout, a hard cap
+    # written into the command; how long the panel actually waits is the daemon's
+    # ``[approvals.wait_s]``, ``approval_wait_s`` by default, and needs no reinstall.
+    approval_event: str = ""
+    approval_timeout_s: int = 0
+    approval_wait_s: int = 0
 
     def env_home(self) -> Path | None:
         """The dir this process's environment points to, None if the variable is unset."""
@@ -91,9 +99,15 @@ class AgentSpec:
         return self.home(recorded) / self.config_file
 
     def events(self) -> list[str]:
+        """Every event our entries are registered for, the wait-mode one included."""
         adapter = get_adapter(self.name)
         assert adapter is not None, f"no adapter for {self.name}"
-        return adapter.hook_events()
+        events = adapter.hook_events()
+        return [*events, *(e for e in self.wait_events() if e not in events)]
+
+    def wait_events(self) -> dict[str, int]:
+        """{event: hook --timeout} for the events written in wait mode."""
+        return {self.approval_event: self.approval_timeout_s} if self.approval_event else {}
 
 
 AGENTS: tuple[AgentSpec, ...] = (
@@ -107,6 +121,11 @@ AGENTS: tuple[AgentSpec, ...] = (
         config_file="settings.json",
         binary="claude",
         merge=claude_config.merge_hooks,
+        # The terminal prompt is open while the hook waits (agent-hooks-notes.md 5.2): the
+        # panel may take as long as the cap.
+        approval_event="PermissionRequest",
+        approval_timeout_s=120,
+        approval_wait_s=120,
     ),
     AgentSpec(
         name="codex",
@@ -121,6 +140,11 @@ AGENTS: tuple[AgentSpec, ...] = (
             "agentail-hook entries in the hook review screen (or via /hooks)."
         ),
         warnings=codex_config.local_warnings,
+        # Codex shows its prompt only after the hook ends (agent-hooks-notes.md 5.3): the
+        # panel's wait is time the terminal shows no prompt, so it is short by default.
+        approval_event="PermissionRequest",
+        approval_timeout_s=60,
+        approval_wait_s=30,
     ),
     # Qoder CLI, international and China editions: separate config dirs, same format.
     # Binary qodercli (verified with 1.1.68, 2026-10-12; only used for a remote note).

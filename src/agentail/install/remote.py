@@ -377,8 +377,10 @@ def _merge_fn(
 ) -> Callable[[dict[str, Any]], dict[str, Any]]:
     spec = registry.get(agent)
     assert spec is not None
-    events = spec.events()
-    return lambda doc: spec.merge(doc, events, python, REMOTE_HOOK_PATH, sock, drop=drop)
+    events, wait_events = spec.events(), spec.wait_events()
+    return lambda doc: spec.merge(
+        doc, events, python, REMOTE_HOOK_PATH, sock, drop=drop, wait_events=wait_events
+    )
 
 
 def _manifest_path(probe: Probe, name: str = paths.REMOTE_MANIFEST) -> str:

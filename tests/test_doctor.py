@@ -445,6 +445,7 @@ def test_hooks_with_several_receivers_and_the_uid_placeholder(
     import os
     import sys
 
+    from agentail import agents
     from agentail.install import claude_config, hookjson
 
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(short_tmp / str(os.getuid())))
@@ -456,8 +457,11 @@ def test_hooks_with_several_receivers_and_the_uid_placeholder(
     doc = json.loads(settings.read_text())
     events = list(doc["hooks"])
     py, hook = sys.executable, str(paths.agentail_home() / paths.HOOK_FILENAME)
-    doc = claude_config.merge_hooks(doc, events, py, hook, with_uid, paths.is_local_sock)
-    doc = claude_config.merge_hooks(doc, events, py, hook, remote)
+    wait = agents.get("claude").wait_events()
+    doc = claude_config.merge_hooks(
+        doc, events, py, hook, with_uid, paths.is_local_sock, wait_events=wait
+    )
+    doc = claude_config.merge_hooks(doc, events, py, hook, remote, wait_events=wait)
     assert hookjson.configured_socks(doc) == {with_uid, remote}
     settings.write_text(json.dumps(doc))
     c = by_name(run_checks(fake_run(), snapshot=None))["claude hooks"]

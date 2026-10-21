@@ -19,7 +19,8 @@ when they differ (the agent configs are not touched).
 
 An upgrade that writes something new into the agent configs bumps ``SETUP_VERSION``: the
 hooks are then merged again, once, for every agent whose config still has them (0.0.2 adds the
-Claude status line wrapper). An agent the user uninstalled stays uninstalled.
+Claude status line wrapper; 0.0.6 the wait-mode PermissionRequest entries, which Codex asks
+the user to trust again). An agent the user uninstalled stays uninstalled.
 
 Removing the package and installing it again counts as a new start: the package writes a
 new ``/var/lib/agentail/install-id`` on each fresh install, and a different id resets
@@ -48,8 +49,9 @@ log = logging.getLogger(__name__)
 SHELL_WAIT_S = 20.0
 INSTALL_ID_FILE = Path("/var/lib/agentail/install-id")
 # Bump when install_local writes something new into an agent config. 2: Claude statusLine;
-# 3: the status line wrapper runs the user's command under bash when there is one.
-SETUP_VERSION = 3
+# 3: the status line wrapper runs the user's command under bash when there is one;
+# 4: PermissionRequest in wait mode for Claude and Codex (approvals from the panel).
+SETUP_VERSION = 4
 RELOGIN_TITLE = "Agentail is installed"
 RELOGIN_BODY = "Log out and back in once to show the Agentail panel in the top bar."
 

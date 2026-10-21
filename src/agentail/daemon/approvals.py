@@ -57,11 +57,19 @@ class Approvals:
         self.on_remove = on_remove
 
     def hold(
-        self, key: SessionKey, request: ApprovalRequest, wait_ms: int, now: float
+        self,
+        key: SessionKey,
+        request: ApprovalRequest,
+        wait_ms: int,
+        now: float,
+        max_wait_s: float | None = None,
     ) -> asyncio.Future[str] | None:
-        """Hold a request for at most ``wait_ms`` less the margin. Returns the future of the
-        hook's reply, or None when it cannot be held (the caller answers "no opinion")."""
+        """Hold a request for ``wait_ms`` less the margin, or ``max_wait_s`` if that is
+        shorter (the agent's wait from the settings). Returns the future of the hook's
+        reply, or None when it cannot be held (the caller answers "no opinion")."""
         wait_s = wait_ms / 1000 - REPLY_MARGIN_S
+        if max_wait_s is not None:
+            wait_s = min(wait_s, max_wait_s)
         if wait_s <= 0 or len(self.pending) >= MAX_PENDING:
             return None
         loop = asyncio.get_running_loop()

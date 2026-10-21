@@ -30,7 +30,12 @@ from typing import Any
 from agentail import agents as registry
 from agentail import paths, shellenv
 from agentail.client import clean
-from agentail.config import UsageSwitches, load_hosts, load_usage_switches
+from agentail.config import (
+    UsageSwitches,
+    load_approvals_enabled,
+    load_hosts,
+    load_usage_switches,
+)
 from agentail.install import gnome, hookjson, service, statusline
 from agentail.install import local as local_install
 from agentail.install.local import hook_dest
@@ -150,6 +155,11 @@ def _check_agent_hooks(agent: str, path: Path, home: Path) -> list[Check]:
         return [
             Check(name, WARN, f"missing events: {', '.join(missing)}", "agentail install-local")
         ]
+    for event in spec.wait_events():
+        parsed = hookjson.parse_command(ours[event])
+        if parsed is None or parsed.wait_s is None:
+            detail = f"{event} does not wait for an answer: the panel cannot approve {agent}"
+            return [Check(name, WARN, detail, "agentail install-local")]
     # Other sockets are fine: desktops that added this machine as a server (add-host).
     local = str(paths.local_sock())
     per_event = [_socks_of(c) for c in ours.values()]
@@ -413,6 +423,13 @@ def local_checks() -> list[Check]:
     return checks + legacy_backup_checks() + shell_env_checks()
 
 
+def approvals_checks() -> list[Check]:
+    """Whether the panel may answer permission prompts ([approvals] enabled)."""
+    if load_approvals_enabled():
+        return [Check("approvals", OK, "permission prompts can be answered from the panel")]
+    return [Check("approvals", INFO, "answering permission prompts from the panel is off")]
+
+
 def _ago(ts: Any, now: float) -> str:
     if isinstance(ts, bool) or not isinstance(ts, int | float):
         return ""
@@ -660,6 +677,7 @@ def run_checks(
     return (
         daemon_checks(snap, run)
         + local_checks()
+        + approvals_checks()
         + usage_api_checks(snap)
         + host_checks(snap)
         + extension_checks(run)

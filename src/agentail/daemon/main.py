@@ -28,6 +28,7 @@ from agentail.config import (
     NotifySwitches,
     cwd_ignored,
     default_ignore_cwd,
+    load_approval_waits,
     load_approvals_enabled,
     load_hosts,
     load_ignore_cwd,
@@ -168,6 +169,8 @@ class Daemon:
         self.notify = NotifySwitches()
         # [approvals] enabled: permission requests may wait for an answer from the panel.
         self._approvals_on = False
+        # [approvals.wait_s]: how long a request waits for the panel, by agent.
+        self._approval_waits: dict[str, int] = {}
         self.approvals = Approvals(on_add=self._on_approval_add, on_remove=self._on_approval_remove)
         self._dirty = False  # sessions changed since they were last saved
         self._usage_dirty = False
@@ -261,7 +264,9 @@ class Daemon:
         request = adapter.approval(msg)
         if request is None:
             return None
-        return self.approvals.hold(key, request, msg.wait_ms, time.time())
+        spec = agents.get(msg.agent)
+        wait_s = self._approval_waits.get(msg.agent) or (spec.approval_wait_s if spec else 0)
+        return self.approvals.hold(key, request, msg.wait_ms, time.time(), wait_s or None)
 
     def _withdraw_answered(self, key: SessionKey, event: AgentEvent) -> None:
         """A held request is over once the session shows it was answered elsewhere: the turn
@@ -593,6 +598,7 @@ class Daemon:
             self._settings_mtime = mtime
             notify = load_notify_switches(path)
             approvals = load_approvals_enabled(path)
+            self._approval_waits = load_approval_waits(path)
             if (notify, approvals) != (self.notify, self._approvals_on):
                 if approvals != self._approvals_on:
                     log.info("approvals from the panel %s", "on" if approvals else "off")

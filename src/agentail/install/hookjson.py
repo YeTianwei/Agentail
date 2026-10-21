@@ -14,6 +14,11 @@ desktop that added it as a server (``add-host``). They share one entry per event
 command carries one ``--sock`` per receiver. An installer adds its socket and keeps the
 others (``merge_hooks``); an uninstaller removes only its own (``drop_socks``), and the
 entry goes away with the last socket.
+
+The permission event (``PermissionRequest``) is written in wait mode, with the hook's own
+``--timeout`` and the agent's ``timeout`` above it (``wait_events``), so the panel can answer
+it (docs/protocol.md, "Waiting for a reply"). It is written whether approvals are on or not:
+switching them needs no config change, and Codex needs no new trust.
 """
 
 from __future__ import annotations
@@ -28,9 +33,18 @@ from agentail.paths import HOOK_MARKER
 
 SockFilter = Callable[[str], bool]
 
+# A waiting hook's entry gives the agent's own timeout this much more than the hook's, so the
+# hook always ends first (and with "no opinion" if nobody answered).
+WAIT_TIMEOUT_MARGIN_S = 10
+
 
 def hook_command(
-    python: str, hook_path: str, agent: str, event: str, socks: str | Iterable[str]
+    python: str,
+    hook_path: str,
+    agent: str,
+    event: str,
+    socks: str | Iterable[str],
+    wait_s: int | None = None,
 ) -> str:
     """Shell command line for one hook entry.
 
@@ -44,12 +58,18 @@ def hook_command(
     (Codex trusts a hook by a hash of its command). A single socket gives exactly the
     command of earlier versions. ``{uid}`` in a socket is expanded by the hook script
     itself; ``shlex.quote`` single-quotes it, so no shell (sh, bash, csh) touches it.
+
+    ``wait_s`` writes ``--mode wait --timeout <wait_s>`` (hook script version 3 and later:
+    add-host and install-local install that script before they write the configs).
     """
     if isinstance(socks, str):
         socks = [socks]
     hp = quote_path(hook_path)
     argv = [shlex.quote(python), hp, "--agent", shlex.quote(agent), "--event", shlex.quote(event)]
-    argv += ["--mode", "fire"]
+    if wait_s is None:
+        argv += ["--mode", "fire"]
+    else:
+        argv += ["--mode", "wait", "--timeout", str(int(wait_s))]
     for sock in sorted(set(socks)):
         argv += ["--sock", shlex.quote(sock)]
     return " ".join([*argv, "2>/dev/null", "||", "true"])
@@ -73,6 +93,7 @@ class HookCommand:
     agent: str
     event: str
     socks: tuple[str, ...]
+    wait_s: int | None = None  # --mode wait: its --timeout
 
 
 def parse_command(command: str) -> HookCommand | None:
@@ -89,11 +110,18 @@ def parse_command(command: str) -> HookCommand | None:
         return None
     if i < 2 or HOOK_MARKER not in argv[i - 1]:
         return None
+    flags = {argv[j]: argv[j + 1] for j in range(i, len(argv) - 1) if argv[j].startswith("--")}
     socks = tuple(argv[j + 1] for j in range(i, len(argv) - 1) if argv[j] == "--sock")
+    wait_s = None
+    if flags.get("--mode") == "wait":
+        try:
+            wait_s = int(flags.get("--timeout", ""))
+        except ValueError:
+            return None
     hook_path = argv[i - 1]
     if hook_path.startswith("$HOME/"):  # written by quote_path: back to the ~ form
         hook_path = "~" + hook_path[len("$HOME") :]
-    return HookCommand(argv[i - 2], hook_path, agent, event, socks)
+    return HookCommand(argv[i - 2], hook_path, agent, event, socks, wait_s)
 
 
 def socks_of(command: str) -> tuple[str, ...]:
@@ -170,7 +198,9 @@ def without_socks(command: str, drop: SockFilter) -> str | None:
         return command
     if not left:
         return None
-    return hook_command(parsed.python, parsed.hook_path, parsed.agent, parsed.event, left)
+    return hook_command(
+        parsed.python, parsed.hook_path, parsed.agent, parsed.event, left, parsed.wait_s
+    )
 
 
 def drop_socks(doc: dict[str, Any], drop: SockFilter) -> dict[str, Any]:
@@ -229,13 +259,19 @@ def merge_hooks(
     matcher: str | None,
     filename: str,
     drop: SockFilter | None = None,
+    wait_events: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Return a copy of ``doc`` with exactly one agentail entry per event, sending to
     ``sock`` and to every receiver already configured in ``doc`` that ``drop`` does not
     select (an installer drops its own earlier sockets).
 
-    ``matcher=None`` leaves the key out. ``filename`` is only used in errors.
+    ``wait_events`` maps events to write in wait mode to the hook's ``--timeout`` (seconds);
+    their entries get that plus ``WAIT_TIMEOUT_MARGIN_S`` as the agent's ``timeout``. They
+    are added to ``events`` if missing. ``matcher=None`` leaves the key out. ``filename`` is
+    only used in errors.
     """
+    wait_events = wait_events or {}
+    events = [*events, *(e for e in wait_events if e not in events)]
     socks = merged_socks(doc, sock, drop)
     out = remove_hooks(doc)
     hooks = out.setdefault("hooks", {})
@@ -243,11 +279,12 @@ def merge_hooks(
         raise ValueError(f"{filename}: 'hooks' is not an object; refusing to modify")
     for event in events:
         entry: dict[str, Any] = {} if matcher is None else {"matcher": matcher}
+        wait_s = wait_events.get(event)
         entry["hooks"] = [
             {
                 "type": "command",
-                "command": hook_command(python, hook_path, agent, event, socks),
-                "timeout": timeout,
+                "command": hook_command(python, hook_path, agent, event, socks, wait_s),
+                "timeout": timeout if wait_s is None else wait_s + WAIT_TIMEOUT_MARGIN_S,
             }
         ]
         existing = hooks.setdefault(event, [])

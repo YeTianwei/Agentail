@@ -304,6 +304,8 @@ def load_approvals_enabled(path: Path | None = None) -> bool:
 
         [approvals]
         enabled = false   # true: answer permission prompts from the panel
+        [approvals.wait_s]   # how long a request waits for the panel, per agent
+        codex = 30           # Codex shows its own prompt only after this
     """
     path = path or paths.settings_file()
     try:
@@ -312,6 +314,30 @@ def load_approvals_enabled(path: Path | None = None) -> bool:
     except (OSError, tomllib.TOMLDecodeError):
         return False
     return isinstance(section, dict) and section.get("enabled") is True
+
+
+APPROVAL_WAIT_RANGE_S = (5, 600)
+
+
+def load_approval_waits(path: Path | None = None) -> dict[str, int]:
+    """``[approvals.wait_s]``: {agent: seconds}. Values that are not whole seconds within
+    APPROVAL_WAIT_RANGE_S are left out (the agent's default applies); the hook's own
+    --timeout caps them anyway."""
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            section = tomllib.load(fh).get("approvals", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return {}
+    waits = section.get("wait_s") if isinstance(section, dict) else None
+    if not isinstance(waits, dict):
+        return {}
+    lo, hi = APPROVAL_WAIT_RANGE_S
+    return {
+        str(k): v
+        for k, v in waits.items()
+        if isinstance(v, int) and not isinstance(v, bool) and lo <= v <= hi
+    }
 
 
 def set_approvals_enabled(on: bool, path: Path | None = None) -> None:

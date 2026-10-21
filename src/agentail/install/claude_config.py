@@ -31,6 +31,7 @@ def merge_hooks(
     hook_path: str,
     sock: str,
     drop: SockFilter | None = None,
+    wait_events: dict[str, int] | None = None,
 ) -> dict[str, Any]:
     """Return a copy of settings with exactly one agentail entry per event, and the status
     line wrapped so that the rate limits reach Agentail (install/statusline.py). Both send
@@ -46,6 +47,7 @@ def merge_hooks(
         matcher="",
         filename="settings.json",
         drop=drop,
+        wait_events=wait_events,
     )
     socks = hookjson.merged_socks(settings, sock, drop)
     return statusline.wrap(merged, python, hook_path, socks)

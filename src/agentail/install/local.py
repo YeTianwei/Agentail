@@ -256,7 +256,15 @@ def targets(python: str, hook_path: str, sock: str, recorded: bool = True) -> di
     def merge(spec: registry.AgentSpec) -> Callable[[dict[str, Any]], dict[str, Any]]:
         def run(d: dict[str, Any]) -> dict[str, Any]:
             py, hp = shared_interpreter(d, python, hook_path)
-            return spec.merge(d, spec.events(), py, hp, sock, drop=paths.is_local_sock)
+            return spec.merge(
+                d,
+                spec.events(),
+                py,
+                hp,
+                sock,
+                drop=paths.is_local_sock,
+                wait_events=spec.wait_events(),
+            )
 
         return run
 
