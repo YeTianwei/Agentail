@@ -330,7 +330,7 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
 - **能返回决定** [文档 + schema]:输出与 Claude 同形;`behavior` 只有 `allow` / `deny`,`message` 可选。`updatedInput`、`updatedPermissions`、`interrupt: true` 目前 **fail closed**(schema 注释:"PermissionRequest hooks currently fail closed if this field is present")——不要发。
 - **触发时机** [源码]:`permission_request.rs` 文件头:"This event runs in the approval path, before guardian or user approval UI is shown";`hook_runtime.rs::run_permission_request_hooks` 先 `emit_hook_started_events`,然后 `await hooks.run_permission_request(...)`,拿到 `Option<decision>` 才继续。即 **hook 跑完之前终端不弹授权提示**;TUI 期间显示 hook 运行中的行 [源码:preview + started 事件,具体界面待实测]。
   - 这与 3.5 里的实测一致:当时录到 `PermissionRequest` 在提示出现时触发(fire 模式约 1 秒内返回,看起来像同时)。
-  - 对我们的意义:Codex 上 `--mode wait` 等多久,终端就黑多久。只能二选一:(a)Codex 不做面板审批,保持 fire 模式;(b)短超时(如 10–30 秒)内面板可答,超时后终端再问——用户在终端前时会多等这段时间。你已决定(2026-10-21)**Codex 一起做**,走 (b):每个 agent 一个等待上限,Codex 的短(建议 30 秒,可调),Claude 的长;到时回"不表态"。
+  - 对我们的意义:Codex 上 `--mode wait` 等多久,终端就黑多久。只能二选一:(a)Codex 不做面板审批,保持 fire 模式;(b)短超时(如 10–30 秒)内面板可答,超时后终端再问——用户在终端前时会多等这段时间。你已决定(2026-10-21)**Codex 一起做**,走 (b):每个 agent 一个等待上限,Codex 的短(默认 30 秒,可调;实测 TUI 等待期间有 hook 运行提示,30 秒可接受),Claude 的长;到时回"不表态"。
 - **不表态** [源码:`parse_completed`]:退出 0 且 stdout 空白 → 无决定;stdout 像 JSON 但解析失败 → `Failed`,无决定;退出 0 的纯文本 stdout 被忽略 [文档]。
 - **退出码 2 + 非空 stderr = 拒绝** [源码]。我们的 hook 任何情况下都退出 0 且不写 stderr(安装器还加了 `2>/dev/null || true`),所以不会误拒绝;但这是 Codex 与 Claude 的一个差异,改 hook 脚本时要记得。
 - **超时** [源码:`command_runner.rs`]:`tokio::time::timeout(handler.timeout_sec)` 到期 → `error: "hook timed out after Ns"` → `Failed` → 无决定 → 正常审批流程。默认 600 秒 [文档]。
@@ -350,7 +350,7 @@ handler 字段:`type = "command"`、`command`(字符串,整行交给 shell)、`t
    - Codex 先在沙箱里跑一次(失败),再请求沙箱外执行,这时才触发 `PermissionRequest`;hook 睡满 40 秒 `end` 之后终端才出现审批提示,批准后执行成功(回合共 1m25s ≈ 40 秒 hook + 回答)。**hook 返回前没有提示,证实串行**。
    - 第二次在提示出现后取消:`You canceled the request`,命令 `Failed (exit 1)`,hook 同样跑满 40 秒,没有 `signal TERM`。
    - 载荷:`tool_input.command` + `tool_input.description`(模型写的审批理由,跟随会话语言,如「沙箱限制导致命令失败,是否允许在沙箱外运行 …?」);`turn_id`、`model`、`permission_mode: "default"`;没有 `tool_use_id`。
-   - 未看清:hook 运行的 40 秒里 TUI 具体显示什么;Esc 在那 40 秒里能否杀掉 hook。
+   - hook 运行的 40 秒里 TUI 有一行"hook 正在运行"的提示(与源码里 `emit_hook_started_events` 对应),用户能看出在等什么。未测:Esc 在那 40 秒里能否杀掉 hook。
 3. ✅ 两边都确认:hook 睡满 40 秒不输出退出后,终端照常询问(不表态 ≠ 放行)。
 4. ✅ 两边的 `tool_input.description` 都可用于面板(Claude 英文一句话,Codex 跟随会话语言);Claude 的 `permission_suggestions` 见第 1 条。
 
