@@ -186,21 +186,22 @@ def valid_store(store: str) -> bool:
 def day_start(ts: float, tz: dt.tzinfo | None = None) -> int:
     """UTC seconds of the local midnight that begins the day of ``ts`` (``tz`` None: the
     system's zone, as the panel sees it)."""
-    return _midnight(dt.datetime.fromtimestamp(ts, tz).date(), tz)
+    return midnight(dt.datetime.fromtimestamp(ts, tz).date(), tz)
 
 
 def week_start(ts: float, tz: dt.tzinfo | None = None) -> int:
     """UTC seconds of the local midnight that begins the ISO week (Monday) of ``ts``."""
     day = dt.datetime.fromtimestamp(ts, tz).date()
-    return _midnight(day - dt.timedelta(days=day.weekday()), tz)
+    return midnight(day - dt.timedelta(days=day.weekday()), tz)
 
 
 def next_day_start(ts: float, tz: dt.tzinfo | None = None) -> int:
     day = dt.datetime.fromtimestamp(ts, tz).date()
-    return _midnight(day + dt.timedelta(days=1), tz)
+    return midnight(day + dt.timedelta(days=1), tz)
 
 
-def _midnight(day: dt.date, tz: dt.tzinfo | None) -> int:
+def midnight(day: dt.date, tz: dt.tzinfo | None = None) -> int:
+    """UTC seconds of the local midnight that begins ``day``."""
     # Naive local time when tz is None: timestamp() then applies the system's zone,
     # daylight saving included.
     return int(dt.datetime.combine(day, dt.time(), tzinfo=tz).timestamp())
@@ -277,11 +278,16 @@ class TokenStore:
         with self.db:
             return self.db.execute("DELETE FROM responses WHERE ts < ?", (cutoff,)).rowcount
 
-    def forget_all(self) -> None:
+    def forget_all(self, keep_cursors: bool = False) -> None:
+        """Drop every count. ``keep_cursors``: the files already read are not read again, so
+        counting starts over from now (``agentail tokens forget``) instead of from the agents'
+        files."""
         with self.db:
             self.db.execute("DELETE FROM responses")
-            self.db.execute("DELETE FROM cursors")
-        self.db.execute("VACUUM")
+            if not keep_cursors:
+                self.db.execute("DELETE FROM cursors")
+        with contextlib.suppress(sqlite3.OperationalError):  # busy: the space is reused anyway
+            self.db.execute("VACUUM")
 
     # -- reading --
 

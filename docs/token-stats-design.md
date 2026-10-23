@@ -218,9 +218,13 @@ agentail tokens --by session --days 7 # 最耗 token 的 20 个对话:项目、�
 agentail tokens --by model
 agentail tokens --by host             # local / gpu7·gpu8(共享 HOME 的服务器合并显示)
 agentail tokens --agent codex --json
+agentail tokens on|off|status [--servers]   # [tokens] enabled / servers
+agentail tokens forget [--yes]              # 删掉全部记录(要确认)
 ```
 
-`agentail status` 末尾加一行今日合计。AppIndicator 菜单加一行「Tokens today: Claude out 2.3M · Codex out 175」。`doctor` 加一项:本机最近一次扫描的时间,以及每台服务器最近一次成功的时间。
+报表直接只读打开 `tokens.sqlite`,daemon 没运行也能用。表格列:输入、缓存写、缓存读、输出、其中思考;数字右对齐,格式和面板相同(k / M / B,三位有效数字)。每种分组末尾按 agent 加一行 `total`(按对话分组除外);按对话分组按总量从大到小,默认只列 20 个。
+
+`agentail status` 末尾加一节 TOKENS TODAY(今日合计,按 agent),`agentail tail` 在收到 `tokens_update` 时打印一行今日输出量。AppIndicator 菜单加一行「Tokens today: Claude out 2.3M · Codex out 175」。`doctor` 加一项:本机最近一次扫描的时间,以及每台服务器最近一次成功的时间。
 
 ### 7.4 设置页
 
@@ -233,7 +237,7 @@ servers = true     # false:不 ssh 去服务器扫描
 keep_days = 400
 ```
 
-关闭 `enabled` 不删除 `tokens.sqlite`。另外提供 `agentail tokens --forget`(要确认)用来删掉全部记录。
+关闭 `enabled` 不删除 `tokens.sqlite`。另外提供 `agentail tokens forget`(要确认)用来删掉全部记录:它保留扫描游标,所以已经读过的会话文件不会被重新计入,统计从此刻重新开始。
 
 ---
 
@@ -253,7 +257,7 @@ keep_days = 400
 1. ✅ `resources/agentail-tokens.py` 扫描器 + 测试(2026-10-23,`tests/test_tokens_scanner.py`;本机真实数据只读试跑:5335 次响应,首次全量 0.88 秒含解压,增量 2 毫秒,回答约 800 KB)。
 2. ✅ `daemon/tokens.py`:`TokenStore`(sqlite、upsert、汇总、天和周、清理)(2026-10-23,`tests/test_tokens_store.py`)。入库前校验:agent 只认 claude / codex,id 和模型名走白名单(`<synthetic>` 之类变成空),项目名去掉控制字符和双向控制符,时间早于 2020 年或超前一天以上、计数为负或超过 10¹⁰、思考多于输出的记录整条丢弃。文件坏了就改名为 `tokens.sqlite.broken-<时间>` 重新开始;新版本写的文件(schema 更高)不动,token 统计关闭。本机真实数据试跑:5347 条全部通过校验,写入 0.04 秒。
 3. ✅ daemon 接入:本机调度、服务器调度(`RemoteSchedule`、`home_id` 分组)、`tokens` 快照与 `tokens_update`、`config.load_token_switches` / `set_token_switches`(2026-10-23,`daemon/token_stats.py`,`tests/test_token_stats.py`;协议已写进 `protocol.md`「Token counts」)。`SETTINGS` 新增 `tokens: {enabled, servers}`。没有 `home_id` 的服务器用 `alias:<别名>` 作 store。daemon 打不开文件(权限、新版本的 schema)时 `TOKENS` 为 null,原因记在日志里(doctor 在第 4 步显示)。本机冒烟测试:启动约 1 秒扫完 5378 条。
-4. CLI `agentail tokens`、`status`、`doctor`。
+4. ✅ CLI `agentail tokens`、`status`、`doctor`(2026-10-23,`tokens_cli.py`,`tests/test_tokens_cli.py`)。doctor 需要的扫描状态放在快照的 `tokens_status` 里(只在快照中,不随增量发送,见 `protocol.md`):本机最近一次成功扫描的时间、保留的记录数、每个 HOME 组最近一次成功的时间和连续失败次数、因为没有 `zstd` 跳过的压缩文件数。
 5. 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n。
 6. AppIndicator 一行。
 7. 文档:`protocol.md`、README、CHANGELOG,以及 `usage.py` 文档字符串里的原则。

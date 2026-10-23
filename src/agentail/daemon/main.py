@@ -341,6 +341,7 @@ class Daemon:
             "settings": self.settings(),
             "approvals": [pending_to_dict(p) for p in self.approvals.pending.values()],
             "tokens": self.tokens.summary(),
+            "tokens_status": self.tokens.status(),
         }
 
     def _publish_tokens(self, summary: dict[str, Any] | None) -> None:

@@ -112,6 +112,22 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     ap.add_argument("action", choices=["on", "off", "status", "wait"])
     ap.add_argument("wait", nargs="*", metavar="AGENT SECONDS", help="with `wait` only")
+    tk = sub.add_parser(
+        "tokens",
+        help="token counts of Claude Code and Codex, here and on the servers",
+        description="Without an action: a report of the counts the daemon kept (default: the "
+        "last 7 days, by day). on|off|status: token stats at all, or with --servers whether the "
+        "servers are scanned too. forget: delete every count kept so far.",
+    )
+    tk.add_argument("action", nargs="?", choices=["on", "off", "status", "forget"])
+    tk.add_argument("--by", choices=["day", "week", "session", "model", "host"], default="day")
+    tk.add_argument("--days", type=int, default=7, help="days back, today included (default 7)")
+    tk.add_argument("--weeks", type=int, default=8, help="with --by week (default 8)")
+    tk.add_argument("--agent", choices=["claude", "codex"])
+    tk.add_argument("--limit", type=int, default=20, help="with --by session (default 20)")
+    tk.add_argument("--json", action="store_true")
+    tk.add_argument("--servers", action="store_true", help="with on|off: the servers' switch")
+    tk.add_argument("--yes", action="store_true", help="with forget: do not ask")
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -225,12 +241,15 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "approvals":
         return _approvals(args.action, args.wait)
+    if args.command == "tokens":
+        return _tokens(args)
     if args.command == "paths":
         print(f"runtime dir : {paths.runtime_dir()}")
         print(f"local socket: {paths.local_sock()}")
         print(f"ui socket   : {paths.ui_sock()}")
         print(f"host sockets: {paths.host_sock_dir()}/<alias>.sock")
         print(f"hosts file  : {paths.hosts_file()}")
+        print(f"token counts: {paths.tokens_file()}")
         print(f"hook script : {paths.agentail_home() / paths.HOOK_FILENAME} (installed copy)")
         return 0
     if args.command == "hook-path":
@@ -279,6 +298,26 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         return run_ui()
     raise AssertionError(f"unhandled command {args.command}")
+
+
+def _tokens(args: argparse.Namespace) -> int:
+    from agentail import tokens_cli
+
+    if args.action in ("on", "off", "status"):
+        return tokens_cli.switches(args.action, args.servers)
+    if args.action == "forget":
+        return tokens_cli.forget(yes=args.yes)
+    if not 1 <= args.days <= 3650 or not 1 <= args.weeks <= 520 or args.limit < 1:
+        print("agentail tokens: --days 1..3650, --weeks 1..520, --limit 1 or more", file=sys.stderr)
+        return 2
+    return tokens_cli.report(
+        by=args.by,
+        days=args.days,
+        weeks=args.weeks,
+        agent=args.agent,
+        limit=args.limit,
+        as_json=args.json,
+    )
 
 
 def _approvals(action: str, rest: list[str]) -> int:

@@ -306,6 +306,20 @@ COUNTS = {"input", "cache_write", "cache_read", "output", "reasoning"}   # integ
   `TOKENS` is `null` while `[tokens] enabled = false` (or when the daemon cannot use its file):
   clients hide their token display.
 
+The snapshot (only the snapshot, never an update) also has `tokens_status`, for `agentail
+doctor`:
+
+```
+TOKENS_STATUS = {"state": "on" | "off" | "error", "detail": "why, for error", "rows": 5378,
+                 "servers_on": true,
+                 "local": {"ok_ts": 1792742400.5 | null, "skipped_zst": 0},
+                 "servers": [{"aliases": ["gpu7", "gpu8"], "ok_ts": ... | null, "failures": 0,
+                              "skipped_zst": 0}]}
+```
+
+`ok_ts` is when the last scan of that store worked; `failures` counts the scans that failed since;
+`skipped_zst` is how many compressed Codex files the last scan could not read (no `zstd` there).
+
 `tokens` in `SETTINGS` is `[tokens] enabled` / `servers` in `config.toml` (both default on;
 re-read while running). `refresh_usage` (the panel was opened) also rescans this computer and
 the servers that are due. Clients before 0.0.7 ignore the new message type and keys.

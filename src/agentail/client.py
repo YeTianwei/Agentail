@@ -237,6 +237,8 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
             )
         lines += ["", "USAGE"] + ["  " + r for r in _table(rows)]
 
+    lines += token_lines(snapshot.get("tokens"))
+
     lines += ["", "SESSIONS"]
     sessions = [s for s in snapshot.get("sessions") or [] if isinstance(s, dict)]
     sessions.sort(key=lambda s: (key_tuple(s.get("key")), -(s.get("last_ts") or 0)))
@@ -259,6 +261,32 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
         )
     lines += ["  " + r for r in _table(rows)]
     return "\n".join(lines)
+
+
+def _counts(raw: Any) -> list[int] | None:
+    """The five counts of a COUNTS record, or None when it is not one."""
+    if not isinstance(raw, dict):
+        return None
+    names = ("input", "cache_write", "cache_read", "output", "reasoning")
+    vals = [raw.get(n) for n in names]
+    if not all(isinstance(v, int) and not isinstance(v, bool) and v >= 0 for v in vals):
+        return None
+    return vals
+
+
+def token_lines(tokens: Any) -> list[str]:
+    """The TOKENS TODAY section of `agentail status` (none while token stats are off)."""
+    from agentail.tokens_cli import COLUMNS, fmt_count
+
+    today = tokens.get("today") if isinstance(tokens, dict) else None
+    rows = [["AGENT", *COLUMNS]]
+    for row in today if isinstance(today, list) else []:
+        counts = _counts(row.get("counts")) if isinstance(row, dict) else None
+        if counts is not None:
+            rows.append([clean(row.get("agent"), 16), *(fmt_count(v) for v in counts)])
+    if len(rows) == 1:
+        return []
+    return ["", "TOKENS TODAY"] + ["  " + r for r in _table(rows)]
 
 
 def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
@@ -288,6 +316,18 @@ def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
         return f"{stamp} usage {clean(u.get('host'))}/{clean(u.get('agent'))}  {clean(text, 100)}"
     if mtype == "usage_remove":
         return f"{stamp} usage {clean(msg.get('host'))}/{clean(msg.get('agent'))} removed"
+    if mtype == "tokens_update":
+        tokens = msg.get("tokens")
+        if not isinstance(tokens, dict):
+            return f"{stamp} tokens: off"
+        from agentail.tokens_cli import fmt_count
+
+        parts = []
+        for row in tokens.get("today") or []:
+            counts = _counts(row.get("counts")) if isinstance(row, dict) else None
+            if counts is not None:
+                parts.append(f"{clean(row.get('agent'), 16)} out {fmt_count(counts[3])}")
+        return f"{stamp} tokens today: " + (" · ".join(parts) or "none")
     if mtype == "host_remove":
         return f"{stamp} host {clean(msg.get('alias'))}: removed"
     if mtype == "host_status" and isinstance(msg.get("host"), dict):

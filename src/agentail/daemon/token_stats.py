@@ -159,6 +159,10 @@ class TokenStats:
         self._keys: frozenset[SessionKey] = frozenset()
         self._day = 0
         self._changed_ts = 0.0  # wall clock of the last change to the counts
+        # Per store, for `agentail doctor`: wall clock of the last scan that worked, and how many
+        # compressed files its last answer skipped (no zstd there).
+        self._ok_ts: dict[str, float] = {}
+        self._skipped: dict[str, int] = {}
 
     # -- configuration -----------------------------------------------------------------
 
@@ -337,8 +341,11 @@ class TokenStats:
                     "budget_s": PAGE_BUDGET_S,
                 }
                 answer = await asyncio.to_thread(module.scan, request, environ)
-                if not self._take(LOCAL_STORE, answer) or not answer["more"]:
+                if not self._take(LOCAL_STORE, answer):
                     return
+                if not answer["more"]:
+                    break
+            self._ok_ts[LOCAL_STORE] = time.time()
         except asyncio.CancelledError:
             raise
         except Exception:  # an unexpected file must never take the daemon down
@@ -364,6 +371,8 @@ class TokenStats:
         group = self._groups.get(store)
         if group is not None:
             group.sched.record_result(ok)
+            if ok:
+                self._ok_ts[store] = time.time()
 
     async def _scan_remote_pages(self, store: str, alias: str) -> bool:
         _, text = self._scanner_module()
@@ -397,11 +406,15 @@ class TokenStats:
             return False
         added = self.db.add(store, answer["records"])
         self.db.set_cursor(store, answer["cursor"])
+        # Recomputed after every scan, not only when this one added rows: the counts may have
+        # changed outside the daemon (`agentail tokens forget`).
+        self._dirty = True
         if added:
-            self._dirty = True
             self._changed_ts = time.time()
         if self.print_events and added:
             print(json.dumps({"tokens": store, "added": added}), flush=True)
+        skipped = answer.get("skipped_zst")
+        self._skipped[store] = skipped if isinstance(skipped, int) else 0
         if answer.get("skipped_zst"):
             log.info(
                 "%s: %d compressed session file(s) skipped (no zstd)", store, answer["skipped_zst"]
@@ -440,6 +453,40 @@ class TokenStats:
             "day_start": day,
             "week_start": week,
             "updated_ts": self._changed_ts or None,
+        }
+
+    def status(self) -> dict[str, Any]:
+        """The ``tokens_status`` record of the snapshot: how the scans are doing, for
+        `agentail doctor`. Not sent in updates."""
+        if not self.switches.enabled:
+            state = "off"
+        elif self.db is None:
+            state = "error"
+        else:
+            state = "on"
+        try:
+            rows = self.db.count() if self.db is not None else 0
+        except Exception:
+            rows = 0
+        servers = [
+            {
+                "aliases": list(group.aliases),
+                "ok_ts": self._ok_ts.get(store),
+                "failures": group.sched.failures,
+                "skipped_zst": self._skipped.get(store, 0),
+            }
+            for store, group in self._groups.items()
+        ]
+        return {
+            "state": state,
+            "detail": self.problem,
+            "rows": rows,
+            "servers_on": self.switches.on_servers,
+            "local": {
+                "ok_ts": self._ok_ts.get(LOCAL_STORE),
+                "skipped_zst": self._skipped.get(LOCAL_STORE, 0),
+            },
+            "servers": servers,
         }
 
     def settings(self) -> dict[str, bool]:

@@ -34,6 +34,7 @@ from agentail.config import (
     UsageSwitches,
     load_approvals_enabled,
     load_hosts,
+    load_token_switches,
     load_usage_switches,
 )
 from agentail.install import gnome, hookjson, service, statusline
@@ -511,6 +512,93 @@ def _usage_api_check(
     return Check(name, WARN, (detail or state) + last, f"journalctl --user -u {service.UNIT}")
 
 
+def token_checks(snapshot: dict[str, Any] | None, now: float | None = None) -> list[Check]:
+    """How the daemon's token scans are doing (daemon/token_stats.py): this computer's last
+    scan, and each server's (servers sharing a $HOME are one line)."""
+    switches = load_token_switches()
+    if not switches.enabled:
+        return [Check("tokens", INFO, "off ([tokens] enabled = false)", "agentail tokens on")]
+    if snapshot is None:
+        return []  # the daemon check already says it is not running
+    now = time.time() if now is None else now
+    status = snapshot.get("tokens_status")
+    if not isinstance(status, dict):
+        return [
+            Check(
+                "tokens",
+                WARN,
+                "the daemon keeps no token counts (an older daemon?)",
+                f"systemctl --user restart {service.UNIT}",
+            )
+        ]
+    if status.get("state") == "error":
+        detail = clean(status.get("detail"), 160) or "cannot use its file"
+        return [Check("tokens", WARN, detail, f"journalctl --user -u {service.UNIT}")]
+    if status.get("state") != "on":
+        return [Check("tokens", INFO, "off in the daemon; it picks up config.toml within seconds")]
+    rows = status.get("rows")
+    kept = f"{rows} response(s) kept" if isinstance(rows, int) else ""
+    local = status.get("local") if isinstance(status.get("local"), dict) else {}
+    ago = _ago(local.get("ok_ts"), now)
+    checks = [
+        Check(
+            "tokens",
+            OK if ago else INFO,
+            f"this computer scanned {ago}; {kept}" if ago else f"no scan finished yet; {kept}",
+        )
+    ]
+    checks += _zst_check("tokens", local)
+    if not status.get("servers_on"):
+        if status.get("servers"):
+            checks.append(
+                Check(
+                    "tokens servers",
+                    INFO,
+                    "off: servers are not scanned",
+                    "agentail tokens on --servers",
+                )
+            )
+        return checks
+    for server in status.get("servers") or []:
+        if not isinstance(server, dict):
+            continue
+        aliases = server.get("aliases") if isinstance(server.get("aliases"), list) else []
+        name = "tokens " + "·".join(clean(a, 32) for a in aliases)
+        ago = _ago(server.get("ok_ts"), now)
+        failures = server.get("failures") if isinstance(server.get("failures"), int) else 0
+        if failures:
+            last = f" (last success {ago})" if ago else ""
+            checks.append(
+                Check(
+                    name,
+                    WARN,
+                    f"the last {failures} scan(s) failed{last}",
+                    "agentail doctor shows whether its tunnel is connected; "
+                    f"journalctl --user -u {service.UNIT}",
+                )
+            )
+        elif ago:
+            checks.append(Check(name, OK, f"scanned {ago}"))
+        else:
+            checks.append(Check(name, INFO, "not scanned yet: waits for the server to connect"))
+        checks += _zst_check(name, server)
+    return checks
+
+
+def _zst_check(name: str, status: dict[str, Any]) -> list[Check]:
+    skipped = status.get("skipped_zst")
+    if not isinstance(skipped, int) or isinstance(skipped, bool) or skipped <= 0:
+        return []
+    return [
+        Check(
+            name,
+            WARN,
+            f"{skipped} compressed Codex session file(s) skipped: no zstd command",
+            "sudo apt install zstd",
+        )
+    ]
+
+
 # ---- daemon, service, hosts, extension ----------------------------------------------------
 
 
@@ -679,6 +767,7 @@ def run_checks(
         + local_checks()
         + approvals_checks()
         + usage_api_checks(snap)
+        + token_checks(snap)
         + host_checks(snap)
         + extension_checks(run)
     )
