@@ -263,7 +263,7 @@ def format_status(snapshot: dict[str, Any], now: float | None = None) -> str:
     return "\n".join(lines)
 
 
-def _counts(raw: Any) -> list[int] | None:
+def counts_of(raw: Any) -> list[int] | None:
     """The five counts of a COUNTS record, or None when it is not one."""
     if not isinstance(raw, dict):
         return None
@@ -281,7 +281,7 @@ def token_lines(tokens: Any) -> list[str]:
     today = tokens.get("today") if isinstance(tokens, dict) else None
     rows = [["AGENT", *COLUMNS]]
     for row in today if isinstance(today, list) else []:
-        counts = _counts(row.get("counts")) if isinstance(row, dict) else None
+        counts = counts_of(row.get("counts")) if isinstance(row, dict) else None
         if counts is not None:
             rows.append([clean(row.get("agent"), 16), *(fmt_count(v) for v in counts)])
     if len(rows) == 1:
@@ -324,7 +324,7 @@ def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
 
         parts = []
         for row in tokens.get("today") or []:
-            counts = _counts(row.get("counts")) if isinstance(row, dict) else None
+            counts = counts_of(row.get("counts")) if isinstance(row, dict) else None
             if counts is not None:
                 parts.append(f"{clean(row.get('agent'), 16)} out {fmt_count(counts[3])}")
         return f"{stamp} tokens today: " + (" · ".join(parts) or "none")

@@ -334,3 +334,31 @@ def test_usage_lines_name_the_hosts_of_each_account():
         "Claude Code (gpu7)",
     ]
     assert lines[0].startswith("Claude Code (this computer, gpu8): 5h 25%")  # freshest of the two
+
+
+def test_todays_tokens_in_the_indicator_menu():
+    def counts(output):
+        return {"input": 1, "cache_write": 2, "cache_read": 3, "output": output, "reasoning": 0}
+
+    tokens = {
+        "today": [
+            {"agent": "codex", "counts": counts(175)},
+            {"agent": "claude", "counts": counts(2_566_896)},
+            {"agent": "x\x1b[31m", "counts": {"output": -1}},  # malformed: left out
+        ],
+        "week": [],
+        "sessions": [],
+    }
+    st = model.UiState()
+    st.apply({"type": "snapshot", "sessions": [], "hosts": [], "tokens": tokens})
+    lines = [e.text for e in model.menu_entries(st, 5000.0) if e.kind == "tokens"]
+    assert lines == ["Tokens today: Claude Code out 2.57M · Codex out 175"]
+    # Nothing counted today, or token stats switched off: no line.
+    st.apply({"type": "tokens_update", "tokens": {**tokens, "today": []}})
+    assert not [e for e in model.menu_entries(st, 5000.0) if e.kind == "tokens"]
+    st.apply({"type": "tokens_update", "tokens": tokens})
+    st.apply({"type": "tokens_update", "tokens": None})
+    assert st.tokens is None and model.token_entries(st) == []
+    st.apply({"type": "tokens_update", "tokens": tokens})
+    st.disconnect()
+    assert st.tokens is None

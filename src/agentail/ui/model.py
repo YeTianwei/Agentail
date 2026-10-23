@@ -19,6 +19,7 @@ from agentail import agents
 from agentail.client import (
     age_text,
     clean,
+    counts_of,
     format_usage_windows,
     key_tuple,
     session_detail,
@@ -66,6 +67,7 @@ class UiState:
         self.sessions: dict[Key, dict[str, Any]] = {}
         self.hosts: dict[str, dict[str, Any]] = {}
         self.usage: dict[tuple[str, str], dict[str, Any]] = {}  # (host, agent) -> USAGE
+        self.tokens: dict[str, Any] | None = None  # TOKENS; None while off or not reported
         # Remote hosts that failed and have not connected since -> the last reason. A host
         # retrying goes backoff -> connecting -> backoff ...: it stays down while connecting.
         self.troubled: dict[str, str] = {}
@@ -75,6 +77,7 @@ class UiState:
         self.sessions.clear()
         self.hosts.clear()
         self.usage.clear()
+        self.tokens = None
         self.troubled.clear()
 
     def apply(self, msg: dict[str, Any]) -> dict[str, Any] | None:
@@ -92,6 +95,9 @@ class UiState:
             self.usage = {}
             for u in msg.get("usage") or []:
                 self._set_usage(u)
+            self._set_tokens(msg.get("tokens"))
+        elif mtype == "tokens_update":
+            self._set_tokens(msg.get("tokens"))
         elif mtype == "usage_update":
             self._set_usage(msg.get("usage"))
         elif mtype == "usage_remove":
@@ -120,6 +126,9 @@ class UiState:
             self.troubled[alias] = clean(h.get("detail")) or self.troubled.get(alias, "")
         elif host_state != "connecting":
             self.troubled.pop(alias, None)
+
+    def _set_tokens(self, t: Any) -> None:
+        self.tokens = t if isinstance(t, dict) else None
 
     def _set_usage(self, u: Any) -> None:
         if isinstance(u, dict):
@@ -268,7 +277,7 @@ MENU_TEXT_LIMIT = 110
 
 @dataclass(frozen=True)
 class MenuEntry:
-    kind: str  # summary | host | session | empty | note
+    kind: str  # summary | host | session | ended | empty | note | usage | tokens
     text: str
 
 
@@ -294,7 +303,27 @@ def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
             # The daemon keeps ended sessions for a few minutes; one line is enough here.
             out.append(MenuEntry("ended", f"    {STATUS_MARK['ended']} {ended} ended recently"))
     out += usage_entries(state, now)
+    out += token_entries(state)
     return out
+
+
+def token_entries(state: UiState) -> list[MenuEntry]:
+    """One line with today's output per agent, e.g. "Tokens today: Claude Code out 2.57M ·
+    Codex out 175" (``agentail tokens`` has the rest); none while token stats are off or
+    nothing was counted today."""
+    from agentail.tokens_cli import fmt_count
+
+    today = state.tokens.get("today") if state.tokens else None
+    parts: dict[str, int] = {}
+    for row in today if isinstance(today, list) else []:
+        counts = counts_of(row.get("counts")) if isinstance(row, dict) else None
+        if counts is not None:
+            parts[clean(row.get("agent"), 20)] = counts[3]
+    if not parts:
+        return []
+    order = sorted(parts, key=lambda a: (a not in AGENT_NAME, a))  # as the Usage lines
+    text = " · ".join(f"{AGENT_NAME.get(a, a)} out {fmt_count(parts[a])}" for a in order)
+    return [MenuEntry("tokens", clean(f"Tokens today: {text}", MENU_TEXT_LIMIT))]
 
 
 def usage_entries(state: UiState, now: float) -> list[MenuEntry]:
