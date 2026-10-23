@@ -319,7 +319,8 @@ async def test_daemon_asks_a_servers_codex_after_a_stop_and_on_panel_open(
                 break
             await asyncio.sleep(0.05)
         assert log.read_text().count("app-server") == 2  # opening the panel asks again
-        assert fake_ssh.calls("gpu2") == []  # not set up for Codex: never asked
+        # not set up for Codex: never asked (the token scan may still visit it for Claude)
+        assert not [c for c in fake_ssh.calls("gpu2") if "app-server" in c[-1]]
         w.close()
     finally:
         d.stop()

@@ -297,6 +297,70 @@ def set_notify_switches(
     _write_doc(path, doc)
 
 
+MIN_KEEP_DAYS, MAX_KEEP_DAYS = 7, 3650
+
+
+@dataclass(frozen=True)
+class TokenSwitches:
+    """``[tokens]`` in config.toml (docs/token-stats-design.md §7.4).
+
+    ``enabled`` (default on): the daemon reads the agents' session files for their token
+    counts. Off, nothing is scanned or shown; the counts kept so far stay on disk.
+    ``servers`` (default on): it also runs the scanner on each server over ssh.
+    ``keep_days`` (default 400, 7..3650): older responses are dropped.
+
+        [tokens]
+        enabled = true
+        servers = true
+        keep_days = 400
+    """
+
+    enabled: bool = True
+    servers: bool = True
+    keep_days: int = 400
+
+    @property
+    def on_servers(self) -> bool:
+        return self.enabled and self.servers
+
+
+def load_token_switches(path: Path | None = None) -> TokenSwitches:
+    """Only ``false`` turns a switch off; a ``keep_days`` that is not a whole number in range
+    keeps the default; anything unreadable keeps every default."""
+    path = path or paths.settings_file()
+    try:
+        with path.open("rb") as fh:
+            section = tomllib.load(fh).get("tokens", {})
+    except (OSError, tomllib.TOMLDecodeError):
+        return TokenSwitches()
+    if not isinstance(section, dict):
+        return TokenSwitches()
+    keep = section.get("keep_days")
+    ok = isinstance(keep, int) and not isinstance(keep, bool)
+    return TokenSwitches(
+        enabled=section.get("enabled") is not False,
+        servers=section.get("servers") is not False,
+        keep_days=keep if ok and MIN_KEEP_DAYS <= keep <= MAX_KEEP_DAYS else 400,
+    )
+
+
+def set_token_switches(
+    path: Path | None = None, *, enabled: bool | None = None, servers: bool | None = None
+) -> None:
+    """Write ``[tokens] enabled`` / ``servers``; None leaves that key alone. The rest of
+    config.toml is kept."""
+    path = path or paths.settings_file()
+    doc = _load_doc(path)
+    section = doc.get("tokens")
+    if section is None:
+        section = tomlkit.table()
+        doc.append("tokens", section)
+    for key, value in (("enabled", enabled), ("servers", servers)):
+        if value is not None:
+            section[key] = value
+    _write_doc(path, doc)
+
+
 def load_approvals_enabled(path: Path | None = None) -> bool:
     """``[approvals] enabled`` in config.toml: whether the daemon may hold an agent's permission
     request for the panel to answer (docs/protocol.md, "Approvals"). Off unless it is exactly

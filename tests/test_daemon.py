@@ -389,6 +389,7 @@ async def test_switched_off_notifications_are_not_sent(runtime_env):
             "notifications": on,
             "approvals": False,
             "approval_wait_s": {"claude": 120, "codex": 30},
+            "tokens": {"enabled": True, "servers": True},
         }
         assert msg == {"type": "settings", "settings": want_settings}
         assert (await turn("b"))["kind"] == "turn_done"

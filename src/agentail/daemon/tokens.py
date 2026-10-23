@@ -47,7 +47,8 @@ MAX_PROJECT = 64
 _ID_RE = re.compile(r"^[A-Za-z0-9._:#@-]{1,128}$")
 # claude-opus-5-5, gpt-6.1-sol, claude-sonnet-5-5[1m]; not "<synthetic>".
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+\[\]-]{0,63}$")
-_STORE_RE = re.compile(r"^(local|home:[A-Za-z0-9._-]{1,64})$")
+# local; home:<home_id> for a server (add-host); alias:<alias> for one without a home_id.
+_STORE_RE = re.compile(r"^(local|home:[A-Za-z0-9._-]{1,64}|alias:[A-Za-z0-9._@-]{1,64})$")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS responses (

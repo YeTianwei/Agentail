@@ -34,6 +34,7 @@ from agentail.config import (
     load_ignore_cwd,
     load_notify_switches,
     load_retention,
+    load_token_switches,
     load_usage_switches,
 )
 from agentail.daemon import usage_claude_api as claude_api
@@ -48,6 +49,7 @@ from agentail.daemon.codex_appserver import (
 from agentail.daemon.ingest import LOCAL_SOURCE, Listener
 from agentail.daemon.schedule import RemoteSchedule
 from agentail.daemon.state import Change, Retention, SessionKey, Store
+from agentail.daemon.token_stats import TokenStats
 from agentail.daemon.tunnels import TunnelStatus, TunnelSupervisor
 from agentail.daemon.uiapi import UiServer, session_to_dict, usage_to_dict
 from agentail.daemon.usage_codex import read_codex_usage
@@ -179,6 +181,14 @@ class Daemon:
         self.ssh = ssh
         self.tunnel_opts = tunnel_opts or {}  # backoff/ping timings; tests shorten them
         self.hosts_poll = hosts_poll
+        # Token counts from the agents' session files, here and on the servers.
+        self.tokens = TokenStats(
+            publish=self._publish_tokens,
+            sessions=lambda: self.store.sessions.keys(),
+            host_state=lambda alias: self.hosts.get(alias, {}).get("state"),
+            ssh=ssh,
+            print_events=print_events,
+        )
         self.on_started: Callable[[], None] | None = None  # run in a thread once serving
         self.listeners: list[Listener] = []
         self.remotes: dict[str, _RemoteHost] = {}
@@ -219,6 +229,8 @@ class Daemon:
                 self._codex_usage_due or float("inf"), time.monotonic() + CODEX_USAGE_DEBOUNCE_S
             )
         event = adapter.decode(msg, host=source) if adapter else None
+        if event is not None:
+            self.tokens.on_event(source, msg.agent, event.kind)
         if source != LOCAL_SOURCE and msg.agent == "codex":
             sched = self._remote_codex_schedule(source)
             if sched is not None:
@@ -328,7 +340,12 @@ class Daemon:
             "usage_api": {"claude": dict(self.claude_api_status)},
             "settings": self.settings(),
             "approvals": [pending_to_dict(p) for p in self.approvals.pending.values()],
+            "tokens": self.tokens.summary(),
         }
+
+    def _publish_tokens(self, summary: dict[str, Any] | None) -> None:
+        if self.ui is not None:
+            self.ui.broadcast({"type": "tokens_update", "tokens": summary})
 
     def _on_usage(self, reading: UsageReading, full: bool = False) -> None:
         """Store and publish a reading. ``full`` marks a source that knows the plan and
@@ -376,6 +393,7 @@ class Daemon:
             if remote.tunnel is not None:
                 remote.tunnel.retry_now()
         self.request_live_usage()
+        self.tokens.panel_opened()
 
     def dismiss_session(self, key: SessionKey) -> None:
         """A client sent ``dismiss_session``: the user removed a card from the panel."""
@@ -391,6 +409,7 @@ class Daemon:
             "notifications": self.notify.as_dict(),
             "approvals": self._approvals_on,
             "approval_wait_s": self.approval_waits(),
+            "tokens": self.tokens.settings(),
         }
 
     @property
@@ -622,6 +641,11 @@ class Daemon:
                 self._approvals_on = approvals
                 self._approval_waits = waits
                 log.info("notifications %s", notify.as_dict())
+                if self.ui is not None:
+                    self.ui.broadcast({"type": "settings", "settings": self.settings()})
+            token_switches = load_token_switches(path)
+            if token_switches != self.tokens.switches:
+                self.tokens.configure(token_switches)
                 if self.ui is not None:
                     self.ui.broadcast({"type": "settings", "settings": self.settings()})
             switches = load_usage_switches(path)
@@ -931,6 +955,7 @@ class Daemon:
         for alias, host in wanted.items():
             if alias not in self.remotes:
                 await self._start_host(host)
+        self.tokens.set_hosts({alias: r.host for alias, r in self.remotes.items()})
 
     # -- sessions on disk ----------------------------------------------------------
     #
@@ -1045,6 +1070,7 @@ class Daemon:
                     loop.add_signal_handler(sig, self.stop)
             await self._read_codex_usage()
             self._sync_claude_api()
+            self.tokens.tick()  # the first scan of this computer starts now
             self.started.set()
             if self.on_started is not None:
                 asyncio.get_running_loop().run_in_executor(None, self.on_started)
@@ -1057,6 +1083,7 @@ class Daemon:
                     self._sync_claude_api()
                     self._sync_remote_codex()
                     self._sync_remote_claude()
+                    self.tokens.tick()
                     if time.monotonic() >= self._codex_usage_due:
                         await self._read_codex_usage()
                     if time.monotonic() >= next_sweep:
@@ -1078,6 +1105,7 @@ class Daemon:
             self.approvals.withdraw_all()
             self._save_sessions()
             self._save_usage()
+            await self.tokens.close()
             for alias in list(self.remotes):
                 await self._stop_host(alias)
             for listener in self.listeners:
