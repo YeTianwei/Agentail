@@ -135,8 +135,9 @@ export class UiState {
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
         this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
-        this.settings = {usage: null, notifications: null, approvals: null}; // the daemon's SETTINGS; null: not reported
+        this.settings = {usage: null, notifications: null, approvals: null, tokens: null}; // the daemon's SETTINGS; null: not reported
         this.approvals = new Map(); // id -> held permission request (docs/protocol.md, "Approvals")
+        this.tokens = null; // the daemon's TOKENS record, checked (tokensOf); null: off or not reported
         // Remote hosts that failed and have not connected since -> the last reason. A host
         // retrying goes backoff -> connecting -> backoff ...: it stays down while connecting.
         this.troubled = new Map();
@@ -150,7 +151,8 @@ export class UiState {
         this.usage.clear();
         this.usageApi.clear();
         this.approvals.clear();
-        this.settings = {usage: null, notifications: null, approvals: null};
+        this.settings = {usage: null, notifications: null, approvals: null, tokens: null};
+        this.tokens = null;
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -181,6 +183,10 @@ export class UiState {
             this.approvals.clear();
             for (const a of Array.isArray(msg.approvals) ? msg.approvals : [])
                 this._setApproval(a);
+            this.tokens = tokensOf(msg.tokens);
+            break;
+        case 'tokens_update':
+            this.tokens = tokensOf(msg.tokens);
             break;
         case 'settings':
             this._setSettings(msg.settings);
@@ -246,6 +252,9 @@ export class UiState {
             notifications: n && {turn_done: flag(n.turn_done), attention: flag(n.attention), details: flag(n.details)},
             // Since 0.0.6.
             approvals: flag(s.approvals),
+            // Since 0.0.7.
+            tokens: s.tokens && typeof s.tokens === 'object'
+                ? {enabled: flag(s.tokens.enabled), servers: flag(s.tokens.servers)} : null,
         };
     }
 
@@ -430,7 +439,7 @@ export function agentGroups(state, now) {
             .sort((a, b) =>
                 STATUS[statusOf(a)].order - STATUS[statusOf(b)].order ||
                 (b.last_ts || 0) - (a.last_ts || 0))
-            .map(s => ({...card(s, now), approval: approvalOf(state, s, now)}));
+            .map(s => ({...card(s, now), approval: approvalOf(state, s, now), tokens: tokenLine(state, s)}));
         return {agent, name: AGENT_NAME[agent] ?? agent, count: cards.length, cards};
     });
 }
@@ -709,6 +718,110 @@ export function usageCards(state, now) {
     return cards;
 }
 
+// ---- token counts (docs/token-stats-design.md section 7) ----------------------------------
+
+const COUNT_FIELDS = ['input', 'cache_write', 'cache_read', 'output', 'reasoning'];
+const countOk = v => Number.isSafeInteger(v) && v >= 0;
+
+// A COUNTS record with five non-negative integers, else null.
+function countsOf(c) {
+    if (!c || typeof c !== 'object' || !COUNT_FIELDS.every(f => countOk(c[f])))
+        return null;
+    return Object.fromEntries(COUNT_FIELDS.map(f => [f, c[f]]));
+}
+
+function tokenRows(rows) {
+    const out = [];
+    for (const r of Array.isArray(rows) ? rows : []) {
+        const counts = countsOf(r?.counts);
+        if (counts && typeof r.agent === 'string')
+            out.push({agent: clean(r.agent, 20), counts});
+    }
+    return out;
+}
+
+// The parts of a TOKENS record the panel uses, checked; null for anything else (the feature
+// is off, or an older daemon).
+export function tokensOf(t) {
+    if (!t || typeof t !== 'object')
+        return null;
+    const sessions = new Map();
+    for (const e of Array.isArray(t.sessions) ? t.sessions : []) {
+        const counts = countsOf(e?.totals);
+        if (counts)
+            sessions.set(keyString(keyOf(e.key)), counts);
+    }
+    return {today: tokenRows(t.today), week: tokenRows(t.week), sessions};
+}
+
+// 1234 -> "1.23k", 360461887 -> "360M": three significant digits, as `agentail tokens`
+// (agentail.tokens_cli.fmt_count; tests/js/test_model.js uses the same cases).
+export function fmtCount(n) {
+    if (!countOk(n))
+        return '?';
+    if (n < 1000)
+        return String(n);
+    const units = [['k', 1e3], ['M', 1e6], ['B', 1e9], ['T', 1e12]];
+    for (const [unit, size] of units) {
+        const v = n / size;
+        if (v < 999.5 || unit === 'T') {
+            if (v < 9.995)
+                return `${v.toFixed(2)}${unit}`;
+            if (v < 99.95)
+                return `${v.toFixed(1)}${unit}`;
+            return `${v.toFixed(0)}${unit}`;
+        }
+    }
+    return '?';
+}
+
+export const TOKEN_RANGES = ['today', 'week'];
+
+// The Tokens section: one row per agent with its four counts, for today or this week, and a
+// line with the thinking part of the output. Null while there is nothing to show at all.
+export function tokenTotals(state, range) {
+    const t = state.tokens;
+    if (!t || (!t.today.length && !t.week.length))
+        return null;
+    const which = TOKEN_RANGES.includes(range) ? range : 'today';
+    const rows = sortAgents(t[which].map(r => r.agent)).map(agent => {
+        const c = t[which].find(r => r.agent === agent).counts;
+        return {
+            agent,
+            name: AGENT_NAME[agent] ?? agent,
+            cells: [c.input, c.cache_write, c.cache_read, c.output].map(fmtCount),
+            thinking: c.reasoning,
+        };
+    });
+    const thinking = rows.filter(r => r.thinking > 0)
+        .map(r => `${r.name} ${fmtCount(r.thinking)}`).join(' · ');
+    return {
+        range: which,
+        ranges: [
+            {id: 'today', text: _('Today'), on: which === 'today'},
+            {id: 'week', text: _('This week'), on: which === 'week'},
+        ],
+        columns: [_('Input'), _('Cache write'), _('Cache read'), _('Output')],
+        rows,
+        empty: rows.length ? '' : which === 'today' ? _('Nothing yet today.') : _('Nothing yet this week.'),
+        thinking: thinking ? _('Thinking, part of the output: {list}', {list: thinking}) : '',
+    };
+}
+
+// One line on a session card: everything read (fresh input, cache writes and reads) and how
+// much of it came from the cache, then the output. '' while the session has no counts.
+export function tokenLine(state, s) {
+    const c = state.tokens?.sessions.get(keyString(keyOf(s?.key)));
+    if (!c)
+        return '';
+    const read = c.input + c.cache_write + c.cache_read;
+    const output = fmtCount(c.output);
+    if (!read)
+        return _('Out {output}', {output});
+    const cached = Math.round(100 * c.cache_read / read);
+    return _('In {input} ({cached}% cached) · Out {output}', {input: fmtCount(read), cached, output});
+}
+
 // ---- settings: switches the daemon keeps in config.toml ----------------------------------
 //
 // Both are off until the user turns them on (docs/usage-api-design.md section 4). The panel
@@ -732,6 +845,8 @@ function switchValues(state) {
         attention: n?.attention ?? null,
         details: n?.details ?? null,
         approvals: state.settings.approvals,
+        tokens: state.settings.tokens?.enabled ?? null,
+        tokens_servers: state.settings.tokens?.servers ?? null,
     };
 }
 
@@ -804,6 +919,20 @@ export function approvalSettings(state, pending = {}) {
     const actual = switchValues(state);
     const toggle = switchRow(actual, pending, 'approvals', _('Answer permission prompts here'), [], true);
     return {available: actual.approvals !== null, toggle};
+}
+
+// The Token counts group (0.0.7): counting at all, and on the servers too. `available` is false
+// for an older daemon.
+export function tokenSettings(state, pending = {}) {
+    const actual = switchValues(state);
+    const hasServers = [...state.hosts.keys()].some(alias => alias !== 'local');
+    const row = (...args) => switchRow(actual, pending, ...args);
+    const tokens = row('tokens', _('Count tokens'),
+        [_("From Claude Code's and Codex's own session files. The counts stay on this computer.")], true);
+    const servers = row('tokens_servers', _('Servers'),
+        [hasServers ? _('Read over SSH after each turn there.') : _('Read over SSH from the servers you add.')],
+        tokens.on && (hasServers || actual.tokens_servers === true));
+    return {available: actual.tokens !== null, rows: [tokens, servers]};
 }
 
 // Drops the pending choices the daemon now reports (or that no longer differ).

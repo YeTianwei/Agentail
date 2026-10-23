@@ -258,7 +258,7 @@ keep_days = 400
 2. ✅ `daemon/tokens.py`:`TokenStore`(sqlite、upsert、汇总、天和周、清理)(2026-10-23,`tests/test_tokens_store.py`)。入库前校验:agent 只认 claude / codex,id 和模型名走白名单(`<synthetic>` 之类变成空),项目名去掉控制字符和双向控制符,时间早于 2020 年或超前一天以上、计数为负或超过 10¹⁰、思考多于输出的记录整条丢弃。文件坏了就改名为 `tokens.sqlite.broken-<时间>` 重新开始;新版本写的文件(schema 更高)不动,token 统计关闭。本机真实数据试跑:5347 条全部通过校验,写入 0.04 秒。
 3. ✅ daemon 接入:本机调度、服务器调度(`RemoteSchedule`、`home_id` 分组)、`tokens` 快照与 `tokens_update`、`config.load_token_switches` / `set_token_switches`(2026-10-23,`daemon/token_stats.py`,`tests/test_token_stats.py`;协议已写进 `protocol.md`「Token counts」)。`SETTINGS` 新增 `tokens: {enabled, servers}`。没有 `home_id` 的服务器用 `alias:<别名>` 作 store。daemon 打不开文件(权限、新版本的 schema)时 `TOKENS` 为 null,原因记在日志里(doctor 在第 4 步显示)。本机冒烟测试:启动约 1 秒扫完 5378 条。
 4. ✅ CLI `agentail tokens`、`status`、`doctor`(2026-10-23,`tokens_cli.py`,`tests/test_tokens_cli.py`)。doctor 需要的扫描状态放在快照的 `tokens_status` 里(只在快照中,不随增量发送,见 `protocol.md`):本机最近一次成功扫描的时间、保留的记录数、每个 HOME 组最近一次成功的时间和连续失败次数、因为没有 `zstd` 跳过的压缩文件数。
-5. 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n。
+5. ✅ 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n(2026-10-23,`tests/js/test_model.js`、`tests/test_gnome_extension.py`)。在 headless 嵌套 GNOME Shell 46 里截图核对过深色英文、浅色中文、今日 / 本周、设置页;真机桌面待你确认。实现时的调整:思考量不单独占列,表格下方一行「输出中的思考:…」;没有服务器时「服务器」开关仍默认开着,说明改为「从你添加的服务器上通过 SSH 读取」;数字列用固定宽度的 `St.Bin` 右对齐(单行 `St.Label` 不认 `text-align`)。
 6. AppIndicator 一行。
 7. 文档:`protocol.md`、README、CHANGELOG,以及 `usage.py` 文档字符串里的原则。
 

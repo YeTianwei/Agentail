@@ -310,3 +310,16 @@ def test_approval_limits_match_python():
 
     src = (EXT / "model.js").read_text()
     assert re.search(rf"export const APPROVAL_DETAIL_CHARS = {APPROVAL_DETAIL_CHARS};", src)
+
+
+def test_token_switches_run_the_cli():
+    from agentail import cli
+
+    code = _code()
+    for argv in (["tokens", "on"], ["tokens", "off", "--servers"]):
+        cli._build_parser().parse_args(argv)  # the panel's commands exist
+    assert "tokens: ['tokens', value]" in code
+    assert "tokens_servers: ['tokens', value, '--servers']" in code
+    # The panel's numbers are formatted like `agentail tokens`.
+    src = (EXT / "model.js").read_text()
+    assert "export function fmtCount(n)" in src and "999.5" in src and "9.995" in src

@@ -59,10 +59,11 @@ function uiSocketPath() {
     return GLib.build_filenamev([base, 'agentail', 'ui.sock']);
 }
 
-// Panel preferences (theme, language, Usage expanded), kept in ~/.config/agentail/panel.json.
+// Panel preferences (theme, language, Usage and Tokens expanded, the Tokens range), kept in
+// ~/.config/agentail/panel.json.
 // Only this extension writes the file; anything unreadable falls back to the defaults. A null
 // theme or language follows the desktop.
-const PREFS_DEFAULT = {theme: null, language: null, usage_open: true};
+const PREFS_DEFAULT = {theme: null, language: null, usage_open: true, tokens_open: true, tokens_range: 'today'};
 
 function prefsPath() {
     return GLib.build_filenamev([GLib.get_user_config_dir(), 'agentail', 'panel.json']);
@@ -76,6 +77,8 @@ function loadPrefs() {
             theme: data.theme === 'light' || data.theme === 'dark' ? data.theme : null,
             language: LANGUAGES.includes(data.language) ? data.language : null,
             usage_open: data.usage_open !== false,
+            tokens_open: data.tokens_open !== false,
+            tokens_range: M.TOKEN_RANGES.includes(data.tokens_range) ? data.tokens_range : 'today',
         };
     } catch {
         return {...PREFS_DEFAULT};
@@ -194,6 +197,14 @@ class UiClient {
 }
 
 // ---- widgets -----------------------------------------------------------------------
+
+// A column of the Tokens table: a fixed width, the text against its right edge (a single-line
+// St.Label ignores text-align).
+function tokenCell(text, styleClass) {
+    const l = label(text, styleClass);
+    l.x_align = Clutter.ActorAlign.END;
+    return new St.Bin({style_class: 'agentail-tokens-cell', child: l});
+}
 
 function label(text, styleClass, {ellipsize = false, xExpand = false} = {}) {
     const l = new St.Label({
@@ -493,6 +504,9 @@ class AgentailIndicator extends PanelMenu.Button {
         const hint = M.usageHint(st);
         if (usage.length || hint)
             content.add_child(this._usage(usage, hint));
+        const tokens = M.tokenTotals(st, this._prefs.tokens_range);
+        if (tokens)
+            content.add_child(this._tokens(tokens));
 
         const scroll = new St.ScrollView({
             style_class: 'agentail-scroll',
@@ -616,6 +630,7 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         usage.add_child(card);
         page.add_child(usage);
+        page.add_child(this._tokenGroup());
         if (this._settingsError) {
             const err = label(this._settingsError, 'agentail-add-result agentail-add-fail');
             err.clutter_text.line_wrap = true;
@@ -782,6 +797,8 @@ class AgentailIndicator extends PanelMenu.Button {
                 () => this._client.send({type: 'dismiss_session', key})));
         }
         box.add_child(second);
+        if (c.tokens)
+            box.add_child(label(c.tokens, 'agentail-tokens-line', {ellipsize: true}));
 
         if (c.approval) {
             box.add_child(this._approval(c.approval));
@@ -882,6 +899,104 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
+    // Tokens: today or this week, one row per agent with its four counts.
+    _tokens(t) {
+        const box = vbox('agentail-group', {x_expand: true});
+        const open = this._prefs.tokens_open;
+        const head = hbox('agentail-servers-head', {x_expand: true});
+        head.add_child(label(_('Tokens'), 'agentail-section', {xExpand: true}));
+        head.add_child(new St.Icon({
+            icon_name: open ? 'pan-down-symbolic' : 'pan-end-symbolic',
+            icon_size: 14,
+            style_class: 'agentail-chevron',
+        }));
+        const toggle = new St.Button({
+            style_class: 'agentail-servers-toggle',
+            reactive: true,
+            can_focus: true,
+            track_hover: true,
+            x_expand: true,
+            accessible_name: open ? _('Hide tokens') : _('Show tokens'),
+            child: head,
+        });
+        toggle.connect('clicked', () => {
+            this._prefs.tokens_open = !open;
+            savePrefs(this._prefs);
+            this._renderPanel();
+        });
+        box.add_child(toggle);
+        if (!open)
+            return box;
+
+        const card = vbox('agentail-card agentail-tokens', {x_expand: true});
+        const ranges = hbox('agentail-lang-row', {x_expand: true});
+        for (const r of t.ranges) {
+            const text = label(r.text, '');
+            text.x_align = Clutter.ActorAlign.CENTER;
+            const b = new St.Button({
+                style_class: `agentail-btn agentail-btn-lang${r.on ? ' agentail-btn-lang-on' : ''}`,
+                reactive: true,
+                can_focus: true,
+                track_hover: true,
+                x_expand: true,
+                accessible_name: r.text,
+                child: text,
+            });
+            b.connect('clicked', () => {
+                this._prefs.tokens_range = r.id;
+                savePrefs(this._prefs);
+                this._renderPanel();
+            });
+            ranges.add_child(b);
+        }
+        card.add_child(ranges);
+        if (t.empty) {
+            card.add_child(label(t.empty, 'agentail-tokens-note'));
+        } else {
+            const head = hbox('agentail-tokens-row', {x_expand: true});
+            head.add_child(label('', 'agentail-tokens-name', {xExpand: true}));
+            for (const col of t.columns)
+                head.add_child(tokenCell(col, 'agentail-tokens-head'));
+            card.add_child(head);
+            for (const r of t.rows) {
+                const row = hbox('agentail-tokens-row', {x_expand: true});
+                if (KNOWN_AGENTS.includes(r.agent)) {
+                    row.add_child(new St.Icon({
+                        gicon: this._gicon(`agent-${r.agent}.png`),
+                        icon_size: 14,
+                        y_align: Clutter.ActorAlign.CENTER,
+                    }));
+                }
+                row.add_child(label(r.name, 'agentail-tokens-name', {ellipsize: true, xExpand: true}));
+                for (const cell of r.cells)
+                    row.add_child(tokenCell(cell, 'agentail-tokens-number'));
+                card.add_child(row);
+            }
+            if (t.thinking)
+                card.add_child(label(t.thinking, 'agentail-tokens-note', {ellipsize: true}));
+        }
+        box.add_child(card);
+        return box;
+    }
+
+    // Count tokens / on the servers too.
+    _tokenGroup() {
+        const settings = M.tokenSettings(this._state, this._pending);
+        const group = vbox('agentail-group', {x_expand: true});
+        group.add_child(label(_('Token counts'), 'agentail-section'));
+        const card = vbox('agentail-card agentail-settings', {x_expand: true});
+        if (!settings.available) {
+            const off = label(_('The agentail daemon is not running, or is too old for this setting.'),
+                'agentail-add-note');
+            off.clutter_text.line_wrap = true;
+            card.add_child(off);
+        }
+        for (const r of settings.rows)
+            card.add_child(this._switchRow(r));
+        group.add_child(card);
+        return group;
+    }
+
     _usageCard(c) {
         const box = vbox(`agentail-card agentail-usage${c.stale ? ' agentail-card-stale' : ''}`,
             {x_expand: true});
@@ -927,7 +1042,8 @@ class AgentailIndicator extends PanelMenu.Button {
     }
 
     // A switch: `agentail usage on|off`, `agentail usage-api on|off [--servers]`,
-    // `agentail notifications on|off --<kind>` or `agentail approvals on|off`.
+    // `agentail notifications on|off --<kind>`, `agentail approvals on|off` or
+    // `agentail tokens on|off [--servers]`.
     _setSwitch(id, on) {
         const value = on ? 'on' : 'off';
         const argv = {
@@ -938,6 +1054,8 @@ class AgentailIndicator extends PanelMenu.Button {
             attention: ['notifications', value, '--attention'],
             details: ['notifications', value, '--details'],
             approvals: ['approvals', value],
+            tokens: ['tokens', value],
+            tokens_servers: ['tokens', value, '--servers'],
         }[id];
         if (argv)
             this._runSetting(id, on, argv);

@@ -464,7 +464,7 @@ test('settings: the Usage switch', () => {
     st.apply({type: 'settings', settings: {usage: 'yes'}});
     eq([M.usageSettings(st).available, M.usageSettings(st).usage.enabled], [false, false]);
     st.disconnect();
-    eq(st.settings, {usage: null, notifications: null, approvals: null});
+    eq(st.settings, {usage: null, notifications: null, approvals: null, tokens: null});
 });
 
 test('usage: a hint while the Claude query is off and Claude is used', () => {
@@ -681,6 +681,99 @@ test('approvals: settings', () => {
 test('cleanLines keeps line breaks only', () => {
     eq(M.cleanLines('a\r\nb\rc\n\td‮'), 'a\nb\nc\n d?');
     eq(M.cleanLines(null), '');
+});
+
+// ---- token counts ----
+
+const counts = (input, cw, cr, output, reasoning = 0) =>
+    ({input, cache_write: cw, cache_read: cr, output, reasoning});
+const TOKENS = {
+    today: [
+        {agent: 'codex', counts: counts(13467, 0, 51968, 175, 85)},
+        {agent: 'claude', counts: counts(3394, 10385007, 360461887, 2566896, 1297984)},
+        {agent: 'x\u001b', counts: {input: -1}},
+    ],
+    week: [{agent: 'claude', counts: counts(6240, 13056114, 467259852, 3152632, 0)}],
+    sessions: [
+        {key: {host: 'local', agent: 'claude', session_id: 'a'}, totals: counts(224, 509000, 26200000, 145000)},
+        {key: {host: 'gpu1', agent: 'claude', session_id: 'b'}, totals: counts(0, 0, 0, 7)},
+        {key: {host: 'gpu1', agent: 'claude', session_id: 'c'}, totals: counts(1, 2, 3, 4.5)},
+    ],
+    day_start: 0, week_start: 0, updated_ts: null,
+};
+
+test('token counts: the same numbers as agentail tokens', () => {
+    const cases = [[0, '0'], [999, '999'], [1000, '1.00k'], [1234, '1.23k'], [12345, '12.3k'],
+        [123456, '123k'], [999499, '999k'], [999600, '1.00M'], [360461887, '360M'],
+        [2566896, '2.57M'], [1e12, '1.00T']];
+    for (const [n, text] of cases)
+        eq(M.fmtCount(n), text, `${n}`);
+    eq([M.fmtCount(-1), M.fmtCount(1.5), M.fmtCount('7')], ['?', '?', '?']);
+});
+
+test('token counts: the Tokens section', () => {
+    const st = make([]);
+    eq(M.tokenTotals(st, 'today'), null);  // an older daemon
+    st.apply({type: 'tokens_update', tokens: TOKENS});
+    const t = M.tokenTotals(st, 'today');
+    eq(t.ranges.map(r => [r.id, r.on]), [['today', true], ['week', false]]);
+    eq(t.columns, ['Input', 'Cache write', 'Cache read', 'Output']);
+    eq(t.rows.map(r => [r.agent, r.name, r.cells]), [
+        ['claude', 'Claude Code', ['3.39k', '10.4M', '360M', '2.57M']],
+        ['codex', 'Codex', ['13.5k', '0', '52.0k', '175']],
+    ]);  // known agents in order; a malformed row is dropped
+    eq(t.thinking, 'Thinking, part of the output: Claude Code 1.30M · Codex 85');
+    const w = M.tokenTotals(st, 'week');
+    eq([w.range, w.rows.length, w.thinking, w.empty], ['week', 1, '', '']);
+    eq(M.tokenTotals(st, 'nonsense').range, 'today');
+    st.apply({type: 'tokens_update', tokens: {...TOKENS, today: []}});
+    eq(M.tokenTotals(st, 'today').empty, 'Nothing yet today.');
+    st.apply({type: 'tokens_update', tokens: {...TOKENS, today: [], week: []}});
+    eq(M.tokenTotals(st, 'week'), null);  // nothing at all: no section
+    st.apply({type: 'tokens_update', tokens: null});  // switched off
+    eq([st.tokens, M.tokenTotals(st, 'today')], [null, null]);
+});
+
+test('token counts: one line per session card', () => {
+    const st = make([s('local', 'a', 'running'), s('gpu1', 'b', 'waiting_input'),
+        s('gpu1', 'c', 'waiting_input'), s('local', 'd', 'running')]);
+    st.apply({type: 'tokens_update', tokens: TOKENS});
+    const byId = Object.fromEntries(M.agentGroups(st, NOW).flatMap(g => g.cards).map(c => [c.id, c.tokens]));
+    eq(['a', 'b', 'c', 'd'].map(id => byId[id]), ['In 26.7M (98% cached) · Out 145k', 'Out 7', '', '']);
+    I.setLanguage('zh');
+    try {
+        eq(M.agentGroups(st, NOW)[0].cards.find(c => c.id === 'a').tokens, '输入 26.7M（缓存 98%）· 输出 145k');
+        eq(M.tokenTotals(st, 'today').columns, ['输入', '缓存写', '缓存读', '输出']);
+    } finally {
+        I.setLanguage('en');
+    }
+    // A new snapshot replaces the counts; a disconnect forgets them.
+    st.apply({type: 'snapshot', sessions: [], hosts: [], tokens: null});
+    eq(st.tokens, null);
+    st.apply({type: 'tokens_update', tokens: TOKENS});
+    st.disconnect();
+    eq([st.tokens, st.settings.tokens], [null, null]);
+});
+
+test('token counts: settings', () => {
+    const old = make([]);
+    old.apply({type: 'settings', settings: {usage: true, approvals: false}});
+    eq(M.tokenSettings(old).available, false);  // before 0.0.7
+    const st = make([], [host('local', 'local')]);
+    st.apply({type: 'settings', settings: {usage: true, tokens: {enabled: true, servers: true}}});
+    let v = M.tokenSettings(st);
+    eq(v.rows.map(r => [r.id, r.on, r.enabled]), [['tokens', true, true], ['tokens_servers', true, true]]);
+    eq(v.rows[1].notes, ['Read over SSH from the servers you add.']);  // on for the servers to come
+    st.apply({type: 'host_status', host: host('gpu1', 'connected')});
+    st.apply({type: 'settings', settings: {usage: true, tokens: {enabled: true, servers: false}}});
+    v = M.tokenSettings(st);
+    eq([v.rows[1].on, v.rows[1].enabled, v.rows[1].notes], [false, true, ['Read over SSH after each turn there.']]);
+    // Counting switched off in the panel: the servers' switch waits for it.
+    const pending = {tokens: false};
+    v = M.tokenSettings(st, pending);
+    eq([v.rows[0].on, v.rows[0].saving, v.rows[1].enabled], [false, true, false]);
+    st.apply({type: 'settings', settings: {usage: true, tokens: {enabled: false, servers: false}}});
+    eq(M.settlePending(st, pending), {});
 });
 
 for (const [name, fn] of tests) {
