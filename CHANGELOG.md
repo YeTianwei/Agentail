@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Token counts.** How many tokens Claude Code and Codex used, per conversation, day and week, on
+  this computer and on your servers (docs/token-stats-design.md).
+  - The daemon reads the counts the agents write into their own session files, and only what was
+    added since its last look: after a turn ends, when the panel opens, once a minute here. On a
+    server it runs a constant Python 3.6 script over ssh (`python3 -c`, the request on stdin);
+    only ids, model names, the project folder's name and numbers come back. Servers that share a
+    `$HOME` are read once. Responses written over several lines, copied into a resumed session or
+    read twice count once.
+  - Four kinds that do not overlap: input, cache write, cache read, output (and how much of the
+    output was thinking). Codex's input, which includes its cached part, is converted to the same
+    scheme. No prices: these are the agents' numbers, not a bill.
+  - Kept in `~/.local/state/agentail/tokens.sqlite` (0600) for 400 days (`[tokens] keep_days`),
+    longer than Claude Code keeps its own files (30 days by default). The first start reads the
+    history that is still there; compressed Codex files need the `zstd` command.
+  - The panel has a **Tokens** section (today or this week, per agent), one line on each session
+    card ("In 41.0M (99% cached) · Out 177k") and a Token counts group in the settings. The
+    AppIndicator menu has one line with today's output, `agentail status` a TOKENS TODAY section
+    and `agentail tail` a line per update.
+  - `agentail tokens` reports by day, week, session, model or host (`--json` too);
+    `agentail tokens on|off|status [--servers]` switches it (`[tokens] enabled` / `servers`, both
+    on by default); `agentail tokens forget` deletes every count and starts over from now.
+    `agentail doctor` shows this computer's last scan and each server's.
+  - UI protocol: the snapshot's `tokens` and `tokens_status`, the `tokens_update` message and
+    `tokens` in `SETTINGS` (docs/protocol.md, "Token counts").
+
+### Known limitations
+
+- Servers sharing an NFS `$HOME` cannot be told apart: their counts are shown together
+  ("gpu7·gpu8"). Session cards are not affected.
+- After `--resume` or a fork, Claude Code copies earlier responses into the new session's file;
+  they count once, possibly for the new session. Daily and weekly totals are not affected.
+- Codex files from before codex-cli 0.153 have no per-response record; they are counted from its
+  running totals.
+
 ## 0.0.5 — 2026-10-16
 
 A tidier panel: sessions you can clear, settings for notifications and language, servers moved

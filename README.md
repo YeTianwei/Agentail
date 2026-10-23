@@ -45,6 +45,8 @@ Agentail only watches. You still answer agents in their own terminal.
   listening, it returns at once, prints nothing, and never blocks or fails a tool call.
 - 📊 **Usage limits at a glance.** Claude Code's 5-hour and weekly limits and Codex's, with when
   each one resets. Your Claude login is used only if you say yes.
+- 🧮 **Token counts.** How many tokens each conversation, day and week took, per agent and in four
+  kinds (input, cache write, cache read, output), here and on your servers.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
   account, no cloud, no telemetry. Agentail contacts no online service on its own. The one
   exception is the Claude usage query, and only if you turn it on (Codex asks for its own limits).
@@ -114,6 +116,38 @@ back. Agentail never reads `~/.codex/auth.json`.
 A card that has not been updated for 30 minutes is greyed out. A window that has reset since then
 shows no old percentage. Usage is per account, so if your servers use the same account as your
 desktop, one card covers both.
+
+## 🧮 Token counts
+
+The panel's **Tokens** section shows how many tokens Claude Code and Codex used today or this week,
+in four kinds that do not overlap: input, cache write, cache read and output. A line below says
+how much of the output was thinking. Each session card has one line with what that conversation
+read (and how much of it came from the cache) and what it wrote. Most of what an agent reads
+comes from the cache, so the cache read column is by far the largest.
+
+The numbers come from the agents' own session files (`~/.claude/projects`, `~/.codex/sessions`),
+the same ones `claude --resume` uses. The daemon reads only what was added since its last look:
+a few seconds after a turn ends, when you open the panel, and once a minute. A server is read
+after a turn ends there and when you open the panel (at most once a minute), over ssh with a
+short Python script. Nothing is installed there, and only numbers, ids, model names and the
+project folder's name come back, never your prompts or code. Servers that share a `$HOME` are
+read once.
+
+The counts are kept in `~/.local/state/agentail/tokens.sqlite` for 400 days. That is longer than
+the agents keep their own files (Claude Code removes them after 30 days by default), so after the
+first month Agentail has history that is no longer anywhere else. The first start reads
+everything that is still there.
+
+```bash
+agentail tokens                        # the last 7 days, by day
+agentail tokens --by week --weeks 8
+agentail tokens --by session --days 7  # the 20 largest conversations
+agentail tokens --by model             # or --by host; --agent codex; --json
+agentail tokens off                    # or `off --servers`; also in the panel's settings
+agentail tokens forget                 # delete every count, start over from now
+```
+
+These are the numbers the agents wrote down, not a bill. Agentail does not turn them into money.
 
 ## 🤖 Supported
 
@@ -259,6 +293,11 @@ claude_api_servers = false  # true: also with each server's own login, over ssh
 turn_done = true            # false: no notification when it is your turn
 attention = true            # false: none when an agent needs your approval
 details = false             # true: put the prompt and the command into notifications
+
+[tokens]
+enabled = true              # false: read no session files, show no token counts
+servers = true              # false: count only this computer's agents
+keep_days = 400             # older responses are dropped (7 to 3650)
 ```
 
 A session waiting for permission is never removed on a timer.
@@ -269,7 +308,7 @@ token. By default a notification only says which project on which machine is don
 The panel, behind your login, still shows everything. Set `details = true` if your screen is
 private.
 
-`[usage]` and `[notifications]` apply within a few seconds. After changing `[sessions]` or
+`[usage]`, `[notifications]` and `[tokens]` apply within a few seconds. After changing `[sessions]` or
 `[setup]`, restart the daemon with `systemctl --user restart agentail`.
 
 ## 🗄️ What Agentail keeps on disk
@@ -296,6 +335,7 @@ prints the command that fixes each problem.
 | `agentail tail` | live session changes |
 | `agentail usage on\|off\|status` | usage limits in Agentail at all (on by default; also in the panel's settings) |
 | `agentail notifications on\|off\|status [--turn-done\|--attention\|--details]` | desktop notifications: both kinds, one of them, or the prompt and command in them (also in the panel's settings) |
+| `agentail tokens [--by day\|week\|session\|model\|host]` | token counts in the terminal; `tokens on\|off\|status [--servers]` switches them (also in the panel's settings) |
 | `agentail usage-api on\|off\|status [--servers\|--all]` | the Claude usage query with Claude Code's login, this computer's or the servers' switch (both off until turned on; also in the panel's settings) |
 | `journalctl --user -u agentail` | daemon log |
 | `agentail setup` | redo the automatic setup by hand |
@@ -318,7 +358,7 @@ Hooks left behind are harmless. Without the daemon they do nothing.
 Both keep the backups of your agent configs in `~/.agentail/backups/` (on each server too) as a
 last way back, and say so. `~/.agentail` then stays. When you no longer need the backups, run
 `rm -r ~/.agentail` (and the same on each server, unless another Agentail desktop uses it). The
-session and usage files in `~/.local/state/agentail/` and your settings in
+session, usage and token files in `~/.local/state/agentail/` and your settings in
 `~/.config/agentail/` can be removed the same way.
 
 ## 🗺️ Roadmap
@@ -328,6 +368,7 @@ What each release brought is in the [changelog](CHANGELOG.md). Next:
 - **0.0.6**: answer permission prompts from the panel, Claude Code first. It is off until you turn
   it on. Whenever the panel cannot answer (it is not running, the tunnel is down, nobody answers
   in time), the agent asks in its terminal as it does today. Nothing is ever approved for you.
+- **0.0.7**: token counts per conversation, day and week, here and on your servers (above).
 - **Later**: Qwen Code and Gemini CLI, then Cursor and plugin-based agents such as OpenCode.
 
 ## 📄 License

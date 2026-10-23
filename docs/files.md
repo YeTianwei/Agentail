@@ -8,6 +8,7 @@ by you.
 |---|---|---|
 | `~/.local/state/agentail/sessions.json` | the sessions the panel shows, kept across daemon restarts: working directory, prompt preview, current tool and its command or file, the agent's notification text, terminal variables (`TERM`, `TMUX`, …). A session is dropped when the daemon forgets it (see `[sessions]`) | dir 0700, file 0600 |
 | `~/.local/state/agentail/usage.json` | the last usage readings: plan, percentages, reset times, extra usage / credits. No login tokens | 0600 |
+| `~/.local/state/agentail/tokens.sqlite` | token counts of every Claude Code and Codex response seen here and on your servers: response and session ids, time, model, the project folder's name and five numbers. No prompts, no code, no paths. Kept for `[tokens] keep_days` (400); `agentail tokens forget` empties it | 0600 |
 | `~/.local/state/agentail/setup.json` | what the automatic setup has done | 0600 |
 | `~/.config/agentail/config.toml`, `hosts.toml` | your settings; your servers' aliases, socket paths and Python paths | 0600 when Agentail creates them |
 | `~/.config/agentail/desktop-id` | a random id that names this desktop's socket on your servers (`agentail-<id>.sock`), so several desktops can watch one server | 0600 |
@@ -20,7 +21,9 @@ by you.
 | `agentail daemon --record DIR` | for debugging only: every raw hook message (full prompts, commands, file contents) in `DIR/<agent>/<host>.jsonl`. Review before sharing | dirs 0700, files 0600 |
 
 Agentail reads Claude Code's login (`~/.claude/.credentials.json`) for the usage query but never
-writes or copies the token, and never reads `~/.codex/auth.json`.
+writes or copies the token, and never reads `~/.codex/auth.json`. For token counts it reads the
+agents' session files (`~/.claude/projects`, `~/.codex/sessions`, `~/.codex/archived_sessions`,
+here and on your servers) and keeps only the numbers.
 
 **Backups from before 0.0.4** were written next to each config, as
 `settings.json.agentail-bak.<time>`, with the config's own permissions. Agentail no longer

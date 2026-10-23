@@ -3,7 +3,8 @@
 The numbers come from untrusted sources (a hook payload, a file written by another
 program), so everything is coerced to a plain number and clamped before it is kept.
 Only percentages, window lengths, reset times, the plan name and a short window label are
-stored: no token counts, no conversation content. See docs/usage-design.md.
+stored here: no conversation content. Token counts are a separate feature (daemon/tokens.py),
+kept only on this computer. See docs/usage-design.md and docs/token-stats-design.md.
 
 Any agent can report usage this way (Claude, Codex today; Qoder and others once they have a
 source): ``plan`` is the subscription as a short lowercase id (``plus``, ``max_5x``) and a

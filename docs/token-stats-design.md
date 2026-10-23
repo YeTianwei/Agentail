@@ -260,7 +260,7 @@ keep_days = 400
 4. ✅ CLI `agentail tokens`、`status`、`doctor`(2026-10-23,`tokens_cli.py`,`tests/test_tokens_cli.py`)。doctor 需要的扫描状态放在快照的 `tokens_status` 里(只在快照中,不随增量发送,见 `protocol.md`):本机最近一次成功扫描的时间、保留的记录数、每个 HOME 组最近一次成功的时间和连续失败次数、因为没有 `zstd` 跳过的压缩文件数。
 5. ✅ 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n(2026-10-23,`tests/js/test_model.js`、`tests/test_gnome_extension.py`)。在 headless 嵌套 GNOME Shell 46 里截图核对过深色英文、浅色中文、今日 / 本周、设置页;真机桌面待你确认。实现时的调整:思考量不单独占列,表格下方一行「输出中的思考:…」;没有服务器时「服务器」开关仍默认开着,说明改为「从你添加的服务器上通过 SSH 读取」;数字列用固定宽度的 `St.Bin` 右对齐(单行 `St.Label` 不认 `text-align`)。
 6. ✅ AppIndicator 一行(2026-10-23,`ui/model.py` 的 `token_entries`,`tests/test_ui_model.py`):Usage 几行之后加「Tokens today: Claude Code out 2.57M · Codex out 175」;今天没有统计或功能关闭时不显示。菜单本身(GTK)没在桌面上跑过。
-7. 文档:`protocol.md`、README、CHANGELOG,以及 `usage.py` 文档字符串里的原则。
+7. ✅ 文档(2026-10-23):`protocol.md`(第 3、4 步已写)、README 新增「Token counts」一节与配置、排错、卸载、路线图的相应内容,CHANGELOG「Unreleased」,`docs/files.md` 加 `tokens.sqlite`,`usage.py` 文档字符串改为「token 计数是另一项功能,只存在本机」。真机验证步骤见 `PLAN.md`「Token 统计」。
 
 不变量检查:hook 脚本不改;远程命令是固定 argv;不读凭据;不写 agent 文件;不涉及审批。
 
