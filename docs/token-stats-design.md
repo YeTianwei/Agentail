@@ -251,7 +251,7 @@ keep_days = 400
 ## 9. 实现分解(每步一个 PR)
 
 1. ✅ `resources/agentail-tokens.py` 扫描器 + 测试(2026-10-23,`tests/test_tokens_scanner.py`;本机真实数据只读试跑:5335 次响应,首次全量 0.88 秒含解压,增量 2 毫秒,回答约 800 KB)。
-2. `daemon/tokens.py`:`TokenStore`(sqlite、upsert、汇总、天和周、清理)。
+2. ✅ `daemon/tokens.py`:`TokenStore`(sqlite、upsert、汇总、天和周、清理)(2026-10-23,`tests/test_tokens_store.py`)。入库前校验:agent 只认 claude / codex,id 和模型名走白名单(`<synthetic>` 之类变成空),项目名去掉控制字符和双向控制符,时间早于 2020 年或超前一天以上、计数为负或超过 10¹⁰、思考多于输出的记录整条丢弃。文件坏了就改名为 `tokens.sqlite.broken-<时间>` 重新开始;新版本写的文件(schema 更高)不动,token 统计关闭。本机真实数据试跑:5347 条全部通过校验,写入 0.04 秒。
 3. daemon 接入:本机调度、服务器调度(`RemoteSchedule`、`home_id` 分组)、`tokens` 快照与 `tokens_update`、`config.load_tokens_switches`。
 4. CLI `agentail tokens`、`status`、`doctor`。
 5. 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n。

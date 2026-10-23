@@ -112,6 +112,11 @@ def usage_file() -> Path:
     return state_dir() / "usage.json"
 
 
+def tokens_file() -> Path:
+    """Token counts of every agent response seen here and on the servers (sqlite, 0600)."""
+    return state_dir() / "tokens.sqlite"
+
+
 def agentail_home() -> Path:
     """~/.agentail on this machine: the installed hook script and install manifests."""
     return Path.home() / f".{APP}"
