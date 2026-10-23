@@ -187,3 +187,12 @@ def expand_sock(sock: str, uid: int) -> str:
 
 def hook_script_source() -> Path:
     return Path(__file__).parent / "resources" / HOOK_FILENAME
+
+
+TOKENS_SCANNER_FILENAME = "agentail-tokens.py"
+
+
+def tokens_scanner_source() -> Path:
+    """The token scanner (docs/token-stats-design.md §4): run in-process here, and with
+    ``python3 -c`` on the servers, so it follows the hook script's Python 3.6 rules."""
+    return Path(__file__).parent / "resources" / TOKENS_SCANNER_FILENAME

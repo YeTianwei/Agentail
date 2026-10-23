@@ -408,6 +408,12 @@ $A doctor                                   # claude / codex hooks ✓,approvals
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
 
+### Token 统计(0.0.6 之后,暂定 0.0.7)
+
+**范围**(2026-10-23 你决定):Claude Code 和 Codex 的 token 消耗,按对话、按天、按周;本机和服务器一起做;只显示分类 token(输入 / 缓存写 / 缓存读 / 输出),不算费用。0.0.2 的「不存 token 计数」改为「只存在本机」。
+
+调研见 `docs/token-stats-notes.md`,设计见 `docs/token-stats-design.md`(实现分解在其 §9;默认值见 §1:默认开启、自动回填、周一开始、保留 400 天)。要点:daemon 增量读会话文件(hook 脚本不改),一份 Python 3.6 扫描器本机和服务器共用(服务器经 ssh 运行,只回传数字),按响应 id 去重后存进 `tokens.sqlite`;共享 NFS HOME 的服务器按 `home_id` 只扫一次。
+
 ---
 
 ## 4. v1 之后(不在当前范围)
