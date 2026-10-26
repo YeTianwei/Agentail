@@ -464,7 +464,7 @@ test('settings: the Usage switch', () => {
     st.apply({type: 'settings', settings: {usage: 'yes'}});
     eq([M.usageSettings(st).available, M.usageSettings(st).usage.enabled], [false, false]);
     st.disconnect();
-    eq(st.settings, {usage: null, notifications: null, approvals: null, approvalWait: null});
+    eq(st.settings, {usage: null, notifications: null, approvals: null});
 });
 
 test('usage: a hint while the Claude query is off and Claude is used', () => {
@@ -651,8 +651,7 @@ test('approvals: shown on their session card, in full', () => {
     // Every line, nothing cut, escapes neutralised.
     eq(a.detail, `cat <<EOF\n${long}\n?[31mEOF`);
     eq([a.id, a.tool, a.description, a.leftText, a.sent], [ID, 'Bash', 'Remove the build directory', '43s left', null]);
-    eq(a.after, 'You can also answer it in the terminal.');
-    eq(byId.b.approval.after, 'Then Codex asks in its terminal.');
+    eq(byId.b.approval.leftText, '43s left');
     eq(byId.c.approval, null);
     // Clicked: no buttons until the daemon removes it.
     st.markSent(ID, 'allow');
@@ -667,23 +666,15 @@ test('approvals: settings', () => {
     eq(M.approvalSettings(old).available, false);  // a 0.0.5 daemon
     eq(M.approvalSettings(old).toggle.enabled, false);
     const st = make([]);
-    st.apply({type: 'settings', settings: {usage: true, approvals: false, approval_wait_s: {claude: 120, codex: 30, x: 'no'}}});
-    eq(st.settings.approvalWait, {claude: 120, codex: 30});
+    st.apply({type: 'settings', settings: {usage: true, approvals: false, approval_wait_s: {claude: 120, codex: 30}}});
     let v = M.approvalSettings(st);
-    eq([v.available, v.toggle.id, v.toggle.on, v.toggle.enabled, v.wait.enabled], [true, 'approvals', false, true, false]);
-    // Switched on in the panel: shown at once as saving, the wait choices with it.
-    let pending = {approvals: true};
+    eq([v.available, v.toggle.id, v.toggle.on, v.toggle.enabled], [true, 'approvals', false, true]);
+    // Switched on in the panel: shown at once as saving.
+    const pending = {approvals: true};
     v = M.approvalSettings(st, pending);
-    eq([v.toggle.on, v.toggle.saving, v.wait.enabled], [true, true, true]);
-    eq(v.wait.choices.map(c => [c.value, c.on]), [[10, false], [20, false], [30, true], [60, false]]);
+    eq([v.toggle.on, v.toggle.saving], [true, true]);
+    eq(M.settlePending(st, pending), {approvals: true});
     st.apply({type: 'settings', settings: {usage: true, approvals: true, approval_wait_s: {claude: 120, codex: 30}}});
-    pending = M.settlePending(st, pending);
-    eq(pending, {});
-    pending = {wait_codex: 10};
-    v = M.approvalSettings(st, pending);
-    eq([v.wait.saving, v.wait.choices.find(c => c.on).value], [true, 10]);
-    eq(M.settlePending(st, pending), {wait_codex: 10});
-    st.apply({type: 'settings', settings: {usage: true, approvals: true, approval_wait_s: {claude: 120, codex: 10}}});
     eq(M.settlePending(st, pending), {});
 });
 

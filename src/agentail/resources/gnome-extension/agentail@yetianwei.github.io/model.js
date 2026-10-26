@@ -60,8 +60,6 @@ export const NOTIFY_INTERVAL_S = 10;
 export const APPROVAL_DETAIL_CHARS = 4096;
 // After this long without input the panel tells the daemon nobody can answer here.
 export const READY_IDLE_S = 300;
-// The choices offered for how long a Codex request waits (the hook gives up at 60 s).
-export const CODEX_WAIT_CHOICES = [10, 20, 30, 60];
 const APPROVAL_ID = /^[0-9a-f]{32}$/;
 export const USAGE_STALE_S = 30 * 60;
 export const USAGE_WARN = 70;
@@ -137,7 +135,7 @@ export class UiState {
         this.hosts = new Map(); // alias -> host, in daemon order
         this.usage = new Map(); // host/agent -> subscription usage reading
         this.usageApi = new Map(); // agent -> {state, servers, okTs} of the daemon's usage query
-        this.settings = {usage: null, notifications: null, approvals: null, approvalWait: null}; // the daemon's SETTINGS; null: not reported
+        this.settings = {usage: null, notifications: null, approvals: null}; // the daemon's SETTINGS; null: not reported
         this.approvals = new Map(); // id -> held permission request (docs/protocol.md, "Approvals")
         // Remote hosts that failed and have not connected since -> the last reason. A host
         // retrying goes backoff -> connecting -> backoff ...: it stays down while connecting.
@@ -152,7 +150,7 @@ export class UiState {
         this.usage.clear();
         this.usageApi.clear();
         this.approvals.clear();
-        this.settings = {usage: null, notifications: null, approvals: null, approvalWait: null};
+        this.settings = {usage: null, notifications: null, approvals: null};
     }
 
     // Update from one message. Returns the message if it asks for a notification.
@@ -242,15 +240,12 @@ export class UiState {
         const s = settings && typeof settings === 'object' ? settings : {};
         const n = s.notifications && typeof s.notifications === 'object' ? s.notifications : null;
         const flag = v => typeof v === 'boolean' ? v : null;
-        const waits = s.approval_wait_s && typeof s.approval_wait_s === 'object' ? s.approval_wait_s : null;
         this.settings = {
             usage: flag(s.usage),
             // Since 0.0.5; null from an older daemon.
             notifications: n && {turn_done: flag(n.turn_done), attention: flag(n.attention), details: flag(n.details)},
             // Since 0.0.6.
             approvals: flag(s.approvals),
-            approvalWait: waits && Object.fromEntries(Object.entries(waits)
-                .filter(([, v]) => Number.isInteger(v) && v > 0).map(([k, v]) => [clean(k, 20), v])),
         };
     }
 
@@ -366,7 +361,6 @@ export function approvalOf(state, s, now) {
     }
     if (!found)
         return null;
-    const agent = keyOf(s.key)[1];
     const left = Math.max(0, Math.ceil(found.expiresTs - now));
     return {
         id: found.id,
@@ -375,9 +369,6 @@ export function approvalOf(state, s, now) {
         description: found.description,
         sent: found.sent,
         leftText: found.sent ? _('Sending…') : _('{n}s left', {n: left}),
-        // Claude Code keeps its own prompt open meanwhile; Codex shows it only afterwards.
-        after: agent === 'codex' ? _('Then Codex asks in its terminal.')
-            : _('You can also answer it in the terminal.'),
     };
 }
 
@@ -741,7 +732,6 @@ function switchValues(state) {
         attention: n?.attention ?? null,
         details: n?.details ?? null,
         approvals: state.settings.approvals,
-        wait_codex: state.settings.approvalWait?.codex ?? null,
     };
 }
 
@@ -808,26 +798,12 @@ export function usageSettings(state, pending = {}, now = 0) {
     };
 }
 
-// The Approvals group (0.0.6): the switch, and how long a Codex request waits for you (Codex
-// shows its own prompt only after that). `available` is false for an older daemon.
+// The Approvals group (0.0.6): the switch. How long a request waits is set with
+// `agentail approvals wait`, not here. `available` is false for an older daemon.
 export function approvalSettings(state, pending = {}) {
     const actual = switchValues(state);
-    const toggle = switchRow(actual, pending, 'approvals', _('Answer permission prompts here'),
-        [_('Claude Code and Codex. Only while you are at this computer: not while the screen is locked or after 5 minutes away.')],
-        true);
-    const want = Number.isInteger(pending.wait_codex) ? pending.wait_codex : null;
-    const current = want ?? actual.wait_codex;
-    return {
-        available: actual.approvals !== null,
-        toggle,
-        wait: {
-            title: _('How long Codex waits for you'),
-            note: _('Codex shows its own prompt only after this.'),
-            enabled: toggle.on && actual.wait_codex !== null,
-            saving: want !== null && want !== actual.wait_codex,
-            choices: CODEX_WAIT_CHOICES.map(n => ({value: n, text: _('{n} s', {n}), on: n === current})),
-        },
-    };
+    const toggle = switchRow(actual, pending, 'approvals', _('Answer permission prompts here'), [], true);
+    return {available: actual.approvals !== null, toggle};
 }
 
 // Drops the pending choices the daemon now reports (or that no longer differ).
@@ -835,7 +811,7 @@ export function settlePending(state, pending) {
     const actual = switchValues(state);
     const out = {};
     for (const [id, want] of Object.entries(pending)) {
-        if ((typeof want === 'boolean' || Number.isInteger(want)) && actual[id] !== want)
+        if (typeof want === 'boolean' && actual[id] !== want)
             out[id] = want;
     }
     return out;

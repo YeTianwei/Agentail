@@ -192,17 +192,10 @@ export const ZH = {
     '{project} is done': '{project} 已完成',
     '{agent} wants to run {tool}: {detail}': '{agent} 想运行 {tool}：{detail}',
     // approvals
-    'Allow': '批准',
-    'Deny': '拒绝',
+    'Yes': '是',
+    'No': '否',
     'Sending…': '正在发送…',
     '{n}s left': '还剩 {n} 秒',
-    'Then Codex asks in its terminal.': '之后 Codex 会在终端里询问。',
-    'You can also answer it in the terminal.': '也可以在终端里回答。',
     'Approvals': '审批',
     'Answer permission prompts here': '在这里处理授权请求',
-    'Claude Code and Codex. Only while you are at this computer: not while the screen is locked or after 5 minutes away.':
-        '适用于 Claude Code 和 Codex。只在你坐在这台电脑前时生效：锁屏时、离开 5 分钟后都不会在这里等你。',
-    'How long Codex waits for you': 'Codex 等你多久',
-    'Codex shows its own prompt only after this.': '超过这个时间，Codex 才会在终端里显示自己的提示。',
-    '{n} s': '{n} 秒',
 };

@@ -671,7 +671,7 @@ class AgentailIndicator extends PanelMenu.Button {
         return group;
     }
 
-    // Answer permission prompts here: the switch, then how long a Codex request waits.
+    // Answer permission prompts here: the switch.
     _approvalGroup() {
         const settings = M.approvalSettings(this._state, this._pending);
         const group = vbox('agentail-group', {x_expand: true});
@@ -684,36 +684,6 @@ class AgentailIndicator extends PanelMenu.Button {
             card.add_child(off);
         }
         card.add_child(this._switchRow(settings.toggle));
-        if (settings.toggle.on) {
-            const w = settings.wait;
-            card.add_child(new St.Widget({style_class: 'agentail-settings-divider', x_expand: true}));
-            const sub = vbox('agentail-settings-sub', {x_expand: true});
-            sub.add_child(label(w.title, 'agentail-settings-subtitle'));
-            const note = label(w.saving ? _('Saving…') : w.note, 'agentail-add-note agentail-settings-intro');
-            note.clutter_text.line_wrap = true;
-            sub.add_child(note);
-            const row = hbox('agentail-lang-row', {x_expand: true});
-            for (const choice of w.choices) {
-                const text = label(choice.text, '');
-                text.x_align = Clutter.ActorAlign.CENTER;
-                const b = new St.Button({
-                    style_class: `agentail-btn agentail-btn-lang${choice.on ? ' agentail-btn-lang-on' : ''}`,
-                    reactive: w.enabled,
-                    can_focus: w.enabled,
-                    track_hover: w.enabled,
-                    x_expand: true,
-                    accessible_name: choice.text,
-                    child: text,
-                });
-                if (!w.enabled)
-                    b.opacity = 128;
-                b.connect('clicked', () => this._runSetting('wait_codex', choice.value,
-                    ['approvals', 'wait', 'codex', String(choice.value)]));
-                row.add_child(b);
-            }
-            sub.add_child(row);
-            card.add_child(sub);
-        }
         group.add_child(card);
         return group;
     }
@@ -826,7 +796,7 @@ class AgentailIndicator extends PanelMenu.Button {
     }
 
     // A request held for the panel: the whole command (wrapped, never cut: the user must see
-    // all of what they allow), the agent's reason, then Allow / Deny and the time left.
+    // all of what they allow), the agent's reason, then Yes / No and the time left.
     _approval(a) {
         const box = vbox('agentail-approval', {x_expand: true});
         const cmd = label(a.detail, 'agentail-command agentail-approval-command');
@@ -840,14 +810,11 @@ class AgentailIndicator extends PanelMenu.Button {
         }
         const row = hbox('agentail-approval-row', {x_expand: true});
         if (!a.sent) {
-            row.add_child(this._decisionButton(_('Allow'), 'agentail-btn-allow', a.id, 'allow'));
-            row.add_child(this._decisionButton(_('Deny'), 'agentail-btn-deny', a.id, 'deny'));
+            row.add_child(this._decisionButton(_('Yes'), 'agentail-btn-allow', a.id, 'allow'));
+            row.add_child(this._decisionButton(_('No'), 'agentail-btn-deny', a.id, 'deny'));
         }
         row.add_child(label(a.leftText, 'agentail-approval-left', {xExpand: true}));
         box.add_child(row);
-        const after = label(a.after, 'agentail-hint');
-        after.clutter_text.line_wrap = true;
-        box.add_child(after);
         return box;
     }
 

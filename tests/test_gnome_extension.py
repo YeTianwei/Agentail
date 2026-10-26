@@ -270,7 +270,7 @@ def test_extension_spawns_only_argv_lists():
 
 
 def test_only_a_click_answers_a_permission_request():
-    """No keyboard focus on Allow / Deny (Enter must never approve), nothing else sends a
+    """No keyboard focus on Yes / No (Enter must never approve), nothing else sends a
     decision, and the panel does not open itself for a request."""
     code = _code()
     button = _block(code, "_decisionButton(text, styleClass, id, decision) {")
@@ -302,13 +302,7 @@ def test_ready_follows_lock_and_idle_and_is_cleaned_up():
 def test_approval_settings_run_the_cli():
     code = _code()
     assert "approvals: ['approvals', value]" in code
-    assert "['approvals', 'wait', 'codex', String(choice.value)]" in code
-    # The choices fit under the hook's own cap for Codex.
-    src = (EXT / "model.js").read_text()
-    choices = re.search(r"export const CODEX_WAIT_CHOICES = \[([\d, ]+)\];", src).group(1)
-    cap = agents.get("codex").approval_timeout_s
-    assert all(5 <= int(n) <= cap for n in choices.split(","))
-    assert f"{agents.get('codex').approval_wait_s}" in choices.split(", ")  # the default is one
+    assert "'wait'" not in code  # how long a request waits: CLI only
 
 
 def test_approval_limits_match_python():
