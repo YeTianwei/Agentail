@@ -352,7 +352,8 @@ def test_todays_tokens_in_the_indicator_menu():
     st = model.UiState()
     st.apply({"type": "snapshot", "sessions": [], "hosts": [], "tokens": tokens})
     lines = [e.text for e in model.menu_entries(st, 5000.0) if e.kind == "tokens"]
-    assert lines == ["Tokens today: Claude Code out 2.57M · Codex out 175"]
+    # everything read and written: 1 + 2 + 3 + the output
+    assert lines == ["Tokens today: Claude Code 2.57M · Codex 181"]
     # Nothing counted today, or token stats switched off: no line.
     st.apply({"type": "tokens_update", "tokens": {**tokens, "today": []}})
     assert not [e for e in model.menu_entries(st, 5000.0) if e.kind == "tokens"]

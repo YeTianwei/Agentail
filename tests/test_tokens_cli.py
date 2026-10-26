@@ -87,9 +87,10 @@ def test_format_report():
     labels = {"local": "local", "home:h": "gpu7·gpu8"}
     text = tokens_cli.format_report(tokens_cli.group(_rows(), "day", labels, SH), "day", SH)
     lines = text.splitlines()
-    assert lines[0].split() == ["DATE", "AGENT", "INPUT", "CACHE", "WRITE", "CACHE", "READ",
-                                "OUTPUT", "THINKING"]  # fmt: skip
-    assert lines[1].split() == ["2026-10-21", "claude", "6", "200", "2.00k", "80", "8"]
+    assert lines[0].split() == ["DATE", "AGENT", "TOTAL", "INPUT", "CACHE", "WRITE", "CACHE",
+                                "READ", "OUTPUT", "THINKING"]  # fmt: skip
+    # TOTAL: everything read and written (6 + 200 + 2000 + 80); thinking is part of the output
+    assert lines[1].split() == ["2026-10-21", "claude", "2.29k", "6", "200", "2.00k", "80", "8"]
     assert lines[-2:] == [lines[-2], lines[-1]] and lines[-1].split()[:2] == ["total", "codex"]
     assert len({len(line) for line in lines[1:]}) == 1  # numbers line up on the right
 
@@ -127,6 +128,7 @@ def test_the_report_reads_the_file_the_daemon_writes(capsys, monkeypatch):
     first = data["groups"][0]
     assert first["host"] == "local" and first["session_id"] == "s1"
     assert first["counts"]["output"] == 100 and first["project"] == "proj"
+    assert first["total"] == 2 * (3 + 100 + 1000) + 100  # everything read and written
 
     assert tokens_cli.report(days=1, agent="codex", now=NOW + 60, tz=SH) == 0
     assert capsys.readouterr().out.strip() == "No token counts in this period."
@@ -170,14 +172,14 @@ def test_status_and_tail_lines():
     }
     lines = client.token_lines(_tokens([row, {"agent": "x\x1b", "counts": {"input": -1}}]))
     assert lines[:2] == ["", "TOKENS TODAY"]
-    assert lines[3].split() == ["claude", "3.39k", "10.4M", "360M", "2.57M", "1"]
+    assert lines[3].split() == ["claude", "373M", "3.39k", "10.4M", "360M", "2.57M", "1"]
     assert len(lines) == 4
     assert client.token_lines(None) == [] and client.token_lines(_tokens([])) == []
     text = client.format_status({"hosts": [], "sessions": [], "tokens": _tokens([row])})
     assert "TOKENS TODAY" in text
 
     msg = {"type": "tokens_update", "tokens": _tokens([row])}
-    assert client.format_event(msg, now=0).endswith("tokens today: claude out 2.57M")
+    assert client.format_event(msg, now=0).endswith("tokens today: claude 373M")
     assert client.format_event({"type": "tokens_update", "tokens": None}, now=0).endswith("off")
 
 

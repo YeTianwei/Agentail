@@ -84,10 +84,12 @@ def test_stores_keep_their_rows_apart(store):
         store.add("gpu7; rm -rf", [rec("msg_9")], NOW)
 
 
-def test_session_totals(store):
-    store.add("local", [rec("msg_1"), rec("msg_2", counts=(1, 0, 0, 2, 0)), rec("msg_3", sid="s2")])
-    got = store.session_totals([("local", "claude", "s1"), ("local", "claude", "nope")])
-    assert got == {("local", "claude", "s1"): Counts(4, 100, 1000, 42, 4)}
+def test_first_ts(store):
+    assert store.first_ts() is None
+    store.add("local", [rec("msg_1", ts=NOW - 50), rec("msg_2")], NOW)
+    store.add("home:h", [rec("msg_3", ts=NOW - 99)], NOW)
+    assert store.first_ts() == NOW - 99
+    assert store.first_ts(stores=["local"]) == NOW - 50
 
 
 def test_days_and_weeks_follow_the_local_zone():

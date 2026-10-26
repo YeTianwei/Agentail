@@ -22,7 +22,9 @@ from agentail.daemon import tokens
 from agentail.daemon.tokens import LOCAL_STORE, Counts, TokenStore
 
 GROUPINGS = ("day", "week", "session", "model", "host")
-COLUMNS = ["INPUT", "CACHE WRITE", "CACHE READ", "OUTPUT", "THINKING"]
+# TOTAL first: everything read and written, the one number the panel shows. The four kinds
+# after it add up to it; THINKING is part of OUTPUT.
+COLUMNS = ["TOTAL", "INPUT", "CACHE WRITE", "CACHE READ", "OUTPUT", "THINKING"]
 DEFAULT_DAYS = 7
 DEFAULT_WEEKS = 8
 DEFAULT_LIMIT = 20
@@ -45,7 +47,8 @@ def fmt_count(n: int) -> str:
 
 
 def counts_cells(c: Counts) -> list[str]:
-    return [fmt_count(v) for v in (c.input, c.cache_write, c.cache_read, c.output, c.reasoning)]
+    values = (total(c), c.input, c.cache_write, c.cache_read, c.output, c.reasoning)
+    return [fmt_count(v) for v in values]
 
 
 def total(c: Counts) -> int:
@@ -170,7 +173,7 @@ def _table(rows: list[list[str]]) -> list[str]:
 def report_json(groups: list[dict[str, Any]], by: str, since: int) -> str:
     items = []
     for g in groups:
-        item = {"agent": g["agent"], "counts": g["counts"].to_dict()}
+        item = {"agent": g["agent"], "total": total(g["counts"]), "counts": g["counts"].to_dict()}
         item.update(dict(zip(_key_names(by), g["key"], strict=True)))
         if by == "session":
             item.update(project=g.get("project"), first=g["first"], last=g["last"])

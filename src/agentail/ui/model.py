@@ -308,9 +308,9 @@ def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
 
 
 def token_entries(state: UiState) -> list[MenuEntry]:
-    """One line with today's output per agent, e.g. "Tokens today: Claude Code out 2.57M ·
-    Codex out 175" (``agentail tokens`` has the rest); none while token stats are off or
-    nothing was counted today."""
+    """One line with today's tokens per agent, everything read and written as on the panel's
+    Tokens page, e.g. "Tokens today: Claude Code 373M · Codex 65.6k" (``agentail tokens`` has
+    the rest); none while token stats are off or nothing was counted today."""
     from agentail.tokens_cli import fmt_count
 
     today = state.tokens.get("today") if state.tokens else None
@@ -318,11 +318,11 @@ def token_entries(state: UiState) -> list[MenuEntry]:
     for row in today if isinstance(today, list) else []:
         counts = counts_of(row.get("counts")) if isinstance(row, dict) else None
         if counts is not None:
-            parts[clean(row.get("agent"), 20)] = counts[3]
+            parts[clean(row.get("agent"), 20)] = sum(counts[:4])
     if not parts:
         return []
     order = sorted(parts, key=lambda a: (a not in AGENT_NAME, a))  # as the Usage lines
-    text = " · ".join(f"{AGENT_NAME.get(a, a)} out {fmt_count(parts[a])}" for a in order)
+    text = " · ".join(f"{AGENT_NAME.get(a, a)} {fmt_count(parts[a])}" for a in order)
     return [MenuEntry("tokens", clean(f"Tokens today: {text}", MENU_TEXT_LIMIT))]
 
 

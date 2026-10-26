@@ -283,7 +283,8 @@ def token_lines(tokens: Any) -> list[str]:
     for row in today if isinstance(today, list) else []:
         counts = counts_of(row.get("counts")) if isinstance(row, dict) else None
         if counts is not None:
-            rows.append([clean(row.get("agent"), 16), *(fmt_count(v) for v in counts)])
+            cells = [sum(counts[:4]), *counts]  # TOTAL, then the kinds
+            rows.append([clean(row.get("agent"), 16), *(fmt_count(v) for v in cells)])
     if len(rows) == 1:
         return []
     return ["", "TOKENS TODAY"] + ["  " + r for r in _table(rows)]
@@ -326,7 +327,7 @@ def format_event(msg: dict[str, Any], now: float | None = None) -> str | None:
         for row in tokens.get("today") or []:
             counts = counts_of(row.get("counts")) if isinstance(row, dict) else None
             if counts is not None:
-                parts.append(f"{clean(row.get('agent'), 16)} out {fmt_count(counts[3])}")
+                parts.append(f"{clean(row.get('agent'), 16)} {fmt_count(sum(counts[:4]))}")
         return f"{stamp} tokens today: " + (" · ".join(parts) or "none")
     if mtype == "host_remove":
         return f"{stamp} host {clean(msg.get('alias'))}: removed"

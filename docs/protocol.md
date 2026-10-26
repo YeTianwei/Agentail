@@ -287,9 +287,9 @@ this computer and (over ssh) on each server, and keeps one row per response in
 `$XDG_STATE_HOME/agentail/tokens.sqlite` (docs/token-stats-design.md). Clients get the totals:
 
 ```
-TOKENS = {"today": [ROW...], "week": [ROW...],
-          "sessions": [{"key": {"host", "agent", "session_id"}, "totals": COUNTS}...],
-          "day_start": 1792684800, "week_start": 1792339200, "updated_ts": 1792742400.5 | null}
+TOKENS = {"today": [ROW...], "week": [ROW...], "total": [ROW...],
+          "day_start": 1792684800, "week_start": 1792339200, "since": 1786896000 | null,
+          "updated_ts": 1792742400.5 | null}
 ROW    = {"agent": "claude" | "codex", "counts": COUNTS}
 COUNTS = {"input", "cache_write", "cache_read", "output", "reasoning"}   # integers
 ```
@@ -297,10 +297,10 @@ COUNTS = {"input", "cache_write", "cache_read", "output", "reasoning"}   # integ
 - The four categories do not overlap: `input` is input that was not read from or written to the
   cache. `reasoning` is the part of `output` spent thinking; it is not to be added again.
 - `today` and `week` are calendar days and ISO weeks (from Monday) in the daemon's time zone;
-  `day_start` / `week_start` say where they begin (UTC seconds). Agents without counts are left
-  out. They add up every host, or only this computer while `servers` is off.
-- `sessions` has an entry for each session in the snapshot (or a later `session_update`) that has
-  any counts, keyed exactly like it. Servers sharing an NFS `$HOME` share their counts.
+  `day_start` / `week_start` say where they begin (UTC seconds). `total` is everything kept
+  (`[tokens] keep_days`, 400 by default); `since` is when its oldest response was written (null:
+  nothing kept). Agents without counts are left out. All three add up every host, or only this
+  computer while `servers` is off.
 - `updated_ts` is when the counts last changed (null: not since the daemon started).
 - `tokens_update` carries the whole record, at most every 5 seconds and only when it changed.
   `TOKENS` is `null` while `[tokens] enabled = false` (or when the daemon cannot use its file):

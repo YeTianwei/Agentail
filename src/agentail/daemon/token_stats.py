@@ -31,7 +31,7 @@ import json
 import logging
 import re
 import time
-from collections.abc import Callable, Iterable
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import ModuleType
@@ -43,7 +43,6 @@ from agentail.config import Host, TokenSwitches
 from agentail.daemon import tokens
 from agentail.daemon.ingest import LOCAL_SOURCE
 from agentail.daemon.schedule import RemoteSchedule
-from agentail.daemon.state import SessionKey
 from agentail.daemon.tokens import LOCAL_STORE, Counts, TokenStore
 from agentail.sshexec import ssh_argv
 
@@ -125,7 +124,6 @@ class TokenStats:
     def __init__(
         self,
         publish: Callable[[dict[str, Any] | None], None],
-        sessions: Callable[[], Iterable[SessionKey]],
         host_state: Callable[[str], str | None],
         ssh: str = "ssh",
         path: Path | None = None,
@@ -135,7 +133,6 @@ class TokenStats:
         remote_timeout: float = REMOTE_TIMEOUT_S,
     ) -> None:
         self._publish = publish
-        self._sessions = sessions
         self._host_state = host_state
         self.ssh = ssh
         self.path = path
@@ -157,7 +154,6 @@ class TokenStats:
         # already has from its snapshot.
         self._sent: Any = _UNSET
         self._sent_at = -float("inf")
-        self._keys: frozenset[SessionKey] = frozenset()
         self._day = 0
         self._changed_ts = 0.0  # wall clock of the last change to the counts
         # Per store, for `agentail doctor`: wall clock of the last scan that worked, and how many
@@ -303,10 +299,6 @@ class TokenStats:
                 self._prune(wall)
             self._day = today
             self._dirty = True
-        keys = frozenset(self._sessions())
-        if keys != self._keys:
-            self._keys = keys
-            self._dirty = True
 
     def _prune(self, wall: float) -> None:
         if self.db is None:
@@ -434,25 +426,18 @@ class TokenStats:
         try:
             today = self.db.totals(day, stores=stores)
             this_week = self.db.totals(week, stores=stores)
-            by_key: dict[tuple[str, str, str], SessionKey] = {}
-            for key in self._sessions():
-                store = LOCAL_STORE if key.host == LOCAL_SOURCE else self._store_of.get(key.host)
-                if store is None or (stores is not None and store not in stores):
-                    continue
-                by_key[(store, key.agent, key.session_id)] = key
-            per_session = self.db.session_totals(by_key)
+            total = self.db.totals(0, stores=stores)
+            since = self.db.first_ts(stores=stores)
         except Exception:
             log.exception("reading token counts failed")
             return None
         return {
             "today": _rows(today),
             "week": _rows(this_week),
-            "sessions": [
-                {"key": by_key[k]._asdict(), "totals": c.to_dict()}
-                for k, c in sorted(per_session.items())
-            ],
+            "total": _rows(total),
             "day_start": day,
             "week_start": week,
+            "since": since,
             "updated_ts": self._changed_ts or None,
         }
 

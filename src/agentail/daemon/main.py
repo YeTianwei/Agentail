@@ -184,7 +184,6 @@ class Daemon:
         # Token counts from the agents' session files, here and on the servers.
         self.tokens = TokenStats(
             publish=self._publish_tokens,
-            sessions=lambda: self.store.sessions.keys(),
             host_state=lambda alias: self.hosts.get(alias, {}).get("state"),
             ssh=ssh,
             print_events=print_events,

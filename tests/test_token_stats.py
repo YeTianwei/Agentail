@@ -16,7 +16,6 @@ from agentail.config import Host, TokenSwitches, save_host
 from agentail.daemon import token_stats
 from agentail.daemon.main import Daemon
 from agentail.daemon.schedule import RemoteSchedule
-from agentail.daemon.state import SessionKey
 from agentail.daemon.tokens import TokenStore
 from agentail.protocol import HookMessage
 
@@ -123,24 +122,15 @@ async def test_this_computer_is_scanned_at_start_and_after_a_turn(runtime_env, i
                 },
             }
         ]
-        assert tokens["week"] == tokens["today"] and tokens["sessions"] == []
-
-        # A session card appears: its totals come with the next update.
-        await d.handle("local", _msg("UserPromptSubmit", "s1"))
-        msg = await _until(r, lambda m: m["type"] == "tokens_update")
-        assert msg["tokens"]["sessions"] == [
-            {
-                "key": {"host": "local", "agent": "claude", "session_id": "s1"},
-                "totals": tokens["today"][0]["counts"],
-            }
-        ]
+        assert tokens["week"] == tokens["today"] == tokens["total"]
+        assert tokens["since"] > 0 and "sessions" not in tokens
 
         # The turn ends with one more response in the file.
         jl(proj / "s1.jsonl", claude_line("msg_2", sid="s1", out=90, ts=_now_iso()))
         await d.handle("local", _msg("Stop", "s1"))
         msg = await _until(r, lambda m: m["type"] == "tokens_update")
         assert msg["tokens"]["today"][0]["counts"]["output"] == 100
-        assert msg["tokens"]["sessions"][0]["totals"]["output"] == 100
+        assert msg["tokens"]["total"][0]["counts"]["output"] == 100
 
         # Switched off: the panel drops the section, the counts stay on disk.
         cfg = paths.settings_file()
@@ -190,8 +180,7 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         argv = fake_ssh.calls("gpu8")[0]
         assert str(home) not in argv[-1]  # only the constant program is on the command line
 
-        # A session on gpu7 shares gpu8's store; a turn there brings the new response.
-        await d.handle("gpu7", _msg("UserPromptSubmit", "s9"))
+        # gpu7 shares gpu8's store; a turn there brings the new response.
         jl(
             home / ".claude" / "projects" / "p" / "s9.jsonl",
             claude_line("msg_r2", sid="s9", out=5, ts=_now_iso()),
@@ -199,19 +188,16 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         d._set_host("gpu7", "connected", "")
         await asyncio.sleep(0.25)  # past the minimum interval
         await d.handle("gpu7", _msg("Stop", "s9"))
-        msg = await _until(
+        await _until(
             r,
             lambda m: (
                 m["type"] == "tokens_update"
-                and m["tokens"]["sessions"]
-                and m["tokens"]["sessions"][0]["totals"]["output"] == 15
+                and {row["agent"]: row["counts"]["output"] for row in m["tokens"]["today"]}.get(
+                    "claude"
+                )
+                == 15
             ),
         )
-        assert msg["tokens"]["sessions"][0]["key"] == {
-            "host": "gpu7",
-            "agent": "claude",
-            "session_id": "s9",
-        }
         assert len(fake_ssh.calls("gpu7")) + len(fake_ssh.calls("gpu8")) == 2
         assert fake_ssh.calls("gpu9") == []
         assert d.tokens.db.cursor("home:h0me") is not None
@@ -221,7 +207,8 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         cfg.parent.mkdir(parents=True, exist_ok=True)
         cfg.write_text("[tokens]\nservers = false\n")
         msg = await _until(r, lambda m: m["type"] == "tokens_update")
-        assert msg["tokens"]["today"] == [] and msg["tokens"]["sessions"] == []
+        assert msg["tokens"]["today"] == msg["tokens"]["total"] == []
+        assert msg["tokens"]["since"] is None
         calls = len(fake_ssh.calls())
         d.panel_opened()
         await d.handle("gpu7", _msg("Stop", "s9"))
@@ -280,26 +267,6 @@ async def test_a_store_written_by_a_newer_agentail_turns_the_feature_off(runtime
     try:
         assert d.tokens.db is None and "newer" in d.tokens.problem
         assert d.snapshot()["tokens"] is None
-    finally:
-        d.stop()
-        await asyncio.wait_for(task, 5)
-
-
-async def test_session_keys_of_unknown_hosts_are_left_out(runtime_env, isolated_home, fast):
-    jl(
-        isolated_home / ".claude" / "projects" / "p" / "s.jsonl",
-        claude_line("msg_1", sid="s", ts=_now_iso()),
-    )
-    d, task = await _start()
-    try:
-        for _ in range(100):
-            if d.tokens.db.count():
-                break
-            await asyncio.sleep(0.05)
-        await d.handle("nowhere", _msg("UserPromptSubmit", "s"))  # an alias not in hosts.toml
-        await d.handle("local", _msg("UserPromptSubmit", "s"))
-        keys = [s["key"] for s in d.tokens.summary()["sessions"]]
-        assert keys == [SessionKey("local", "claude", "s")._asdict()]
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)

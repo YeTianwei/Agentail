@@ -304,17 +304,10 @@ class TokenStore:
         )
         return {agent: Counts(*nums) for agent, *nums in rows}
 
-    def session_totals(self, keys: Iterable[tuple[str, str, str]]) -> dict[tuple, Counts]:
-        """Counts of each ``(store, agent, session_id)`` that has any."""
-        out: dict[tuple, Counts] = {}
-        for key in set(keys):
-            row = self.db.execute(
-                f"SELECT {_SUMS} FROM responses WHERE store = ? AND agent = ? AND session_id = ?",
-                key,
-            ).fetchone()
-            if row is not None and row[0] is not None:
-                out[key] = Counts(*row)
-        return out
+    def first_ts(self, stores: Iterable[str] | None = None) -> int | None:
+        """When the oldest response kept was written (None: nothing kept)."""
+        where, args = _range(0, None, stores)
+        return self.db.execute(f"SELECT min(ts) FROM responses WHERE {where}", args).fetchone()[0]
 
     def rows(self, since: int, until: int | None = None) -> list[tuple]:
         """``(store, agent, session_id, ts, model, project, Counts)`` of every response in
