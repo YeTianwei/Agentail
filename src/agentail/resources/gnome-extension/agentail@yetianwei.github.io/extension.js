@@ -956,8 +956,6 @@ class AgentailIndicator extends PanelMenu.Button {
             row.add_child(label(r.resetText, 'agentail-usage-reset', {ellipsize: true, xExpand: true}));
             box.add_child(row);
         }
-        if (c.sourceText)
-            box.add_child(label(c.sourceText, 'agentail-usage-source', {ellipsize: true}));
         return box;
     }
 

@@ -678,21 +678,6 @@ export function usageGroups(records, now) {
 // account the card names the host only when the record came from a server ("via gpu8");
 // with several, every card lists the hosts it is seen on. Windows without a usable
 // percentage are skipped; an agent without any is not listed.
-// Where a card's numbers come from (USAGE "source"), as one line at its foot. The host is
-// named in the card's head ("via gpu7"), except for a server's own login, which is the point.
-const SOURCE_TEXT = {
-    api: () => _("From Anthropic, with this computer's Claude login"),
-    server_api: host => _('From Anthropic, with the Claude login on {host}', {host}),
-    status_line: () => _('From a Claude session in a terminal'),
-    app_server: () => _('From Codex'),
-    session_files: () => _("From Codex's session files"),
-};
-
-export function sourceText(u, state) {
-    const source = clean(u?.source);
-    return Object.hasOwn(SOURCE_TEXT, source) ? SOURCE_TEXT[source](state.hostTitle(clean(u.host))) : '';
-}
-
 export function usageCards(state, now) {
     const byAgent = new Map();
     for (const members of usageGroups(state.usage.values(), now)) {
@@ -725,7 +710,6 @@ export function usageCards(state, now) {
                     ? _('sign-in expired · run {agent} once', {agent})
                     : ts > 0 ? _('updated {age} ago', {age: ageText(ts, now)}) : '',
                 stale: !(ts > 0) || now - ts > USAGE_STALE_S,
-                sourceText: sourceText(u, state),
                 rows,
                 labelWidth: usageLabelWidth(rows.map(r => r.label)),
             });

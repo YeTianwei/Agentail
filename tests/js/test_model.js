@@ -467,20 +467,6 @@ test('settings: the Usage switch', () => {
     eq(st.settings, {usage: null, notifications: null, approvals: null, approvalWait: null});
 });
 
-test('usage: each card says where its numbers come from', () => {
-    const rec = (h, source, ts) => ({...usage(h, 'claude', [win(10, 300, NOW + 86400)], {ts}), source});
-    const st = withUsage([rec('local', 'api', NOW - 10)]);
-    eq(M.usageCards(st, NOW)[0].sourceText, "From Anthropic, with this computer's Claude login");
-    st.apply({type: 'usage_update', usage: rec('gpu1', 'status_line', NOW - 5)});  // fresher
-    eq(M.usageCards(st, NOW)[0].sourceText, 'From a Claude session in a terminal');
-    st.apply({type: 'usage_update', usage: rec('gpu1', 'server_api', NOW - 1)});
-    eq(M.usageCards(st, NOW)[0].sourceText, 'From Anthropic, with the Claude login on gpu1');
-    st.apply({type: 'usage_update', usage: rec('gpu1', 'whatever', NOW)});
-    eq(M.usageCards(st, NOW)[0].sourceText, '');  // unknown or missing: nothing said
-    const codex = withUsage([{...usage('local', 'codex', [win(4, 300)]), source: 'session_files'}]);
-    eq(M.usageCards(codex, NOW)[0].sourceText, "From Codex's session files");
-});
-
 test('usage: a hint while the Claude query is off and Claude is used', () => {
     const off = {type: 'usage_api_status', agent: 'claude', status: {state: 'off', servers: false}};
     const quiet = make([], [host('local', 'local')]);
