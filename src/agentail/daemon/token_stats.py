@@ -59,6 +59,7 @@ PAGE_BUDGET_S = 20.0
 MAX_PAGES = 20  # per scan; a longer backfill goes on with the next one
 REMOTE_TIMEOUT_S = 60.0  # one page over ssh, start-up included
 MAX_ANSWER = 16 * 1024 * 1024
+READ_CHUNK = 256 * 1024
 _HOME_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _TURN_ENDS = (EventKind.STOP, EventKind.SESSION_END)
 _UNSET = object()
@@ -524,7 +525,11 @@ def _running(task: asyncio.Task[None] | None) -> bool:
 
 
 async def _run(argv: list[str], stdin: bytes, timeout: float) -> bytes | None:
-    """stdout of ``argv`` fed ``stdin``, or None on ssh failure, timeout or a huge answer."""
+    """stdout of ``argv`` fed ``stdin``, or None on ssh failure, timeout or a huge answer.
+
+    stdout is read to its end: one ``read(n)`` returns only what has arrived so far, and an
+    answer of more than a pipe's worth would then block ssh. Nothing here waits without a
+    limit: with stdout not drained, ``Process.wait()`` may never return."""
     try:
         proc = await asyncio.create_subprocess_exec(
             *argv,
@@ -535,22 +540,32 @@ async def _run(argv: list[str], stdin: bytes, timeout: float) -> bytes | None:
     except OSError as exc:
         log.info("cannot run ssh: %s", exc)
         return None
-    try:
+
+    async def talk() -> bytes | None:
         assert proc.stdin is not None and proc.stdout is not None
         proc.stdin.write(stdin)
         with contextlib.suppress(ConnectionError):
             await proc.stdin.drain()
         proc.stdin.close()
-        raw = await asyncio.wait_for(proc.stdout.read(MAX_ANSWER + 1), timeout)
-        await asyncio.wait_for(proc.wait(), 5)
+        chunks, size = [], 0
+        while chunk := await proc.stdout.read(READ_CHUNK):
+            size += len(chunk)
+            if size > MAX_ANSWER:
+                return None
+            chunks.append(chunk)
+        await proc.wait()
+        return b"".join(chunks)
+
+    try:
+        raw = await asyncio.wait_for(talk(), timeout)
     except TimeoutError:
-        return None
+        raw = None
     finally:
         if proc.returncode is None:
             with contextlib.suppress(ProcessLookupError):
                 proc.kill()
             with contextlib.suppress(Exception):
-                await proc.wait()
-    if len(raw) > MAX_ANSWER or proc.returncode != 0:
+                await asyncio.wait_for(proc.wait(), 5)
+    if raw is None or proc.returncode != 0:
         return None
     return raw

@@ -416,6 +416,8 @@ $A doctor                                   # claude / codex hooks ✓,approvals
 
 ✅ **实现完成**(2026-10-23,分支 `tokens-scanner`,七个提交对应设计 §9 的七步):扫描器、`TokenStore`、daemon 调度与 UI 协议、`agentail tokens` / `status` / `doctor`、面板(Tokens 区、卡片一行、设置组)、AppIndicator 一行、文档(README「Token counts」、CHANGELOG「Unreleased」、`docs/files.md`、`protocol.md`)。本机真实数据只读试跑过;面板在 headless 嵌套 GNOME Shell 46 里截图核对过(深色英文、浅色中文);服务器部分只用假 ssh 测过。
 
+真机验证中发现并修复(2026-10-26):服务器的回答超过一个管道块(gpu8 全量回填约 2.5 MB)时,`token_stats._run` 只读到第一块,随后无超时地等 ssh 退出,扫描任务永远挂起,doctor 显示「not scanned yet」、卡片上没有 token 行。改为读到 EOF、所有等待都有上限;新测试覆盖 3 MB 的回答、卡住的进程和超限。修好后 gpu8 全量 16681 条、4.2 秒。
+
 **👤 真机验证**(你的桌面和 gpu7 / gpu8)。和 0.0.6 第 5 步一样,装了 .deb 的机器上要用仓库的 `.venv/bin/agentail`,并先停掉包里的 daemon:
 
 ```bash

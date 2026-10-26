@@ -166,7 +166,12 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         claude_line("msg_r1", sid="s9", ts=_now_iso()),
     )
     rollout = home / ".codex" / "sessions" / "r.jsonl"
-    jl(rollout, codex_meta("c9"), codex_turn(), codex_record("resp_r1", sid="c9"))
+    jl(
+        rollout,
+        codex_meta("c9"),
+        codex_turn(),
+        {**codex_record("resp_r1", sid="c9"), "timestamp": _now_iso()},
+    )
     for alias in ("gpu7", "gpu8"):
         save_host(Host(alias, agents=("claude", "codex"), python=sys.executable, home_id="h0me"))
     save_host(Host("gpu9", agents=(), python=sys.executable))
@@ -295,6 +300,47 @@ async def test_session_keys_of_unknown_hosts_are_left_out(runtime_env, isolated_
         await d.handle("local", _msg("UserPromptSubmit", "s"))
         keys = [s["key"] for s in d.tokens.summary()["sessions"]]
         assert keys == [SessionKey("local", "claude", "s")._asdict()]
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)
+
+
+async def test_run_reads_answers_larger_than_a_pipe_and_never_hangs():
+    """One read returns only what has arrived; an answer of many chunks must still come back
+    whole, and a stuck or oversized one must end, never leave the scan waiting forever."""
+    big = [sys.executable, "-c", "import sys; sys.stdout.write('x' * 3_000_000)"]
+    raw = await asyncio.wait_for(token_stats._run(big, b"", 30), 40)
+    assert raw is not None and len(raw) == 3_000_000
+
+    echo = [sys.executable, "-c", "import sys; sys.stdout.write(sys.stdin.read())"]
+    assert await token_stats._run(echo, b'{"v": 1}', 30) == b'{"v": 1}'
+
+    started = time.monotonic()
+    stuck = [sys.executable, "-c", "import sys, time; sys.stdout.write('x' * 500_000); "
+             "sys.stdout.flush(); time.sleep(60)"]  # fmt: skip
+    assert await asyncio.wait_for(token_stats._run(stuck, b"", 1.0), 20) is None
+    assert time.monotonic() - started < 15
+
+    huge = [sys.executable, "-c", "import sys; sys.stdout.write('x' * (17 * 1024 * 1024))"]
+    assert await asyncio.wait_for(token_stats._run(huge, b"", 30), 40) is None
+    failing = [sys.executable, "-c", "import sys; print('{}'); sys.exit(255)"]
+    assert await token_stats._run(failing, b"", 30) is None
+
+
+async def test_a_server_with_a_long_history_is_backfilled(runtime_env, fake_ssh, fast):
+    home = fake_ssh.add_host("gpu7")
+    lines = [claude_line(f"msg_{i:05d}", sid=f"s{i % 40}", ts=_now_iso()) for i in range(4000)]
+    jl(home / ".claude" / "projects" / "p" / "big.jsonl", *lines)
+    save_host(Host("gpu7", agents=("claude",), python=sys.executable, home_id="h0me"))
+    d, task = await _start(ssh=str(fake_ssh.path))
+    try:
+        d._set_host("gpu7", "connected", "")
+        for _ in range(300):
+            if d.tokens.status()["servers"][0]["ok_ts"]:
+                break
+            await asyncio.sleep(0.05)
+        assert d.tokens.db.count() == 4000  # an answer of several hundred KB, read whole
+        assert d.tokens.status()["servers"][0]["failures"] == 0
     finally:
         d.stop()
         await asyncio.wait_for(task, 5)
