@@ -2,7 +2,7 @@
 
 数据来源见 [token-stats-notes.md](token-stats-notes.md)。本文只讲怎么接进 Agentail,不含实现。落地时 §6 并入 `docs/protocol.md`。
 
-目标版本:0.0.6(审批)之后,暂定 0.0.7。
+目标版本:0.0.6(和审批一起发布,2026-10-26 你定)。
 
 ---
 

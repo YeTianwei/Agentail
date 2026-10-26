@@ -123,7 +123,7 @@ Then any number of:
 {"type": "notify", "kind": "turn_done|attention", "key": {...}, "details": false}
 {"type": "approval", "approval": APPROVAL}          # since 0.0.6
 {"type": "approval_remove", "id": "9f2c..."}       # since 0.0.6
-{"type": "tokens_update", "tokens": TOKENS}         # since 0.0.7
+{"type": "tokens_update", "tokens": TOKENS}         # since 0.0.6
 ```
 
 `notify` asks clients for a desktop notification. Notification banners show on the lock screen,
@@ -205,7 +205,7 @@ SETTINGS = {"usage": true,   # since 0.0.4
             "notifications": {"turn_done": true, "attention": true, "details": false},  # since 0.0.5
             "approvals": false,   # since 0.0.6
             "approval_wait_s": {"claude": 120, "codex": 30},   # since 0.0.6
-            "tokens": {"enabled": true, "servers": true}}      # since 0.0.7
+            "tokens": {"enabled": true, "servers": true}}      # since 0.0.6
 ```
 
 `approvals` is `[approvals] enabled`; `approval_wait_s` says how long a request of each agent
@@ -280,7 +280,7 @@ The daemon holds a request only when all of these hold; otherwise it answers "no
 `detail` and `description` come from the agent's payload: plain text only, like every `SESSION`
 string. Approvals are not kept across a daemon restart: the hooks' connections end with it.
 
-### Token counts (since 0.0.7)
+### Token counts (since 0.0.6)
 
 The daemon reads the token counts Claude Code and Codex write into their own session files, on
 this computer and (over ssh) on each server, and keeps one row per response in
@@ -322,7 +322,7 @@ TOKENS_STATUS = {"state": "on" | "off" | "error", "detail": "why, for error", "r
 
 `tokens` in `SETTINGS` is `[tokens] enabled` / `servers` in `config.toml` (both default on;
 re-read while running). `refresh_usage` (the panel was opened) also rescans this computer and
-the servers that are due. Clients before 0.0.7 ignore the new message type and keys.
+the servers that are due. Clients before 0.0.6 ignore the new message type and keys.
 
 Clients hold no state of their own; after a reconnect they rebuild from the next snapshot.
 A client that cannot keep up (more than 1024 queued messages) is disconnected rather than slowing

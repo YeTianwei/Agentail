@@ -758,7 +758,7 @@ test('token counts: nothing on the session cards', () => {
 test('token counts: settings', () => {
     const old = make([]);
     old.apply({type: 'settings', settings: {usage: true, approvals: false}});
-    eq(M.tokenSettings(old).available, false);  // before 0.0.7
+    eq(M.tokenSettings(old).available, false);  // before 0.0.6
     const st = make([], [host('local', 'local')]);
     st.apply({type: 'settings', settings: {usage: true, tokens: {enabled: true, servers: true}}});
     let v = M.tokenSettings(st);

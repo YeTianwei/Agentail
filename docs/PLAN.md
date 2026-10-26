@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(0.0.5 已发布;下一步 0.0.6:在面板里审批,见 §3)
+## 0. 当前状态(0.0.6 待发布:在面板里审批 + Token 统计,见 §3「0.0.6 发布」)
 
 下表是 0.0.1 时的模块清单,之后各版本的改动见 §3 各版本小节和 `CHANGELOG.md`。
 
@@ -351,7 +351,7 @@ git switch main && git merge --ff-only release-0.0.5
 git push origin main && git tag v0.0.5 && git push origin v0.0.5
 ```
 
-### 0.0.6:在面板里审批(下一步)
+### 0.0.6:在面板里审批
 
 **范围**(2026-10-21 你决定):agent 请求授权时,面板里直接批准或拒绝,不用切回终端。Claude Code 和 Codex 一起做(核实后仍然一起做,见下方「决定」)。Qwen Code、Gemini CLI 推迟到之后(见下一节)。
 
@@ -402,13 +402,13 @@ $A doctor                                   # claude / codex hooks ✓,approvals
 
 ✅ 已验证(2026-10-21,本机 GNOME 46 / X11,开发版 daemon + 扩展,Claude Code 2.1.306、codex-cli 0.163.0):Claude 和 Codex 的授权请求都出现在面板上(完整命令、理由、按钮、倒计时:Claude 从 120 秒、Codex 从 30 秒开始),点「Allow」「Deny」都生效;亮色主题、英文界面下显示正常。
 
-✅ 已验证(2026-10-26,同一台机器):Claude 在终端先答 Yes 后面板按钮消失、卡片变为「轮到你」;Codex 不点时等满 30 秒后终端出现 Codex 自己的提示;锁屏时请求立即不表态(假请求经真实 hook 脚本);中文界面、多行长命令完整显示并换行。不验证:改等待时长(面板选项已去掉)。仍待验证:Claude 在终端答 No 后按钮多久消失、5 分钟空闲后立即不表态;改为 Yes / No、去掉提示后的界面再看一眼。
+✅ 已验证(2026-10-26,同一台机器):Claude 在终端先答 Yes 后面板按钮消失、卡片变为「轮到你」;Codex 不点时等满 30 秒后终端出现 Codex 自己的提示;锁屏时请求立即不表态(假请求经真实 hook 脚本);中文界面、多行长命令完整显示并换行。不验证:改等待时长(面板选项已去掉)。其余几项(Claude 在终端答 No 后按钮多久消失、5 分钟空闲后立即不表态、改为 Yes / No 后的界面)2026-10-26 你决定不再验证。服务器上的审批只有假 ssh 测试。
 
 ### 0.0.6 之后:Qwen Code、Gemini CLI(2026-10-21 从 0.0.6 推迟)
 
 两者在 0.0.3 开发时已经写完(提交 `2b21ffc`、`f136995`,调研见 `agent-hooks-notes.md` §4.2、§4.4),但没有真机验证,0.0.3 发布前用提交 `d24b53c`("Defer Qwen Code and Gemini CLI to 0.0.4")移除了。恢复:`git revert d24b53c`,然后补 `README` / `CHANGELOG`,再按 A4 的步骤真机验证。Gemini 最重要的是在未信任目录里启动时 hook 是否执行(folder trust)。通用部分(配置目录环境变量的 `~` 展开、`dir_env_is_parent`、doctor 对所有 agent 显示配置警告)留在 0.0.3,不用恢复。
 
-### Token 统计(0.0.6 之后,暂定 0.0.7)
+### Token 统计(2026-10-26 你决定并入 0.0.6)
 
 **范围**(2026-10-23 你决定):Claude Code 和 Codex 的 token 消耗,按对话、按天、按周;本机和服务器一起做;只显示分类 token(输入 / 缓存写 / 缓存读 / 输出),不算费用。0.0.2 的「不存 token 计数」改为「只存在本机」。
 
@@ -437,8 +437,27 @@ ssh gpu7 'command -v zstd || echo no zstd'    # 没有时 doctor 会提示,旧�
 4. 设置页「Token 统计」:关掉「服务器」→ Tokens 页只剩本机的数;关掉「统计 token」→ 柱状图按钮消失,`$A tokens` 仍能看到历史;再打开恢复。
 5. 看一眼亮色主题、中文界面下的 Tokens 页和设置组;AppIndicator(`$A ui`,不要和扩展同时开)菜单里有「Tokens today: …」一行。
 
+2026-10-26:`tokens-scanner` 变基到 main(和审批的面板改动在 `i18n.js`、`model.js`、`stylesheet.css`、`test_model.js` 有冲突,已解决)并快进合入。
+
+### 0.0.6 发布 ☁️ + 👤
+
+☁️ 已完成(2026-10-26,分支 `release-0.0.6`):面板审批(上文 0.0.6 五步,按钮 Yes / No,设置里只有开关)和 Token 统计一起发布;另有两处面板精简(用量卡片去掉 "From …" 来源行、去掉「最近结束」一行)。hook 脚本升到版本 3(`--mode wait`),`SETUP_VERSION = 4`:本机升级后自动重写 `PermissionRequest` 条目,服务器要重新 `add-host` 才能在面板审批(Token 统计不需要)。版本号 0.0.6、CHANGELOG、README(「Approvals」一节、命令表、配置、路线图)、`.github/release-notes/v0.0.6.md`、`dist/agentail_0.0.6.deb`。Token 统计的「since 0.0.7」统一改为 0.0.6。扩展 `metadata.json` 的 version 升到 4。
+
+👤 你要做的:
+
+```bash
+cd /data2/Personal/Development/Agentail
+sudo apt install ./dist/agentail_0.0.6.deb       # postinst 会重启已登录用户的 daemon
+# X11:Alt+F2,r,回车(或注销再登录);agentail doctor 全绿;codex 里 /hooks 重新信任 PermissionRequest
+agentail add-host gpu7 && agentail add-host gpu8  # 服务器也用面板审批时;然后在服务器的 codex 里 /hooks 重新信任
+git switch main && git merge --ff-only release-0.0.6
+git push origin main && git tag v0.0.6 && git push origin v0.0.6
+```
+
+开发时 `install-gnome-extension --link` 把扩展链接到了仓库(`~/.local/share/gnome-shell/extensions/agentail@yetianwei.github.io`,优先于包里的);想用包里的扩展,删掉这个符号链接(`rm` 链接本身,不要 `uninstall-gnome-extension`,它会把扩展整个禁用)再重载 Shell。
+
 ---
 
 ## 4. v1 之后(不在当前范围)
 
-Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,审批见 0.0.6,Qwen Code、Gemini CLI 见 0.0.6 之后;集群计算节点的 JSONL 回退方案。
+Cursor → 插件类 agent(OpenCode 等);Qoder 见 0.0.3,审批见 0.0.6,Qwen Code、Gemini CLI 见 0.0.6 之后;Token 统计见 0.0.6;集群计算节点的 JSONL 回退方案。

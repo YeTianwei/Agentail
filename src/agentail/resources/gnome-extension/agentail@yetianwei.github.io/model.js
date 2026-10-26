@@ -252,7 +252,6 @@ export class UiState {
             notifications: n && {turn_done: flag(n.turn_done), attention: flag(n.attention), details: flag(n.details)},
             // Since 0.0.6.
             approvals: flag(s.approvals),
-            // Since 0.0.7.
             tokens: s.tokens && typeof s.tokens === 'object'
                 ? {enabled: flag(s.tokens.enabled), servers: flag(s.tokens.servers)} : null,
         };
@@ -777,7 +776,7 @@ export function fmtCount(n) {
 
 export const TOKEN_RANGES = ['today', 'week', 'total'];
 
-// Whether the panel offers its Tokens page: the daemon counts tokens (0.0.7 and later, on).
+// Whether the panel offers its Tokens page: the daemon counts tokens (0.0.6 and later, on).
 export function tokensAvailable(state) {
     return state.tokens !== null;
 }
@@ -935,7 +934,7 @@ export function approvalSettings(state, pending = {}) {
     return {available: actual.approvals !== null, toggle};
 }
 
-// The Token counts group (0.0.7): counting at all, and on the servers too. `available` is false
+// The Token counts group (0.0.6): counting at all, and on the servers too. `available` is false
 // for an older daemon.
 export function tokenSettings(state, pending = {}) {
     const actual = switchValues(state);

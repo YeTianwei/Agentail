@@ -1,9 +1,36 @@
 # Changelog
 
-## Unreleased
+## 0.0.6 — 2026-10-26
+
+Answer permission prompts from the panel, and count your agents' tokens. Checked on the owner's
+GNOME 46 desktop and servers; approvals on a server and the AppIndicator fallback's token line are
+covered by tests only.
 
 ### Added
 
+- **Answer permission prompts from the panel** (Claude Code and Codex). Off until you turn it on,
+  in the settings' Approvals group or with `agentail approvals on` (`[approvals] enabled`).
+  - When an agent asks, its card shows the whole command (every line, nothing cut), the agent's
+    reason, **Yes** and **No**, and the seconds left. Yes allows that one call; No denies it and
+    tells the agent it was denied from the panel. The buttons take no keyboard focus, so Enter
+    never approves, and the panel does not open by itself.
+  - Whenever the panel cannot answer, the agent asks in its terminal as before: the switch is
+    off, the panel is not running, the screen is locked, nobody has touched the desktop for 5
+    minutes, the tunnel is down, or nobody answers in time. Only a click allows anything.
+  - Claude Code keeps its own prompt open meanwhile; whichever you answer first counts. Codex
+    shows its prompt only after the panel has waited, 30 seconds by default
+    (`agentail approvals wait codex N`, at most 60; `[approvals.wait_s]`).
+  - The hooks: Claude Code gets a `PermissionRequest` entry and Codex's becomes one that waits
+    for the answer. They are written whether the switch is on or not, so switching needs no
+    reinstall. On this computer the upgrade rewrites them by itself; on a server run
+    `agentail add-host <alias>` again. Codex asks you to trust the changed entry once (`/hooks`),
+    here and on each server.
+  - The hook script is version 3, with `--mode wait`: it waits for the daemon's reply and prints
+    it as it is. Every failure still prints nothing and exits 0. Protocol: `wait_ms` on the
+    request, the reply, and the UI messages `approval`, `approval_remove`, `approvals_ready` and
+    `approval_decision` (docs/protocol.md, "Approvals").
+  - `agentail approvals on|off|status`; `agentail doctor` shows the switch and warns when a
+    `PermissionRequest` entry does not wait.
 - **Token counts.** How many tokens Claude Code and Codex used, per conversation, day and week, on
   this computer and on your servers (docs/token-stats-design.md).
   - The daemon reads the counts the agents write into their own session files, and only what was
@@ -32,8 +59,18 @@
     `tokens_update` message and
     `tokens` in `SETTINGS` (docs/protocol.md, "Token counts").
 
+### Changed
+
+- **No "From …" line under the usage cards.** The daemon still records where each reading came
+  from; the panel no longer prints it.
+- **No "ended recently" line.** The panel's last line and the AppIndicator menu no longer count
+  the sessions that ended in the last few minutes. `agentail status` still lists them.
+
 ### Known limitations
 
+- A permission request is not held when its command is longer than 4096 characters or the
+  hook's message was cut short; the agent asks in its terminal. The AppIndicator fallback cannot
+  answer prompts, and neither can Qoder.
 - Servers sharing an NFS `$HOME` cannot be told apart: their counts are shown together
   ("gpu7·gpu8").
 - After `--resume` or a fork, Claude Code copies earlier responses into the new session's file;

@@ -45,6 +45,9 @@ Agentail only watches. You still answer agents in their own terminal.
   listening, it returns at once, prints nothing, and never blocks or fails a tool call.
 - 📊 **Usage limits at a glance.** Claude Code's 5-hour and weekly limits and Codex's, with when
   each one resets. Your Claude login is used only if you say yes.
+- ✅ **Answer permission prompts from the panel.** Yes or No on the card, with the whole command
+  in front of you. Off until you turn it on; whenever the panel cannot answer, the agent asks in
+  its terminal as before.
 - 🧮 **Token counts.** How many tokens your agents used, daily, weekly and over their lifetime,
   here and on your servers.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
@@ -152,6 +155,33 @@ agentail tokens forget                 # delete every count, start over from now
 
 These are the numbers the agents wrote down, not a bill. Agentail does not turn them into money.
 
+## ✅ Approvals
+
+When Claude Code or Codex asks for permission, you can answer from the panel instead of finding
+its terminal. Turn it on under Approvals in the panel's settings, or:
+
+```bash
+agentail approvals on
+```
+
+The session's card then shows the whole command, every line of it, the agent's reason, **Yes**
+and **No**, and how long it still waits. Yes allows that one call; No denies it and tells the
+agent so. The buttons only answer to a click: Enter never approves, and the panel never opens by
+itself.
+
+Nothing is ever approved for you. Whenever the panel cannot answer, the agent asks in its terminal
+as it always did: the switch is off, the panel is not running, the screen is locked, nobody has
+touched the desktop for 5 minutes, a server's tunnel is down, or nobody answers in time.
+
+- **Claude Code** keeps its own prompt open meanwhile. Answer in either place.
+- **Codex** shows its prompt only after the panel has waited, 30 seconds by default. Change it with
+  `agentail approvals wait codex 20` (5 to 60).
+- **Servers** answer through the same tunnel. After upgrading, run `agentail add-host <alias>`
+  again for each server so its hooks wait for the answer.
+
+Codex asks you to trust the changed hook entry once (`/hooks`), on this computer and on each
+server.
+
 ## 🤖 Supported
 
 | Agent | Status | What you see |
@@ -174,7 +204,7 @@ Download `agentail_<version>.deb` from
 [Releases](https://github.com/YeTianwei/Agentail/releases), then:
 
 ```bash
-sudo apt install ./agentail_0.0.5.deb
+sudo apt install ./agentail_0.0.6.deb
 ```
 
 **Log out and back in once** (on X11, Alt+F2, `r`, Enter is enough) and the capsule appears.
@@ -297,6 +327,11 @@ turn_done = true            # false: no notification when it is your turn
 attention = true            # false: none when an agent needs your approval
 details = false             # true: put the prompt and the command into notifications
 
+[approvals]
+enabled = false             # true: answer permission prompts from the panel
+[approvals.wait_s]
+codex = 30                  # seconds before Codex asks in its terminal (5 to 60)
+
 [tokens]
 enabled = true              # false: read no session files, show no token counts
 servers = true              # false: count only this computer's agents
@@ -311,7 +346,7 @@ token. By default a notification only says which project on which machine is don
 The panel, behind your login, still shows everything. Set `details = true` if your screen is
 private.
 
-`[usage]`, `[notifications]` and `[tokens]` apply within a few seconds. After changing `[sessions]` or
+`[usage]`, `[notifications]`, `[approvals]` and `[tokens]` apply within a few seconds. After changing `[sessions]` or
 `[setup]`, restart the daemon with `systemctl --user restart agentail`.
 
 ## 🗄️ What Agentail keeps on disk
@@ -338,6 +373,7 @@ prints the command that fixes each problem.
 | `agentail tail` | live session changes |
 | `agentail usage on\|off\|status` | usage limits in Agentail at all (on by default; also in the panel's settings) |
 | `agentail notifications on\|off\|status [--turn-done\|--attention\|--details]` | desktop notifications: both kinds, one of them, or the prompt and command in them (also in the panel's settings) |
+| `agentail approvals on\|off\|status` | answering permission prompts from the panel (off until turned on; also in the panel's settings); `approvals wait codex N` sets how long Codex waits for it |
 | `agentail tokens [--by day\|week\|session\|model\|host]` | token counts in the terminal; `tokens on\|off\|status [--servers]` switches them (also in the panel's settings) |
 | `agentail usage-api on\|off\|status [--servers\|--all]` | the Claude usage query with Claude Code's login, this computer's or the servers' switch (both off until turned on; also in the panel's settings) |
 | `journalctl --user -u agentail` | daemon log |
@@ -368,10 +404,6 @@ session, usage and token files in `~/.local/state/agentail/` and your settings i
 
 What each release brought is in the [changelog](CHANGELOG.md). Next:
 
-- **0.0.6**: answer permission prompts from the panel, Claude Code first. It is off until you turn
-  it on. Whenever the panel cannot answer (it is not running, the tunnel is down, nobody answers
-  in time), the agent asks in its terminal as it does today. Nothing is ever approved for you.
-- **0.0.7**: token counts per conversation, day and week, here and on your servers (above).
 - **Later**: Qwen Code and Gemini CLI, then Cursor and plugin-based agents such as OpenCode.
 
 ## 📄 License
