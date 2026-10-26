@@ -26,9 +26,8 @@
 盯 agent 的工具大多做在 macOS 的刘海上。**Agentail 是为 Linux 桌面做的**，也照顾到你 SSH 上去的服务器，
 毕竟长任务大多跑在那里。GNOME 顶栏上有一个小胶囊，显示每个 agent 在做什么。有 agent 需要你时，
 胶囊会变成橙色，并显示是哪个项目。点开后每个会话一张卡片，写着在哪台机器、哪个项目、正在做什么。
-如果是授权请求，卡片上还会显示它要运行的命令的开头。完整命令在 agent 自己的终端里，授权也在那里操作。
-
-Agentail 只负责看，回复 agent 还是回到它自己的终端。
+如果是授权请求，卡片上会显示它要运行的命令。打开[审批](#-审批)后，直接在卡片上点「是」或「否」；
+不打开的话，照旧回到 agent 自己的终端里处理。
 
 ## ✨ 亮点
 
@@ -40,6 +39,9 @@ Agentail 只负责看，回复 agent 还是回到它自己的终端。
   不会卡住工具调用，也不会让它失败。
 - 📊 **额度一目了然。** Claude Code 的 5 小时和每周额度、Codex 的额度，以及各自的重置时间。
   只有你同意后才会用到你的 Claude 登录。
+- ✅ **在面板里处理授权请求。** 卡片上列出完整命令，点「是」或「否」即可。默认关闭；面板处理不了的时候，
+  agent 照旧在终端里询问。
+- 🧮 **Token 统计。** 你的 agent 用了多少 token，按天、按周和累计，本机和服务器都算。
 - 🔒 **本地运行，保护隐私。** 各台机器通过 SSH 和 Unix socket 与桌面通信。不用注册账号，没有云服务，也没有遥测。
   Agentail 不会主动连接任何在线服务，唯一的例外是你手动开启的 Claude 用量查询（Codex 的额度由 Codex 自己去查）。
 - 🌗 **浅色和深色。** 面板右上角一键切换。
@@ -97,6 +99,57 @@ Claude Code。Anthropic 怎么对待第三方工具发来的这类请求，由 A
 超过 30 分钟没有更新的卡片会变灰。如果某个窗口在这期间已经重置，就不再显示旧的百分比。用量按账号统计，
 服务器和桌面用的是同一个账号时，共用一张卡片。
 
+## 🧮 Token 统计
+
+面板右上角、设置按钮旁边的柱状图按钮打开 **Token 消耗**页：Claude Code 和 Codex 用了多少 token，可以按今日、
+本周或累计查看。每个 agent 有一个合计，下面分成互不重叠的四类：输入、缓存写、缓存读、输出（思考算在输出里）。
+合计包括 agent 读写的全部 token，算法和 Codex 自己的 "lifetime tokens" 一样。其中大部分是每一轮从缓存里
+读回的对话内容，所以缓存读远远多于其他几类。
+
+`agentail tokens` 在终端里按天、周、对话、模型或服务器显示同样的数字。
+
+数字来自 agent 自己的会话文件（`~/.claude/projects`、`~/.codex/sessions`），也就是 `claude --resume`
+用的那些文件。daemon 只读上次之后新增的部分：一轮对话结束几秒后、你打开面板时，以及每分钟一次。
+服务器上的会话在那边一轮结束后和你打开面板时读取（最多每分钟一次），通过 ssh 运行一小段 Python 脚本。
+服务器上什么都不装，传回来的只有数字、id、模型名和项目文件夹名，不会有你的 prompt 或代码。
+共用 `$HOME` 的几台服务器只读一次。
+
+统计结果保存在 `~/.local/state/agentail/tokens.sqlite`，保留 400 天。这比 agent 保留自己文件的时间更长
+（Claude Code 默认 30 天后删除），所以一个月之后，Agentail 里会有别处已经找不到的历史。第一次启动时会把
+现有的文件全部读一遍。
+
+```bash
+agentail tokens                        # 最近 7 天，按天
+agentail tokens --by week --weeks 8
+agentail tokens --by session --days 7  # 最大的 20 个对话
+agentail tokens --by model             # 或 --by host；--agent codex；--json
+agentail tokens off                    # 或 `off --servers`；面板设置里也能改
+agentail tokens forget                 # 删除所有统计，从现在重新开始
+```
+
+这些是 agent 自己记下的数字，不是账单。Agentail 不会把它们换算成钱。
+
+## ✅ 审批
+
+Claude Code 或 Codex 请求授权时，可以直接在面板里处理，不用再去找它的终端。在面板设置的「审批」里打开，或者：
+
+```bash
+agentail approvals on
+```
+
+之后会话卡片上会显示完整的命令（每一行都在）、agent 给的理由、**是**和**否**两个按钮，以及还能等多久。
+点「是」只允许这一次调用；点「否」会拒绝，并告诉 agent 这是你拒绝的。按钮只响应鼠标点击：回车不会批准，
+面板也不会自己弹出来。
+
+Agentail 不会替你批准任何操作。面板处理不了的时候，agent 照旧在终端里询问：开关没开、面板没运行、
+屏幕已锁定、5 分钟没碰过桌面、服务器的隧道断了，或者一直没人处理。
+
+- **Claude Code** 在等面板的同时，终端里的提示也一直在，两边哪边先答都行。
+- **Codex** 要等面板等完才在终端里提示，默认 30 秒。用 `agentail approvals wait codex 20` 修改（5 到 60 秒）。
+- **服务器**通过同一条隧道处理。升级后对每台服务器再执行一次 `agentail add-host <别名>`，它的 hook 才会等面板的回答。
+
+Codex 会要求你重新信任改过的那条 hook（`/hooks`），本机和每台服务器各一次。
+
 ## 🤖 支持情况
 
 | Agent | 状态 | 能看到什么 |
@@ -118,7 +171,7 @@ Claude Code。Anthropic 怎么对待第三方工具发来的这类请求，由 A
 从 [Releases](https://github.com/YeTianwei/Agentail/releases) 下载 `agentail_<版本号>.deb`，然后安装：
 
 ```bash
-sudo apt install ./agentail_0.0.5.deb
+sudo apt install ./agentail_0.0.6.deb
 ```
 
 **注销并重新登录一次**（X11 下按 Alt+F2，输入 `r` 回车也行），顶栏上就会出现胶囊。
@@ -232,6 +285,16 @@ claude_api_servers = false  # true：同时通过 ssh 用每台服务器自己�
 turn_done = true            # false：轮到你时不发通知
 attention = true            # false：agent 请求授权时不发通知
 details = false             # true：通知里带上 prompt 和命令
+
+[approvals]
+enabled = false             # true：在面板里处理授权请求
+[approvals.wait_s]
+codex = 30                  # Codex 等面板多少秒后在终端里询问（5 到 60）
+
+[tokens]
+enabled = true              # false：不读会话文件，不统计 token
+servers = true              # false：只统计本机的 agent
+keep_days = 400             # 更早的记录会被删除（7 到 3650）
 ```
 
 等待授权的会话不会因为超时被移除。
@@ -240,7 +303,7 @@ details = false             # true：通知里带上 prompt 和命令
 而里面可能有主机名、路径甚至令牌。所以通知默认只说哪台机器上的哪个项目完成了或需要你处理。
 详细内容在面板里看，那需要先登录桌面。如果你的屏幕不会被别人看到，可以设置 `details = true`。
 
-修改 `[usage]` 和 `[notifications]` 后几秒内生效。修改 `[sessions]` 或 `[setup]` 后需要重启 daemon：
+修改 `[usage]`、`[notifications]`、`[approvals]` 和 `[tokens]` 后几秒内生效。修改 `[sessions]` 或 `[setup]` 后需要重启 daemon：
 `systemctl --user restart agentail`。
 
 ## 🗄️ 数据存放在哪里
@@ -265,6 +328,8 @@ agentail doctor
 | `agentail tail` | 实时查看会话变化 |
 | `agentail usage on\|off\|status` | 是否显示用量（默认开启；面板设置里也能改） |
 | `agentail notifications on\|off\|status [--turn-done\|--attention\|--details]` | 桌面通知：两类一起开关、只开关其中一类，或通知里是否带 prompt 和命令（面板设置里也能改） |
+| `agentail approvals on\|off\|status` | 是否在面板里处理授权请求（默认关闭；面板设置里也能改）；`approvals wait codex N` 设置 Codex 等面板多久 |
+| `agentail tokens [--by day\|week\|session\|model\|host]` | 在终端里查看 token 统计；`tokens on\|off\|status [--servers]` 开关统计（面板设置里也能改） |
 | `agentail usage-api on\|off\|status [--servers\|--all]` | 用 Claude Code 的登录查询 Claude 用量，分本机和服务器两个开关（默认都关闭；面板设置里也能改） |
 | `journalctl --user -u agentail` | 查看 daemon 日志 |
 | `agentail setup` | 手动重新执行一遍自动配置 |
@@ -284,15 +349,13 @@ sudo apt remove agentail
 
 这两条命令都会保留 `~/.agentail/backups/` 里的配置备份（服务器上也是），作为最后的退路，并会提示你。
 所以 `~/.agentail` 目录不会被删除。确认不需要后，可以运行 `rm -r ~/.agentail` 删掉，每台服务器上也一样
-（如果还有别的 Agentail 桌面在用这台服务器，就先别删）。`~/.local/state/agentail/` 里的会话和用量数据、
+（如果还有别的 Agentail 桌面在用这台服务器，就先别删）。`~/.local/state/agentail/` 里的会话、用量和 token 数据、
 `~/.config/agentail/` 里的设置，也可以这样删除。
 
 ## 🗺️ 路线图
 
 已发布版本的改动见[更新日志](CHANGELOG.md)（英文）。接下来的计划：
 
-- **0.0.6**：在面板里直接处理授权请求，先支持 Claude Code。默认关闭，需要手动开启。面板处理不了的时候
-  （面板没运行、隧道断了、一直没人处理），agent 仍然像现在一样在终端里询问。Agentail 不会替你批准任何操作。
 - **之后**：Qwen Code 和 Gemini CLI，然后是 Cursor 和 OpenCode 这类插件形式的 agent。
 
 ## 📄 许可证

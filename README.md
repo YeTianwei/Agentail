@@ -28,10 +28,9 @@ Most tools that watch coding agents live in the macOS notch. **Agentail is made 
 desktop**, and for the servers you SSH into, where the long runs actually happen. A small capsule
 in the GNOME top bar shows what every agent is doing. When one of them needs you, it turns orange
 and names the project. Click it to see a card for each session with the machine, the project and
-what the agent is doing. For a permission prompt, the card also shows the start of the command it
-wants to run. The full command is in the agent's own terminal, where you answer it.
-
-Agentail only watches. You still answer agents in their own terminal.
+what the agent is doing. For a permission prompt, the card shows the command it wants to run.
+Turn on [approvals](#-approvals) and you answer Yes or No right there; otherwise you answer in the
+agent's own terminal, as always.
 
 ## ✨ Highlights
 
