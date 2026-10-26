@@ -414,7 +414,7 @@ $A doctor                                   # claude / codex hooks ✓,approvals
 
 调研见 `docs/token-stats-notes.md`,设计见 `docs/token-stats-design.md`(实现分解在其 §9;默认值见 §1:默认开启、自动回填、周一开始、保留 400 天)。要点:daemon 增量读会话文件(hook 脚本不改),一份 Python 3.6 扫描器本机和服务器共用(服务器经 ssh 运行,只回传数字),按响应 id 去重后存进 `tokens.sqlite`;共享 NFS HOME 的服务器按 `home_id` 只扫一次。
 
-✅ **实现完成**(2026-10-23,分支 `tokens-scanner`,七个提交对应设计 §9 的七步):扫描器、`TokenStore`、daemon 调度与 UI 协议、`agentail tokens` / `status` / `doctor`、面板(Tokens 区、卡片一行、设置组)、AppIndicator 一行、文档(README「Token counts」、CHANGELOG「Unreleased」、`docs/files.md`、`protocol.md`)。本机真实数据只读试跑过;面板在 headless 嵌套 GNOME Shell 46 里截图核对过(深色英文、浅色中文);服务器部分只用假 ssh 测过。
+✅ **实现完成**(2026-10-23,分支 `tokens-scanner`,七个提交对应设计 §9 的七步):扫描器、`TokenStore`、daemon 调度与 UI 协议、`agentail tokens` / `status` / `doctor`、面板(Tokens 区、卡片一行、设置组;2026-10-26 改为右上角按钮进入的单独 Tokens 页,去掉卡片行,加「累计」)、AppIndicator 一行、文档(README「Token counts」、CHANGELOG「Unreleased」、`docs/files.md`、`protocol.md`)。本机真实数据只读试跑过;面板在 headless 嵌套 GNOME Shell 46 里截图核对过(深色英文、浅色中文);服务器部分只用假 ssh 测过。
 
 真机验证中发现并修复(2026-10-26):服务器的回答超过一个管道块(gpu8 全量回填约 2.5 MB)时,`token_stats._run` 只读到第一块,随后无超时地等 ssh 退出,扫描任务永远挂起,doctor 显示「not scanned yet」、卡片上没有 token 行。改为读到 EOF、所有等待都有上限;新测试覆盖 3 MB 的回答、卡住的进程和超限。修好后 gpu8 全量 16681 条、4.2 秒。
 
@@ -431,11 +431,11 @@ $A tokens && $A tokens --by host && $A tokens --by session --days 2
 ssh gpu7 'command -v zstd || echo no zstd'    # 没有时 doctor 会提示,旧的压缩 Codex 文件读不了
 ```
 
-1. 面板的 Tokens 区「今日」与 `$A tokens --days 1` 的数字一致;「本周」与 `$A tokens --by week --weeks 1` 一致。
-2. 在本机跑一轮 Claude(和 Codex):结束后几秒内,卡片上出现 `In … (…% cached) · Out …`,今日数字变大;`--print-events` 打印 `{"tokens": "local", "added": …}`。
-3. 在 gpu7 上跑一轮 Claude:约 15 秒后 `$A tokens --by host` 出现 `gpu7·gpu8`,卡片(主机 gpu7)也有那一行。gpu8 上再跑一轮,仍然只有一行 `gpu7·gpu8`。
-4. 设置页「Token 统计」:关掉「服务器」→ Tokens 区只剩本机的数;关掉「统计 token」→ Tokens 区和卡片那一行都消失,`$A tokens` 仍能看到历史;再打开恢复。
-5. 看一眼亮色主题、中文界面下的 Tokens 区、卡片和设置组;AppIndicator(`$A ui`,不要和扩展同时开)菜单里有「Tokens today: …」一行。
+1. 右上角柱状图按钮打开 Tokens 页:「Daily」里每个 agent 的合计与 `$A tokens --days 1` 的 TOTAL 列一致,「Weekly」与 `$A tokens --by week --weeks 1` 一致,「Lifetime」下面写着最早一条的日期。
+2. 在本机跑一轮 Claude(和 Codex):结束后几秒内 Tokens 页的今日数字变大;`--print-events` 打印 `{"tokens": "local", "added": …}`。
+3. 在 gpu7 上跑一轮 Claude:约 15 秒后 `$A tokens --by host` 出现 `gpu7·gpu8`。gpu8 上再跑一轮,仍然只有一行 `gpu7·gpu8`。
+4. 设置页「Token 统计」:关掉「服务器」→ Tokens 页只剩本机的数;关掉「统计 token」→ 柱状图按钮消失,`$A tokens` 仍能看到历史;再打开恢复。
+5. 看一眼亮色主题、中文界面下的 Tokens 页和设置组;AppIndicator(`$A ui`,不要和扩展同时开)菜单里有「Tokens today: …」一行。
 
 ---
 

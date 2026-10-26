@@ -35,7 +35,7 @@
 TokenRecord = {
   agent:       "claude" | "codex",
   response_id: str,          # 去重键
-  session_id:  str,          # 与 hook 的 session_id 相同,用来对上面板里的会话卡片
+  session_id:  str,          # 与 hook 的 session_id 相同;`agentail tokens --by session` 按它分组
   ts:          int,          # UTC 秒
   model:       str | null,
   project:     str | null,   # cwd 的末级目录名,只用于 CLI 显示
@@ -146,11 +146,9 @@ cursors(store TEXT PRIMARY KEY, state TEXT)   -- 扫描器的游标,见 §4.3
 
 ---
 
-## 5. 和会话卡片对应
+## 5. 不按对话显示(2026-10-26 改)
 
-面板上每张会话卡片的键是 `(host, agent, session_id)`。daemon 把 `host` 换算成 `store`(`local` 或那台服务器的 `home:<id>`),再按 `(store, agent, session_id)` 汇总。Claude 的 hook `session_id` 就是 transcript 的 `sessionId`,Codex 的 hook `session_id` 就是 rollout 文件名里的 id([实测],见 `tests/fixtures/codex/recorded-0.160.0.jsonl`)。
-
-`/clear` 之后 Claude 开启新的 session id,卡片上的数字也从零开始。这和 Claude 自己的 `cost.total_cost_usd` 一致。
+最初的设计在每张会话卡片上显示这个对话的消耗(`In 13.3M (93% cached) · Out 48k`)。你试用后决定去掉:对用户来说没有意义,面板也因此太长。按对话的明细只留在 CLI:`agentail tokens --by session`。
 
 ---
 
@@ -164,17 +162,15 @@ cursors(store TEXT PRIMARY KEY, state TEXT)   -- 扫描器的游标,见 §4.3
 ```
 
 ```
-TOKENS   = {"today": [ROW...], "week": [ROW...],
-            "sessions": [{"key": {"host", "agent", "session_id"}, "totals": COUNTS}...],
-            "day_start": ts, "week_start": ts, "updated_ts": ts}
+TOKENS   = {"today": [ROW...], "week": [ROW...], "total": [ROW...],
+            "day_start": ts, "week_start": ts, "since": ts | null, "updated_ts": ts}
 ROW      = {"agent": "claude", "counts": COUNTS}
 COUNTS   = {"input", "cache_write", "cache_read", "output", "reasoning"}
 ```
 
-- `today` / `week` 是所有主机的合计,按 agent 分行;没有数据的 agent 不出现。
-- `sessions` 只包含当前状态表里存在的会话(也就是面板上有卡片的那些),不是全部历史。
+- `today` / `week` / `total` 是所有主机的合计,按 agent 分行;没有数据的 agent 不出现。`total` 是保留期内的全部记录,`since` 是其中最早一条的时间。
 - `TOKENS` 有变化时才发,最多每 5 秒一次。
-- 每次都发完整的 `TOKENS`,不发差量:体积很小(几十张卡片也只有几 KB),客户端也不用维护状态。
+- 每次都发完整的 `TOKENS`,不发差量:体积很小(不到 1 KB),客户端也不用维护状态。
 - 跨过午夜或周一零点时,daemon 主动重算并发送一次。
 - 旧客户端会忽略未知的消息类型和快照字段(现有约定)。
 - 历史查询不走 ui.sock:CLI 直接只读打开 `tokens.sqlite`,daemon 不在运行时也能用。
@@ -183,31 +179,18 @@ COUNTS   = {"input", "cache_write", "cache_read", "output", "reasoning"}
 
 ## 7. 界面
 
-### 7.1 面板:Tokens 区
+### 7.1 面板:Tokens 页(2026-10-26 改)
 
-放在 Usage(额度)区之后。默认展开,折叠状态存进 `panel.json` 的 `tokens_open`。今日和本周用一个切换按钮,所选范围存进 `tokens_range`。
+最初是主面板上 Usage 区下面的一块,带「今日 / 本周」两个大按钮。你试用后改为单独一页:用户不需要随时看到 token 消耗,主面板也太长。
 
-```
- Tokens                                   [ Today | Week ]
-            Input   Cache write   Cache read   Output
- Claude      3.1k       9.5M         331M        2.3M
- Codex        13k          0          52k         175
-```
-
-- 数字用 k / M / B,保留三位有效数字;中文界面也用 k / M(和额度区的写法一致)。
-- 四个类别的列标题都要经过 `_()`,中文分别是「输入」「缓存写」「缓存读」「输出」。
-- `reasoning` 不单独占一列,在 Output 之后加一个括号「其中思考 x」,太窄时省略。
-- 没有任何数据时整个区隐藏。
-
-### 7.2 会话卡片
-
-卡片上加一行小字,只显示两个数,不显示四个类别:
-
-```
-In 13.3M (93% cached) · Out 48k
-```
-
-`In` 是输入、缓存写、缓存读三项之和,`cached` 是缓存读占 `In` 的比例。四个类别的明细在 Tokens 区和 CLI 里看。会话还没有记录时不显示这一行。
+- 入口:右上角设置(齿轮)左边的柱状图按钮(`icons/tokens-symbolic.svg`,原创),只在 daemon 报告了 `TOKENS` 时出现(功能关闭或 daemon 太旧时不显示)。
+- 页头和设置页一样:返回、标题「Tokens」(中文「Token 消耗」)、深浅色按钮。
+- 范围:「Daily / Weekly / Lifetime」(中文「今日 / 本周 / 累计」)三个小按钮,靠左,所选范围存进 `panel.json` 的 `tokens_range`(值仍是 `today` / `week` / `total`)。
+- 内容(2026-10-26 你决定:保留明细,同时给出合计;只有一个大数字的版本试过,不好看;每个 agent 占一列的表格放不下以后的 Qoder、Cursor 等):每个 agent 一块,上下排列,块之间用分隔线隔开。块的第一行是图标、名字和这个 agent 的合计(加粗);下面两行两列的小字是四项明细:输入、缓存写 / 缓存读、输出。agent 再多也只是变长,不会变挤(五个 agent 截图核对过)。
+- 有两个以上 agent 时,最上面一行「All agents」(中文「全部 agent」)是所有 agent 的合计。
+- 合计是四项之和;思考量包含在输出里,不单独列出。口径和 Codex 官方的 lifetime tokens 相同(都包含缓存读,见 notes §5.5)。数字格式和 CLI 相同(k / M / B,三位有效数字)。
+- 卡片下面:Lifetime 时显示「Since 2026-08-12」。
+- 所选范围没有数据时显示「今天还没有。」「本周还没有。」「还没有统计。」;在这一页时功能被关闭,显示「Token 统计已关闭,可在设置中打开。」
 
 ### 7.3 CLI
 
@@ -228,7 +211,7 @@ agentail tokens forget [--yes]              # 删掉全部记录(要确认)
 
 ### 7.4 设置页
 
-在设置页加一个「Token 统计」组,有两个开关:「统计 token」和「包括服务器」。两个开关对应 `config.toml`:
+在设置页加一个「Token 统计」组,有两个开关:「统计 token」和「服务器」,不带说明文字(2026-10-26 你决定)。两个开关对应 `config.toml`:
 
 ```toml
 [tokens]
@@ -258,7 +241,7 @@ keep_days = 400
 2. ✅ `daemon/tokens.py`:`TokenStore`(sqlite、upsert、汇总、天和周、清理)(2026-10-23,`tests/test_tokens_store.py`)。入库前校验:agent 只认 claude / codex,id 和模型名走白名单(`<synthetic>` 之类变成空),项目名去掉控制字符和双向控制符,时间早于 2020 年或超前一天以上、计数为负或超过 10¹⁰、思考多于输出的记录整条丢弃。文件坏了就改名为 `tokens.sqlite.broken-<时间>` 重新开始;新版本写的文件(schema 更高)不动,token 统计关闭。本机真实数据试跑:5347 条全部通过校验,写入 0.04 秒。
 3. ✅ daemon 接入:本机调度、服务器调度(`RemoteSchedule`、`home_id` 分组)、`tokens` 快照与 `tokens_update`、`config.load_token_switches` / `set_token_switches`(2026-10-23,`daemon/token_stats.py`,`tests/test_token_stats.py`;协议已写进 `protocol.md`「Token counts」)。`SETTINGS` 新增 `tokens: {enabled, servers}`。没有 `home_id` 的服务器用 `alias:<别名>` 作 store。daemon 打不开文件(权限、新版本的 schema)时 `TOKENS` 为 null,原因记在日志里(doctor 在第 4 步显示)。本机冒烟测试:启动约 1 秒扫完 5378 条。
 4. ✅ CLI `agentail tokens`、`status`、`doctor`(2026-10-23,`tokens_cli.py`,`tests/test_tokens_cli.py`)。doctor 需要的扫描状态放在快照的 `tokens_status` 里(只在快照中,不随增量发送,见 `protocol.md`):本机最近一次成功扫描的时间、保留的记录数、每个 HOME 组最近一次成功的时间和连续失败次数、因为没有 `zstd` 跳过的压缩文件数。
-5. ✅ 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n(2026-10-23,`tests/js/test_model.js`、`tests/test_gnome_extension.py`)。在 headless 嵌套 GNOME Shell 46 里截图核对过深色英文、浅色中文、今日 / 本周、设置页;真机桌面待你确认。实现时的调整:思考量不单独占列,表格下方一行「输出中的思考:…」;没有服务器时「服务器」开关仍默认开着,说明改为「从你添加的服务器上通过 SSH 读取」;数字列用固定宽度的 `St.Bin` 右对齐(单行 `St.Label` 不认 `text-align`)。
+5. ✅ 面板:`model.js` 纯函数 + `extension.js` 的 Tokens 区、卡片行、设置组 + i18n;2026-10-26 按你的试用意见改为单独的 Tokens 页、去掉卡片行、加「累计」(§5、§7.1)(初版 2026-10-23,`tests/js/test_model.js`、`tests/test_gnome_extension.py`)。在 headless 嵌套 GNOME Shell 46 里截图核对过深色英文、浅色中文、今日 / 本周、设置页;真机桌面待你确认。实现时的调整:思考量不单独占列,表格下方一行「输出中的思考:…」;没有服务器时「服务器」开关仍默认开着,说明改为「从你添加的服务器上通过 SSH 读取」;数字列用固定宽度的 `St.Bin` 右对齐(单行 `St.Label` 不认 `text-align`)。
 6. ✅ AppIndicator 一行(2026-10-23,`ui/model.py` 的 `token_entries`,`tests/test_ui_model.py`):Usage 几行之后加「Tokens today: Claude Code out 2.57M · Codex out 175」;今天没有统计或功能关闭时不显示。菜单本身(GTK)没在桌面上跑过。
 7. ✅ 文档(2026-10-23):`protocol.md`(第 3、4 步已写)、README 新增「Token counts」一节与配置、排错、卸载、路线图的相应内容,CHANGELOG「Unreleased」,`docs/files.md` 加 `tokens.sqlite`,`usage.py` 文档字符串改为「token 计数是另一项功能,只存在本机」。真机验证步骤见 `PLAN.md`「Token 统计」。
 
@@ -269,7 +252,7 @@ keep_days = 400
 ## 10. 已知限制
 
 - resume / fork 之后,复制过来的旧响应可能算在新对话上(§3.2)。
-- 共享 NFS HOME 的服务器分不出是哪一台用的,统计按 HOME 组合并显示(如 `gpu7·gpu8`)。会话卡片不受影响,因为卡片本身带主机名。
+- 共享 NFS HOME 的服务器分不出是哪一台用的,统计按 HOME 组合并显示(如 `gpu7·gpu8`)。
 - 回填只能拿到 Claude 还没删的部分(默认 30 天)。在 Claude Desktop 里开始或继续过的会话不受这个限制([文档])。
 - 一台服务器连不上超过 30 天,这期间的 Claude 记录会被 Claude 自己删掉,之后也拿不回来。
 - 服务器上的 Claude 如果靠交互式 shell 里设置的 `CLAUDE_CONFIG_DIR` 指定配置目录,非交互 ssh 里看不到这个变量。这和 `usage_claude_remote.py` 的限制相同。

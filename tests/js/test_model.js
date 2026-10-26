@@ -694,12 +694,8 @@ const TOKENS = {
         {agent: 'x\u001b', counts: {input: -1}},
     ],
     week: [{agent: 'claude', counts: counts(6240, 13056114, 467259852, 3152632, 0)}],
-    sessions: [
-        {key: {host: 'local', agent: 'claude', session_id: 'a'}, totals: counts(224, 509000, 26200000, 145000)},
-        {key: {host: 'gpu1', agent: 'claude', session_id: 'b'}, totals: counts(0, 0, 0, 7)},
-        {key: {host: 'gpu1', agent: 'claude', session_id: 'c'}, totals: counts(1, 2, 3, 4.5)},
-    ],
-    day_start: 0, week_start: 0, updated_ts: null,
+    total: [{agent: 'claude', counts: counts(9000, 20000000, 900000000, 5000000, 2000000)}],
+    day_start: 0, week_start: 0, since: Math.floor(new Date(2026, 9, 5, 12).getTime() / 1000), updated_ts: null,
 };
 
 test('token counts: the same numbers as agentail tokens', () => {
@@ -711,48 +707,54 @@ test('token counts: the same numbers as agentail tokens', () => {
     eq([M.fmtCount(-1), M.fmtCount(1.5), M.fmtCount('7')], ['?', '?', '?']);
 });
 
-test('token counts: the Tokens section', () => {
+test('token counts: the Tokens page', () => {
     const st = make([]);
-    eq(M.tokenTotals(st, 'today'), null);  // an older daemon
+    eq([M.tokensAvailable(st), M.tokenTotals(st, 'today')], [false, null]);  // off, or an older daemon
     st.apply({type: 'tokens_update', tokens: TOKENS});
+    ok(M.tokensAvailable(st), 'available');
     const t = M.tokenTotals(st, 'today');
-    eq(t.ranges.map(r => [r.id, r.on]), [['today', true], ['week', false]]);
-    eq(t.columns, ['Input', 'Cache write', 'Cache read', 'Output']);
-    eq(t.rows.map(r => [r.agent, r.name, r.cells]), [
-        ['claude', 'Claude Code', ['3.39k', '10.4M', '360M', '2.57M']],
-        ['codex', 'Codex', ['13.5k', '0', '52.0k', '175']],
-    ]);  // known agents in order; a malformed row is dropped
-    eq(t.thinking, 'Thinking, part of the output: Claude Code 1.30M · Codex 85');
+    eq(t.ranges.map(r => [r.id, r.text, r.on]), [['today', 'Daily', true], ['week', 'Weekly', false], ['total', 'Lifetime', false]]);
+    // One block per agent (known agents in order; a malformed row is dropped): its total, the
+    // four kinds that add up to it (thinking is part of the output, not shown apart).
+    eq(t.agents.map(a => [a.agent, a.name, a.total]), [['claude', 'Claude Code', '373M'], ['codex', 'Codex', '65.6k']]);
+    eq(t.agents[0].parts, [
+        {label: 'Input', value: '3.39k'},
+        {label: 'Cache write', value: '10.4M'},
+        {label: 'Cache read', value: '360M'},
+        {label: 'Output', value: '2.57M'},
+    ]);
+    eq(t.agents[1].parts.map(p => p.value), ['13.5k', '0', '52.0k', '175']);
+    // Several agents: the total of all on top. 373417184 + 65610.
+    eq(t.all, {label: 'All agents', total: '373M'});
+    eq([t.empty, t.since], ['', '']);
     const w = M.tokenTotals(st, 'week');
-    eq([w.range, w.rows.length, w.thinking, w.empty], ['week', 1, '', '']);
+    eq([w.range, w.agents.length, w.agents[0].total, w.all], ['week', 1, '483M', null]);  // one agent: no line for all
+    const all = M.tokenTotals(st, 'total');
+    eq([all.range, all.since, all.agents[0].total], ['total', 'Since 2026-10-05', '925M']);
     eq(M.tokenTotals(st, 'nonsense').range, 'today');
-    st.apply({type: 'tokens_update', tokens: {...TOKENS, today: []}});
-    eq(M.tokenTotals(st, 'today').empty, 'Nothing yet today.');
-    st.apply({type: 'tokens_update', tokens: {...TOKENS, today: [], week: []}});
-    eq(M.tokenTotals(st, 'week'), null);  // nothing at all: no section
-    st.apply({type: 'tokens_update', tokens: null});  // switched off
-    eq([st.tokens, M.tokenTotals(st, 'today')], [null, null]);
-});
-
-test('token counts: one line per session card', () => {
-    const st = make([s('local', 'a', 'running'), s('gpu1', 'b', 'waiting_input'),
-        s('gpu1', 'c', 'waiting_input'), s('local', 'd', 'running')]);
-    st.apply({type: 'tokens_update', tokens: TOKENS});
-    const byId = Object.fromEntries(M.agentGroups(st, NOW).flatMap(g => g.cards).map(c => [c.id, c.tokens]));
-    eq(['a', 'b', 'c', 'd'].map(id => byId[id]), ['In 26.7M (98% cached) · Out 145k', 'Out 7', '', '']);
+    st.apply({type: 'tokens_update', tokens: {...TOKENS, today: [], since: -5}});
+    const none = M.tokenTotals(st, 'today');
+    eq([none.agents, none.all, none.empty], [[], null, 'Nothing yet today.']);
+    eq(M.tokenTotals(st, 'total').since, '');  // a bad time stamp shows no date
     I.setLanguage('zh');
     try {
-        eq(M.agentGroups(st, NOW)[0].cards.find(c => c.id === 'a').tokens, '输入 26.7M（缓存 98%）· 输出 145k');
-        eq(M.tokenTotals(st, 'today').columns, ['输入', '缓存写', '缓存读', '输出']);
+        const zh = M.tokenTotals(st, 'total');
+        eq(zh.ranges.map(r => r.text), ['今日', '本周', '累计']);
+        eq(zh.agents[0].parts.map(p => p.label), ['输入', '缓存写', '缓存读', '输出']);
     } finally {
         I.setLanguage('en');
     }
-    // A new snapshot replaces the counts; a disconnect forgets them.
-    st.apply({type: 'snapshot', sessions: [], hosts: [], tokens: null});
-    eq(st.tokens, null);
+    st.apply({type: 'tokens_update', tokens: null});  // switched off
+    eq([st.tokens, M.tokensAvailable(st)], [null, false]);
     st.apply({type: 'tokens_update', tokens: TOKENS});
     st.disconnect();
     eq([st.tokens, st.settings.tokens], [null, null]);
+});
+
+test('token counts: nothing on the session cards', () => {
+    const st = make([s('local', 'a', 'running')]);
+    st.apply({type: 'tokens_update', tokens: TOKENS});
+    ok(!('tokens' in M.agentGroups(st, NOW)[0].cards[0]), 'no token line on a card');
 });
 
 test('token counts: settings', () => {
@@ -763,11 +765,11 @@ test('token counts: settings', () => {
     st.apply({type: 'settings', settings: {usage: true, tokens: {enabled: true, servers: true}}});
     let v = M.tokenSettings(st);
     eq(v.rows.map(r => [r.id, r.on, r.enabled]), [['tokens', true, true], ['tokens_servers', true, true]]);
-    eq(v.rows[1].notes, ['Read over SSH from the servers you add.']);  // on for the servers to come
+    eq(v.rows.map(r => r.notes), [[], []]);  // the switches speak for themselves
     st.apply({type: 'host_status', host: host('gpu1', 'connected')});
     st.apply({type: 'settings', settings: {usage: true, tokens: {enabled: true, servers: false}}});
     v = M.tokenSettings(st);
-    eq([v.rows[1].on, v.rows[1].enabled, v.rows[1].notes], [false, true, ['Read over SSH after each turn there.']]);
+    eq([v.rows[1].on, v.rows[1].enabled], [false, true]);
     // Counting switched off in the panel: the servers' switch waits for it.
     const pending = {tokens: false};
     v = M.tokenSettings(st, pending);

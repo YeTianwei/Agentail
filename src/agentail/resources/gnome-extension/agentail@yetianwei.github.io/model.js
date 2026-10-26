@@ -439,7 +439,7 @@ export function agentGroups(state, now) {
             .sort((a, b) =>
                 STATUS[statusOf(a)].order - STATUS[statusOf(b)].order ||
                 (b.last_ts || 0) - (a.last_ts || 0))
-            .map(s => ({...card(s, now), approval: approvalOf(state, s, now), tokens: tokenLine(state, s)}));
+            .map(s => ({...card(s, now), approval: approvalOf(state, s, now)}));
         return {agent, name: AGENT_NAME[agent] ?? agent, count: cards.length, cards};
     });
 }
@@ -745,13 +745,12 @@ function tokenRows(rows) {
 export function tokensOf(t) {
     if (!t || typeof t !== 'object')
         return null;
-    const sessions = new Map();
-    for (const e of Array.isArray(t.sessions) ? t.sessions : []) {
-        const counts = countsOf(e?.totals);
-        if (counts)
-            sessions.set(keyString(keyOf(e.key)), counts);
-    }
-    return {today: tokenRows(t.today), week: tokenRows(t.week), sessions};
+    return {
+        today: tokenRows(t.today),
+        week: tokenRows(t.week),
+        total: tokenRows(t.total),
+        since: countOk(t.since) && t.since > 0 ? t.since : null,
+    };
 }
 
 // 1234 -> "1.23k", 360461887 -> "360M": three significant digits, as `agentail tokens`
@@ -775,51 +774,65 @@ export function fmtCount(n) {
     return '?';
 }
 
-export const TOKEN_RANGES = ['today', 'week'];
+export const TOKEN_RANGES = ['today', 'week', 'total'];
 
-// The Tokens section: one row per agent with its four counts, for today or this week, and a
-// line with the thinking part of the output. Null while there is nothing to show at all.
+// Whether the panel offers its Tokens page: the daemon counts tokens (0.0.7 and later, on).
+export function tokensAvailable(state) {
+    return state.tokens !== null;
+}
+
+// The local date of a time stamp, as 2026-10-05.
+function dateText(ts) {
+    const d = new Date(ts * 1000);
+    const pad = n => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+// Everything a model read and wrote: the four kinds added up (thinking is part of the output).
+// Codex's own "lifetime tokens" counts the same way, cached input included.
+const totalOf = c => c.input + c.cache_write + c.cache_read + c.output;
+
+// The Tokens page, for today, this week or everything kept: one block per agent, its total
+// and the four kinds below it (so any number of agents fits the panel's width), and above
+// them, when there are several agents, the total of all. Null while the daemon reports none.
 export function tokenTotals(state, range) {
     const t = state.tokens;
-    if (!t || (!t.today.length && !t.week.length))
+    if (!t)
         return null;
     const which = TOKEN_RANGES.includes(range) ? range : 'today';
-    const rows = sortAgents(t[which].map(r => r.agent)).map(agent => {
-        const c = t[which].find(r => r.agent === agent).counts;
+    const counts = new Map(t[which].map(r => [r.agent, r.counts]));
+    const agents = sortAgents(counts.keys()).map(agent => {
+        const c = counts.get(agent);
         return {
             agent,
             name: AGENT_NAME[agent] ?? agent,
-            cells: [c.input, c.cache_write, c.cache_read, c.output].map(fmtCount),
-            thinking: c.reasoning,
+            total: fmtCount(totalOf(c)),
+            parts: [
+                {label: _('Input'), value: fmtCount(c.input)},
+                {label: _('Cache write'), value: fmtCount(c.cache_write)},
+                {label: _('Cache read'), value: fmtCount(c.cache_read)},
+                {label: _('Output'), value: fmtCount(c.output)},
+            ],
         };
     });
-    const thinking = rows.filter(r => r.thinking > 0)
-        .map(r => `${r.name} ${fmtCount(r.thinking)}`).join(' · ');
+    const sum = [...counts.values()].reduce((n, c) => n + totalOf(c), 0);
+    const empty = {
+        today: _('Nothing yet today.'),
+        week: _('Nothing yet this week.'),
+        total: _('Nothing counted yet.'),
+    };
     return {
         range: which,
         ranges: [
-            {id: 'today', text: _('Today'), on: which === 'today'},
-            {id: 'week', text: _('This week'), on: which === 'week'},
+            {id: 'today', text: _('Daily'), on: which === 'today'},
+            {id: 'week', text: _('Weekly'), on: which === 'week'},
+            {id: 'total', text: _('Lifetime'), on: which === 'total'},
         ],
-        columns: [_('Input'), _('Cache write'), _('Cache read'), _('Output')],
-        rows,
-        empty: rows.length ? '' : which === 'today' ? _('Nothing yet today.') : _('Nothing yet this week.'),
-        thinking: thinking ? _('Thinking, part of the output: {list}', {list: thinking}) : '',
+        all: agents.length > 1 ? {label: _('All agents'), total: fmtCount(sum)} : null,
+        agents,
+        empty: agents.length ? '' : empty[which],
+        since: which === 'total' && t.since ? _('Since {date}', {date: dateText(t.since)}) : '',
     };
-}
-
-// One line on a session card: everything read (fresh input, cache writes and reads) and how
-// much of it came from the cache, then the output. '' while the session has no counts.
-export function tokenLine(state, s) {
-    const c = state.tokens?.sessions.get(keyString(keyOf(s?.key)));
-    if (!c)
-        return '';
-    const read = c.input + c.cache_write + c.cache_read;
-    const output = fmtCount(c.output);
-    if (!read)
-        return _('Out {output}', {output});
-    const cached = Math.round(100 * c.cache_read / read);
-    return _('In {input} ({cached}% cached) · Out {output}', {input: fmtCount(read), cached, output});
 }
 
 // ---- settings: switches the daemon keeps in config.toml ----------------------------------
@@ -927,10 +940,8 @@ export function tokenSettings(state, pending = {}) {
     const actual = switchValues(state);
     const hasServers = [...state.hosts.keys()].some(alias => alias !== 'local');
     const row = (...args) => switchRow(actual, pending, ...args);
-    const tokens = row('tokens', _('Count tokens'),
-        [_("From Claude Code's and Codex's own session files. The counts stay on this computer.")], true);
-    const servers = row('tokens_servers', _('Servers'),
-        [hasServers ? _('Read over SSH after each turn there.') : _('Read over SSH from the servers you add.')],
+    const tokens = row('tokens', _('Count tokens'), [], true);
+    const servers = row('tokens_servers', _('Servers'), [],
         tokens.on && (hasServers || actual.tokens_servers === true));
     return {available: actual.tokens !== null, rows: [tokens, servers]};
 }

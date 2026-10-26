@@ -18,21 +18,24 @@
   - Kept in `~/.local/state/agentail/tokens.sqlite` (0600) for 400 days (`[tokens] keep_days`),
     longer than Claude Code keeps its own files (30 days by default). The first start reads the
     history that is still there; compressed Codex files need the `zstd` command.
-  - The panel has a **Tokens** section (today or this week, per agent), one line on each session
-    card ("In 41.0M (99% cached) · Out 177k") and a Token counts group in the settings. The
-    AppIndicator menu has one line with today's output, `agentail status` a TOKENS TODAY section
-    and `agentail tail` a line per update.
+  - The panel has a **Tokens** page, behind a bar chart button next to the settings: daily, weekly
+    or lifetime, each agent's total (everything read and written, as Codex's own "lifetime
+    tokens" counts) with the four kinds below it, and the total of all agents. The settings have a Token
+    counts group. The AppIndicator menu has one line with today's tokens, `agentail status` a
+    TOKENS TODAY section and `agentail tail` a line per update; the terminal reports show the
+    total and the four kinds.
   - `agentail tokens` reports by day, week, session, model or host (`--json` too);
     `agentail tokens on|off|status [--servers]` switches it (`[tokens] enabled` / `servers`, both
     on by default); `agentail tokens forget` deletes every count and starts over from now.
     `agentail doctor` shows this computer's last scan and each server's.
-  - UI protocol: the snapshot's `tokens` and `tokens_status`, the `tokens_update` message and
+  - UI protocol: the snapshot's `tokens` (today, week, total) and `tokens_status`, the
+    `tokens_update` message and
     `tokens` in `SETTINGS` (docs/protocol.md, "Token counts").
 
 ### Known limitations
 
 - Servers sharing an NFS `$HOME` cannot be told apart: their counts are shown together
-  ("gpu7·gpu8"). Session cards are not affected.
+  ("gpu7·gpu8").
 - After `--resume` or a fork, Claude Code copies earlier responses into the new session's file;
   they count once, possibly for the new session. Daily and weekly totals are not affected.
 - Codex files from before codex-cli 0.153 have no per-response record; they are counted from its

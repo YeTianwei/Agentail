@@ -45,8 +45,8 @@ Agentail only watches. You still answer agents in their own terminal.
   listening, it returns at once, prints nothing, and never blocks or fails a tool call.
 - 📊 **Usage limits at a glance.** Claude Code's 5-hour and weekly limits and Codex's, with when
   each one resets. Your Claude login is used only if you say yes.
-- 🧮 **Token counts.** How many tokens each conversation, day and week took, per agent and in four
-  kinds (input, cache write, cache read, output), here and on your servers.
+- 🧮 **Token counts.** How many tokens your agents used, daily, weekly and over their lifetime,
+  here and on your servers.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
   account, no cloud, no telemetry. Agentail contacts no online service on its own. The one
   exception is the Claude usage query, and only if you turn it on (Codex asks for its own limits).
@@ -119,11 +119,14 @@ desktop, one card covers both.
 
 ## 🧮 Token counts
 
-The panel's **Tokens** section shows how many tokens Claude Code and Codex used today or this week,
-in four kinds that do not overlap: input, cache write, cache read and output. A line below says
-how much of the output was thinking. Each session card has one line with what that conversation
-read (and how much of it came from the cache) and what it wrote. Most of what an agent reads
-comes from the cache, so the cache read column is by far the largest.
+The bar chart button at the top right of the panel, next to the settings, opens the **Tokens**
+page: how many tokens Claude Code and Codex used, daily, weekly or over their lifetime. Each agent
+has its total and, below it, four kinds that do not overlap (input, cache write, cache read,
+output; thinking is part of the output). The total counts everything the agents read and
+wrote the way Codex's own "lifetime tokens" does. Most of it is the conversation read back from
+the cache on every turn, which is why cache read is by far the largest.
+
+`agentail tokens` shows the same numbers by day, week, conversation, model or server.
 
 The numbers come from the agents' own session files (`~/.claude/projects`, `~/.codex/sessions`),
 the same ones `claude --resume` uses. The daemon reads only what was added since its last look:
