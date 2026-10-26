@@ -101,6 +101,42 @@ transcript 在服务器上,daemon 读不到。沿用 `usage_claude_remote.py` �
 
 ---
 
+## 5.5 官方统计与其他项目(2026-10-26)
+
+### Codex 官方的 Token activity [实测]
+
+ChatGPT / Codex 设置里的个人资料页(Lifetime tokens、Peak tokens、Longest task、streak、按天热力图)和 Codex CLI 的 `/usage` 用的是同一份**服务端**数据。本机 codex-cli 0.164.0 的 `codex app-server` 提供 JSON-RPC 方法 `account/usage/read`(和 Agentail 已经在用的 `account/rateLimits/read` 同一个进程、同一套登录):
+
+```json
+{"summary": {"lifetimeTokens": 1640085512, "peakDailyTokens": 174923573,
+             "longestRunningTurnSec": 8741, "currentStreakDays": 54, "longestStreakDays": 54},
+ "dailyUsageBuckets": [{"startDate": "2026-07-02", "tokens": 887597}, ...],   // 94 天
+ "threadUsage": null}
+```
+
+数字和截图完全一致(1.6B、174.9M、2h 26m、54 天)。与 Agentail 从会话文件算出的每天合计对比(本机 + gpu7·gpu8):
+
+- 服务端每天只有**一个总数**,不分类别。它**包含缓存读**:Agentail 的「四类合计」大多是服务端的 0.6–0.9 倍,而去掉缓存后只有约 5%。
+- 服务端更多,因为它包含 Agentail 看不到的地方:别的电脑、Codex 云端任务、IDE / 桌面 app 等。10-17、10-18 两天服务端有 1650 万和 134 万,Agentail 是 0。
+- 有一天(10-24)Agentail 比服务端多 45%,很可能是日界不同:服务端的 `startDate` 不一定按北京时间切天(`TODO(M0)`)。
+- 服务端从账号开始用 Codex 起一直保留(这里最早是 2026-07-02),不受本地文件删除或压缩的影响。
+
+**Claude 没有对应的服务端接口**:Claude Code 的 `/stats`(2.0.64 起,热力图、streak、总 token)是在本机从 `~/.claude/projects` 的 transcript 算的(第三方分析),和 Agentail 是同一个来源,也一样受 30 天清理的限制。
+
+来源:[Classmethod 关于 `/usage`](https://dev.classmethod.jp/en/articles/codex-cli-usage-token-activity/)、[AlphaSignal](https://alphasignal.ai/news/openai-s-codex-gains-a-personal-dashboard-tracking-your-token-usage)、[Claude Code `/stats` 说明](https://claudelog.com/faqs/what-is-stats-command-in-claude-code/)、本机 `codex app-server` 实测。
+
+### 开源项目的做法
+
+| 项目 | 数据来源 | 处理 | 备注 |
+|---|---|---|---|
+| [ccusage](https://github.com/ryoppippi/ccusage)(MIT,约 1.9 万星) | 本机会话文件,18 种 agent(Claude Code、Codex、Gemini CLI、Qwen 等) | 日 / 周 / 月 / 会话报表;Claude 的 5 小时窗口(`blocks`);缓存读写分开;按 LiteLLM 价格表估算美元(可离线、可覆盖) | 事实上的标准;多台机器要自己同步文件 |
+| [CodexBar](https://github.com/steipete/CodexBar)(MIT,macOS) | 本机日志做「cost-usage 扫描」(Codex + Claude);Codex 额度用 OAuth 或本机 CLI;OpenAI / Claude Admin API 等用官方 API | 菜单栏显示额度与花费 | 110 个 provider |
+| [Claude-Code-Usage-Monitor](https://www.sourcepulse.org/projects/5962823) | 本机 Claude transcript | 按最近消耗速度预测 5 小时窗口何时用完 | 终端实时界面 |
+| TokenTracker、codexU、code-meter、[claude-usage](https://github.com/topics/token-usage) 等 | 都是读 `~/.claude`、`~/.codex` 的本地文件 | 菜单栏 / 终端 / 本地网页 | |
+| Claude Code 官方 OpenTelemetry | `CLAUDE_CODE_ENABLE_TELEMETRY=1`,指标 `claude_code.token.usage`(`type`:input / output / cacheRead / cacheCreation,带 model、session.id)和 `claude_code.cost.usage` | 每 60 秒导出到 OTLP / Prometheus | 要自己搭收集端;[文档](https://code.claude.com/docs/en/monitoring-usage) |
+
+共同点:几乎都只读本地会话文件,和 Agentail 相同;差别主要在**是否折算成美元**(大多数会)以及**是否只看一台机器**(几乎都是)。Agentail 的不同之处是服务器上的会话也算进来。没有一个项目读 Codex 的 `account/usage/read`(`codex-usage-analyzer` 读的是同类的私有接口,自称不稳定)。
+
 ## 6. 决定(2026-10-23)
 
 第一版本机和服务器一起做,只显示分类 token,不算费用。「不存 token 计数」的原则改为「只存在本机」。设计见 [token-stats-design.md](token-stats-design.md),默认值(默认开启、自动回填、周一开始、保留 400 天)见该文 §1。
