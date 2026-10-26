@@ -111,8 +111,7 @@ test('agent groups, cards and ended count', () => {
     eq([r.project, r.agent, r.agentName, r.style], ['openpi', 'codex', 'Codex', 'running']);
     eq(gs[0].cards[3].subtitle, 'Last seen running');
     eq(gs[0].cards[3].key, {host: 'gpu9', agent: 'claude', session_id: 'x'});
-    eq(M.footer(st), {ended: '1 ended recently'});
-    eq(M.footer(make([])), {ended: ''});
+    ok(!gs.flatMap(g => g.cards).some(c => c.status === 'ended'), 'ended sessions are not listed');
 });
 
 test('host rows', () => {
@@ -577,7 +576,6 @@ test('the panel in Chinese', () => {
         eq(cards.map(c => [c.statusLabel, c.host, c.age]), [['轮到你', '本机', '6分钟'], ['已过时', 'gpu1', '5秒']]);
         eq(cards[1].subtitle, '最后一次看到时在运行');
         eq(M.summary(st).text, '1 个轮到你');
-        eq(M.footer(st), {ended: '最近结束了 1 个'});
         eq([600, 7800, 90000].map(M.durationText), ['10分钟', '2小时10分', '1天1小时']);
         eq([300, 10080, 0].map(M.windowLabel), ['5小时', '每周', '限额']);
         eq(M.hostRows(st)[0].stateText, '已连接');

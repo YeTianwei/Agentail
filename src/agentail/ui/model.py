@@ -277,7 +277,7 @@ MENU_TEXT_LIMIT = 110
 
 @dataclass(frozen=True)
 class MenuEntry:
-    kind: str  # summary | host | session | ended | empty | note | usage | tokens
+    kind: str  # summary | host | session | empty | note | usage | tokens
     text: str
 
 
@@ -291,17 +291,13 @@ def menu_entries(state: UiState, now: float) -> list[MenuEntry]:
     for g in groups(state, now):
         state_text = "" if g.alias == "local" else f" — {g.state}"
         out.append(MenuEntry("host", f"{HOST_MARK.get(g.level, '○')} {g.title}{state_text}"))
-        live = [r for r in g.rows if r.status != "ended"]
-        ended = len(g.rows) - len(live)
-        if not live and not ended:
+        live = [r for r in g.rows if r.status != "ended"]  # ended ones are not listed
+        if not live:
             out.append(MenuEntry("empty", "    no sessions"))
         for r in live:
             fields = [f"{STATUS_MARK[r.status]} {r.status_label}", r.agent, r.cwd, r.detail, r.age]
             text = "    " + " · ".join(f for f in fields if f)
             out.append(MenuEntry("session", clean(text, MENU_TEXT_LIMIT)))
-        if ended:
-            # The daemon keeps ended sessions for a few minutes; one line is enough here.
-            out.append(MenuEntry("ended", f"    {STATUS_MARK['ended']} {ended} ended recently"))
     out += usage_entries(state, now)
     out += token_entries(state)
     return out

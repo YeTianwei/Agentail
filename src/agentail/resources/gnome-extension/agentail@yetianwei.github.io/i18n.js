@@ -91,7 +91,6 @@ export const ZH = {
     'Remove from the list': '从列表中移除',
     'Answer it in the terminal': '请在终端里处理',
     'Answer it in the terminal on {host}': '请在 {host} 的终端里处理',
-    '{n} ended recently': '最近结束了 {n} 个',
     // usage
     'Usage': '用量',
     'Hide usage': '收起用量',

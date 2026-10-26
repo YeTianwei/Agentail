@@ -512,10 +512,6 @@ class AgentailIndicator extends PanelMenu.Button {
         else
             scroll.add_actor(content);
         this._panel.add_child(scroll);
-
-        const foot = M.footer(st);
-        if (foot.ended)
-            this._panel.add_child(label(foot.ended, 'agentail-footer'));
     }
 
     // A top row with the buttons, for when there is no agent row to carry them.

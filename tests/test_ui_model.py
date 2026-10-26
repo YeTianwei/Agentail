@@ -111,7 +111,6 @@ def test_menu_entries():
         ("summary", "1 needs you · 1 waiting"),
         ("host", "● this computer"),
         ("session", "    ⏸ waiting · claude · …/proj/app · my_long_task · 5s"),
-        ("ended", "    ✓ 2 ended recently"),
         ("host", "● GPU one (gpu1) — connected"),
         ("session", "    ⚠ needs you · claude · …/proj/app · [Bash] fix the bug · 30s"),
     ]

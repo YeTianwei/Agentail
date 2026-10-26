@@ -161,7 +161,6 @@
 .agentail-empty-title { font-size: 14px; font-weight: bold; text-align: center; }
 .agentail-empty-text { font-size: 12px; color: #9a9aa0; text-align: center; }
 
-.agentail-footer { font-size: 12px; color: #8e8e94; padding: 0 4px 2px 4px; }
 .agentail-head { spacing: 8px; }
 
 /* settings */
@@ -295,7 +294,6 @@
 .agentail-light .agentail-subtitle { color: #6e6e73; }
 .agentail-light .agentail-card-attention .agentail-subtitle { color: #7a5a3a; }
 .agentail-light .agentail-age,
-.agentail-light .agentail-footer,
 .agentail-light .agentail-chevron,
 .agentail-light .agentail-section,
 .agentail-light .agentail-add-note,

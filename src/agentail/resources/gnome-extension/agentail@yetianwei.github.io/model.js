@@ -423,7 +423,8 @@ function sortAgents(agents) {
 }
 
 // Sessions grouped by agent (Claude Code, Codex, ...), most urgent first inside a group.
-// Ended sessions are not listed; see footer().
+// Ended sessions are not listed: the daemon keeps them for a few minutes, and a count of
+// them told nobody anything.
 export function agentGroups(state, now) {
     const byAgent = new Map();
     for (const s of state.sessions.values()) {
@@ -993,15 +994,6 @@ export function resolveTheme(choice, colorScheme) {
     if (choice === 'light' || choice === 'dark')
         return choice;
     return colorScheme === 'prefer-light' ? 'light' : 'dark';
-}
-
-export function footer(state) {
-    let ended = 0;
-    for (const s of state.sessions.values()) {
-        if (s.status === 'ended')
-            ended++;
-    }
-    return {ended: ended ? _('{n} ended recently', {n: ended}) : ''};
 }
 
 // ---- adding a server -----------------------------------------------------------------
