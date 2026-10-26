@@ -456,6 +456,19 @@ git push origin main && git tag v0.0.6 && git push origin v0.0.6
 
 开发时 `install-gnome-extension --link` 把扩展链接到了仓库(`~/.local/share/gnome-shell/extensions/agentail@yetianwei.github.io`,优先于包里的);想用包里的扩展,删掉这个符号链接(`rm` 链接本身,不要 `uninstall-gnome-extension`,它会把扩展整个禁用)再重载 Shell。
 
+**重新发布 0.0.6**(2026-10-26 你定):`v0.0.6` 先从 `652376c` 推送并发布了,那时还缺三处,现在补在它之后:中文 README 补全(`66ecbcc`)、README 动图与 `scripts/demo/`(`19fb5a1`)、原版 GNOME 主题下浅色面板里关闭的开关看不见(`adddd9c`)。本地 `main` 曾和 `origin/main` 分叉(发布提交被 amend 过),已改为接在 `origin/main` 之后,不用强推 main;分叉前的本地 main 留在分支 `backup-main-before-resync`。版本号不变,`v0.0.6` 移到新的提交,由 workflow 重新构建 `.deb` 和发布页。
+
+👤 你要做的(在上面的步骤之后):
+
+```bash
+cd /data2/Personal/Development/Agentail
+git push origin main
+# GitHub 网页:Releases → v0.0.6 → Delete(删掉旧的发布页和旧的 .deb)
+git tag -f v0.0.6 && git push -f origin v0.0.6   # 标签移到新提交,workflow 重新构建并发布
+sudo apt install --reinstall ./dist/agentail_0.0.6.deb   # 版本号相同,要 --reinstall
+# X11:Alt+F2,r,回车
+```
+
 ---
 
 ## 4. v1 之后(不在当前范围)
