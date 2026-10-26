@@ -14,7 +14,7 @@ English · [简体中文](README.zh-CN.md)
 ![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 
-<img src="docs/images/panel.png" alt="The Agentail panel: sessions grouped by agent, a permission request with its command, and the usage limits of Claude Code and Codex" width="440">
+<img src="docs/images/demo.gif" alt="The Agentail panel: a permission request answered with Yes, the Tokens page by day, week and lifetime, then light colours and the panel in Chinese" width="452">
 
 </div>
 

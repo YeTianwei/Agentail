@@ -441,7 +441,7 @@ ssh gpu7 'command -v zstd || echo no zstd'    # 没有时 doctor 会提示,旧�
 
 ### 0.0.6 发布 ☁️ + 👤
 
-☁️ 已完成(2026-10-26,分支 `release-0.0.6`):面板审批(上文 0.0.6 五步,按钮 Yes / No,设置里只有开关)和 Token 统计一起发布;另有两处面板精简(用量卡片去掉 "From …" 来源行、去掉「最近结束」一行)。hook 脚本升到版本 3(`--mode wait`),`SETUP_VERSION = 4`:本机升级后自动重写 `PermissionRequest` 条目,服务器要重新 `add-host` 才能在面板审批(Token 统计不需要)。版本号 0.0.6、CHANGELOG、README(「Approvals」一节、命令表、配置、路线图)、`.github/release-notes/v0.0.6.md`、`dist/agentail_0.0.6.deb`。Token 统计的「since 0.0.7」统一改为 0.0.6。扩展 `metadata.json` 的 version 升到 4。
+☁️ 已完成(2026-10-26,分支 `release-0.0.6`):面板审批(上文 0.0.6 五步,按钮 Yes / No,设置里只有开关)和 Token 统计一起发布;另有两处面板精简(用量卡片去掉 "From …" 来源行、去掉「最近结束」一行)。hook 脚本升到版本 3(`--mode wait`),`SETUP_VERSION = 4`:本机升级后自动重写 `PermissionRequest` 条目,服务器要重新 `add-host` 才能在面板审批(Token 统计不需要)。版本号 0.0.6、CHANGELOG、README 和 README.zh-CN(「Approvals」一节、命令表、配置、路线图;顶部的静态截图换成动图 `docs/images/demo.gif`,用 `scripts/demo/record.sh` 重新生成)、`.github/release-notes/v0.0.6.md`、`dist/agentail_0.0.6.deb`。Token 统计的「since 0.0.7」统一改为 0.0.6。扩展 `metadata.json` 的 version 升到 4。
 
 👤 你要做的:
 

@@ -14,7 +14,7 @@
 ![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 
-<img src="docs/images/panel.png" alt="Agentail 面板：按 agent 分组的会话、一条带命令的授权请求，以及 Claude Code 和 Codex 的用量" width="440">
+<img src="docs/images/demo.gif" alt="Agentail 面板：点「Yes」批准一条授权请求，查看按今日、本周、累计的 Token 统计，再切换到浅色和中文" width="452">
 
 </div>
 

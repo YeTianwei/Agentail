@@ -24,6 +24,8 @@ Reply to the owner in Chinese; code, comments, commit messages and docstrings in
   logos in `icons/` are third-party trademarks (see `icons/NOTICE.md`), not MIT.
 - `packaging/` — `.deb` build (`build-deb.sh`), maintainer scripts, the packaged systemd unit.
 - `src/agentail/ui/` — AppIndicator fallback (`agentail ui`); display logic in `model.py`.
+- `scripts/demo/record.sh` — records the README's `docs/images/demo.gif` from the real extension in a
+  headless GNOME Shell with made-up data; rerun it when the panel changes.
 
 ## Commands
 
