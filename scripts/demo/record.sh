@@ -6,6 +6,9 @@
 #
 #   scripts/demo/record.sh [work-dir]     # default: ~/.cache/agentail-demo
 #
+# DEMO_MODE=user records with GNOME's own shell theme instead of Ubuntu's Yaru, and DEMO_GIF
+# writes the GIF elsewhere (to check a change without replacing the README's).
+#
 # Needs gnome-shell 46, dbus-run-session and python3-pil. Nothing touches your session: the
 # shell gets its own HOME, runtime dir and session bus, and keeps its settings in a keyfile.
 set -eu
@@ -49,7 +52,7 @@ gsettings set org.gnome.desktop.background secondary-color '#1f2229'
 python3 -u "$DEMO/fake_daemon.py" > "$DEMO_WORK/daemon.log" 2>&1 &
 dpid=$!
 sleep 1
-gnome-shell --mode=ubuntu --headless --virtual-monitor $((1440 * SCALE))x$((880 * SCALE)) --no-x11 \
+gnome-shell --mode="${DEMO_MODE:-ubuntu}" --headless --virtual-monitor $((1440 * SCALE))x$((880 * SCALE)) --no-x11 \
     > "$DEMO_WORK/shell.log" 2>&1 &
 spid=$!
 for _ in $(seq 1 120); do
@@ -60,4 +63,4 @@ kill "$spid" "$dpid" 2>/dev/null || true
 wait "$spid" 2>/dev/null || true
 rm -rf "$XDG_RUNTIME_DIR"
 [ -f "$GIF_OUT/steps.json" ] || { echo "no recording; see $DEMO_WORK/shell.log" >&2; exit 1; }
-python3 "$DEMO/make_gif.py" "$GIF_OUT" "$REPO/docs/images/demo.gif"
+python3 "$DEMO/make_gif.py" "$GIF_OUT" "${DEMO_GIF:-$REPO/docs/images/demo.gif}"

@@ -66,6 +66,12 @@ covered by tests only.
 - **No "ended recently" line.** The panel's last line and the AppIndicator menu no longer count
   the sessions that ended in the last few minutes. `agentail status` still lists them.
 
+### Fixed
+
+- **Switches that are off show in light colours on GNOME's own shell theme.** Its dark theme draws
+  them as a faint white track with a white knob, which vanished on the light panel. Ubuntu's Yaru
+  was not affected.
+
 ### Known limitations
 
 - A permission request is not held when its command is longer than 4096 characters or the

@@ -348,6 +348,10 @@
 .agentail-light .agentail-card-stale .agentail-usage-fill { background-color: #9a9996; }
 .agentail-light .agentail-switch-button:hover, .agentail-light .agentail-switch-button:focus { background-color: rgba(0, 0, 0, 0.05); }
 .agentail-light .agentail-switch-status { color: #c64600; }
+/* GNOME's own dark shell theme draws a switch that is off as a 15% white track with a white
+   knob: invisible on this white card. A grey pill behind it shows through only there; Yaru's
+   tracks, and every theme's "on" track, are opaque and cover it. */
+.agentail-light .agentail-switch-row .toggle-switch { background-color: rgba(0, 0, 0, 0.28); border-radius: 10px; }
 .agentail-light .agentail-settings-divider { background-color: rgba(0, 0, 0, 0.08); }
 .agentail-light .agentail-settings-subtitle { color: #3d3d42; }
 .agentail-light .agentail-btn-lang { color: #3d3d42; }
