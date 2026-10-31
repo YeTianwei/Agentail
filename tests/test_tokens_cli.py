@@ -53,13 +53,25 @@ def test_time_range_counts_today_and_this_week():
 
 def _rows():
     c = Counts(3, 100, 1000, 40, 4)
-    return [
+    rows = [
         ("local", "claude", "s1", NOW - 2 * DAY, "claude-opus-5-5", "proj-a", c),
         ("local", "claude", "s1", NOW - 2 * DAY + 60, "claude-opus-5-5", None, c),
         ("local", "codex", "c1", NOW - DAY, "gpt-6.1-sol", "proj-b", Counts(10, 0, 5, 2, 1)),
         ("home:h", "claude", "s9", NOW, "claude-sonnet-5-5", "proj\x1bx", c),
         ("home:gone", "claude", "s8", NOW, None, None, c),
     ]
+    return [(*r, None) for r in rows]
+
+
+def test_by_host_names_the_server_a_session_ran_on():
+    c = Counts(0, 0, 10, 0)
+    rows = [
+        ("home:h", "claude", "s1", NOW, None, None, c, "gpu7"),
+        ("home:h", "claude", "s2", NOW, None, None, c, "gpu8"),
+        ("home:h", "claude", "s3", NOW, None, None, c, None),  # not known
+    ]
+    got = tokens_cli.group(rows, "host", {"home:h": "gpu7·gpu8"}, SH)
+    assert sorted(g["key"][0] for g in got) == ["gpu7", "gpu7·gpu8", "gpu8"]
 
 
 def test_grouping():
@@ -159,6 +171,42 @@ def test_forget_asks_and_keeps_the_cursors(capsys):
     store = TokenStore(paths.tokens_file())
     assert store.count() == 0 and store.cursor("local") == {"files": {}}
     store.close()
+
+
+def test_assign_counts_the_unplaced_sessions_of_a_shared_home_on_one_server(capsys):
+    for alias in ("gpu7", "gpu8"):
+        config.save_host(Host(alias, home_id="h0me"))
+    assert tokens_cli.assign("gpu8") == 0  # no file yet
+    store = TokenStore(paths.tokens_file())
+    store.add("home:h0me", [rec("r1", NOW, sid="s1"), rec("r2", NOW, sid="s2")], NOW)
+    store.add("home:h0me", [rec("r3", NOW, sid="s3", agent="codex")], NOW)
+    store.add("local", [rec("r4", NOW, sid="s4")], NOW)
+    store.set_session_host("home:h0me", "claude", "s1", "gpu7", NOW)  # a hook placed it
+    store.close()
+    assert tokens_cli.assign("gpu9") == 2  # not a server of ours
+    asked = []
+    assert tokens_cli.assign("gpu8", ask=lambda q: asked.append(q) or "n") == 1
+    assert "2 session(s) of gpu7·gpu8 (2.29k tokens)" in asked[0]
+    assert "Nothing changed" in capsys.readouterr().out
+    assert cli.main(["tokens", "assign", "gpu8", "--yes"]) == 0
+    assert "Counted 2 session(s) on gpu8" in capsys.readouterr().out
+    store = TokenStore(paths.tokens_file())
+
+    def per_host():
+        got = {}
+        for r in store.grouped(0, stores=["home:h0me"]):
+            got[r[2]] = got.get(r[2], 0) + r[6]
+        return got
+
+    assert per_host() == {"gpu7": 1, "gpu8": 2}
+    assert store.unplaced("home:h0me") == (0, 0)
+    # a hook event later still says where a session really ran
+    store.set_session_host("home:h0me", "codex", "s3", "gpu7", NOW)
+    assert per_host() == {"gpu7": 2, "gpu8": 1}
+    store.close()
+    assert tokens_cli.assign("gpu8") == 0
+    assert "already on its server" in capsys.readouterr().out
+    assert cli.main(["tokens", "assign"]) == 2
 
 
 def _tokens(today):

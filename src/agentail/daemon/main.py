@@ -229,7 +229,7 @@ class Daemon:
             )
         event = adapter.decode(msg, host=source) if adapter else None
         if event is not None:
-            self.tokens.on_event(source, msg.agent, event.kind)
+            self.tokens.on_event(source, msg.agent, event.kind, event.session_id)
         if source != LOCAL_SOURCE and msg.agent == "codex":
             sched = self._remote_codex_schedule(source)
             if sched is not None:

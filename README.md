@@ -14,7 +14,7 @@ English · [简体中文](README.zh-CN.md)
 ![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 
-<img src="docs/images/demo.gif" alt="The Agentail panel: a permission request answered with Yes, the Tokens page by day, week and lifetime, then light colours and the panel in Chinese" width="452">
+<img src="docs/images/demo.gif" alt="The Agentail panel: a permission request answered with Yes, the Tokens page for today, 7 days, 30 days and lifetime, then light colours and the panel in Chinese" width="452">
 
 </div>
 
@@ -47,8 +47,8 @@ agent's own terminal, as always.
 - ✅ **Answer permission prompts from the panel.** Yes or No on the card, with the whole command
   in front of you. Off until you turn it on; whenever the panel cannot answer, the agent asks in
   its terminal as before.
-- 🧮 **Token counts.** How many tokens your agents used, daily, weekly and over their lifetime,
-  here and on your servers.
+- 🧮 **Token counts.** How many tokens your agents used today, in the last 7 or 30 days and over
+  their lifetime, by agent, model, host or project, here and on your servers, with a chart.
 - 🔒 **Local and private.** Your machines talk to your desktop over SSH and Unix sockets. No
   account, no cloud, no telemetry. Agentail contacts no online service on its own. The one
   exception is the Claude usage query, and only if you turn it on (Codex asks for its own limits).
@@ -122,11 +122,15 @@ desktop, one card covers both.
 ## 🧮 Token counts
 
 The bar chart button at the top right of the panel, next to the settings, opens the **Tokens**
-page: how many tokens Claude Code and Codex used, daily, weekly or over their lifetime. Each agent
-has its total and, below it, four kinds that do not overlap (input, cache write, cache read,
-output; thinking is part of the output). The total counts everything the agents read and
-wrote the way Codex's own "lifetime tokens" does. Most of it is the conversation read back from
-the cache on every turn, which is why cache read is by far the largest.
+page: how many tokens Claude Code and Codex used today, in the last 7 or 30 days, or over their
+lifetime. On top is the total with four kinds that do not overlap (input, cache write, cache
+read, output; thinking is part of the output), then a day's average, how it compares with the
+same stretch of time before, and how many responses there were. A chart shows today hour by hour
+or the last 7 or 30 days day by day; click a column to see that hour or day alone. Below, the
+range is added up by agent, model, host or project. The total counts everything the agents read
+and wrote the way Codex's own "lifetime tokens" does. Most of it is the conversation read back
+from the cache on every turn, which is why cache read is by far the largest. There are no
+prices: the numbers are tokens, not a bill.
 
 `agentail tokens` shows the same numbers by day, week, conversation, model or server.
 
@@ -136,7 +140,9 @@ a few seconds after a turn ends, when you open the panel, and once a minute. A s
 after a turn ends there and when you open the panel (at most once a minute), over ssh with a
 short Python script. Nothing is installed there, and only numbers, ids, model names and the
 project folder's name come back, never your prompts or code. Servers that share a `$HOME` are
-read once.
+read once; each session is counted on the server its hook events came from, or for Claude Code,
+the server whose `/tmp` holds its session folder (the rest show under all of them, like
+`gpu7·gpu8`).
 
 The counts are kept in `~/.local/state/agentail/tokens.sqlite` for 400 days. That is longer than
 the agents keep their own files (Claude Code removes them after 30 days by default), so after the
@@ -150,6 +156,7 @@ agentail tokens --by session --days 7  # the 20 largest conversations
 agentail tokens --by model             # or --by host; --agent codex; --json
 agentail tokens off                    # or `off --servers`; also in the panel's settings
 agentail tokens forget                 # delete every count, start over from now
+agentail tokens assign gpu8            # sessions of gpu8's shared $HOME with no known server: gpu8's
 ```
 
 These are the numbers the agents wrote down, not a bill. Agentail does not turn them into money.

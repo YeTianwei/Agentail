@@ -117,9 +117,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="token counts of Claude Code and Codex, here and on the servers",
         description="Without an action: a report of the counts the daemon kept (default: the "
         "last 7 days, by day). on|off|status: token stats at all, or with --servers whether the "
-        "servers are scanned too. forget: delete every count kept so far.",
+        "servers are scanned too. forget: delete every count kept so far. assign HOST: count on "
+        "HOST the sessions of its shared $HOME that no server is known for.",
     )
-    tk.add_argument("action", nargs="?", choices=["on", "off", "status", "forget"])
+    tk.add_argument("action", nargs="?", choices=["on", "off", "status", "forget", "assign"])
+    tk.add_argument("host", nargs="?", help="with assign: the server")
     tk.add_argument("--by", choices=["day", "week", "session", "model", "host"], default="day")
     tk.add_argument("--days", type=int, default=7, help="days back, today included (default 7)")
     tk.add_argument("--weeks", type=int, default=8, help="with --by week (default 8)")
@@ -127,7 +129,7 @@ def _build_parser() -> argparse.ArgumentParser:
     tk.add_argument("--limit", type=int, default=20, help="with --by session (default 20)")
     tk.add_argument("--json", action="store_true")
     tk.add_argument("--servers", action="store_true", help="with on|off: the servers' switch")
-    tk.add_argument("--yes", action="store_true", help="with forget: do not ask")
+    tk.add_argument("--yes", action="store_true", help="with forget or assign: do not ask")
     sub.add_parser("paths", help="print the sockets and files agentail uses")
     sub.add_parser("hook-path", help="print the path of the bundled hook script")
 
@@ -307,6 +309,14 @@ def _tokens(args: argparse.Namespace) -> int:
         return tokens_cli.switches(args.action, args.servers)
     if args.action == "forget":
         return tokens_cli.forget(yes=args.yes)
+    if args.action == "assign":
+        if not args.host:
+            print(
+                "agentail tokens assign: which server? (agentail tokens assign gpu8)",
+                file=sys.stderr,
+            )
+            return 2
+        return tokens_cli.assign(args.host, yes=args.yes)
     if not 1 <= args.days <= 3650 or not 1 <= args.weeks <= 520 or args.limit < 1:
         print("agentail tokens: --days 1..3650, --weeks 1..520, --limit 1 or more", file=sys.stderr)
         return 2

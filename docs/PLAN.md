@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(0.0.6 待发布:在面板里审批 + Token 统计,见 §3「0.0.6 发布」)
+## 0. 当前状态(0.0.6 已发布;下一步:Tokens 页的图表,分支 `tokens-charts`,见 §3「Tokens 页图表」)
 
 下表是 0.0.1 时的模块清单,之后各版本的改动见 §3 各版本小节和 `CHANGELOG.md`。
 
@@ -468,6 +468,36 @@ git tag -f v0.0.6 && git push -f origin v0.0.6   # 标签移到新提交,workflo
 sudo apt install --reinstall ./dist/agentail_0.0.6.deb   # 版本号相同,要 --reinstall
 # X11:Alt+F2,r,回车
 ```
+
+
+### Tokens 页图表(2026-10-31,分支 `tokens-charts`)
+
+**范围**(2026-10-31 你决定,参考一个第三方 token 面板的截图,只借鉴布局;真机看过后又定:对比用 +/− 不用箭头,写法「264M/day · +12% vs prior 7 days」/「日均 264M · 较前 7 天 +12%」,数据不够时不显示对比;共享 HOME 的服务器要分开):范围改为今日 / 7 天 / 30 天 / 累计;柱状图(今日按小时、7 天和 30 天按天;推翻 `token-stats-design.md` §1 的「不做图表」),点一根柱子只看那一段;列表按 Agent / 模型 / 主机 / 项目分组;日均和「比之前」的对比;四项明细保留;合计保持一行粗体,不用大字;**不显示缓存命中率**(第一版画了圆环,你看后决定去掉:那个面板关注缓存是因为它做缓存保活);**仍然不做费用**(重新确认)。设计见 `token-stats-design.md` §6、§7.1。
+
+☁️ **已完成**(代码与测试):
+- daemon:`TokenStore.grouped`(按 15 分钟一桶);共享 HOME 的服务器按 hook 事件记下的「会话 → 主机」(`session_hosts` 表)分到具体某台;之前的 Claude 历史靠每台服务器 `/tmp/claude-<uid>/` 里的会话目录补上(每小时一次,你的数据实测能分开 95%),Codex 的历史和找不到的少数 Claude 会话用新命令 `agentail tokens assign gpu8` 算到了 gpu8(2026-10-31 你定,已在你的数据上执行:264 个会话、629M);`agentail tokens --by host` 同样;`TOKENS` 新增 `ranges`(四个范围,各按四种分法)、30 天的 `days`、今天的 `hours`、`previous`(`docs/protocol.md`),旧的 `today` / `week` / `total` 留给 0.0.6 的面板。你本机 3 万条记录时算一次约 80 毫秒、24 KB。
+- 面板:`model.js` 的 `tokenPage` / `modelName`,`extension.js` 的柱状图(可点)、分组列表;`panel.json` 新增 `tokens_group`,旧的 `week` 读成 `last7`;0.0.6 的 daemon 只给今日和累计、只按 agent。
+- 测试:`tests/js/test_model.js`(范围、分组、对比、日均、按小时 / 按天的柱子、选中、模型名、旧 daemon、中文)、`tests/test_token_stats.py`、`tests/test_tokens_store.py`。
+- 在 headless GNOME Shell 46(2 倍缩放)里截图核对过:深色英文今日 / 7 天 / 模型分组 / 30 天 / 累计,浅色中文选中一个小时、主机分组、项目分组;`scripts/demo/` 跟着改了(假数据有 30 天、今天的小时、模型、主机、项目,驱动点「7 days」「Model」「30 days」),README 动图已重新生成(`record.sh` 最后清理临时目录时失败,`make_gif.py` 是手动跑的)。
+- README、README.zh-CN、CHANGELOG「Unreleased」。
+
+👤 **真机验证**(你的桌面)。和之前一样,装了 .deb 的机器上要用仓库的 `.venv/bin/agentail`,并先停掉包里的 daemon:
+
+```bash
+cd /data2/Personal/Development/Agentail && git switch tokens-charts
+A=$PWD/.venv/bin/agentail
+systemctl --user stop agentail                # 包里的 daemon
+$A install-gnome-extension --link             # 然后 Alt+F2 → r → 回车(X11),或注销再登录
+$A daemon --print-events                      # 另开终端,前台运行;测完 Ctrl+C,再 systemctl --user start agentail
+$A tokens --days 7 && $A tokens --by model --days 7 && $A tokens --by host --days 7
+```
+
+1. 打开 Tokens 页:四个范围按钮;「7 天」的合计和四项与 `$A tokens --days 7` 末尾两行 total 之和一致;「模型」分组与 `$A tokens --by model --days 7` 一致;「主机」分组与 `$A tokens --by host --days 7` 一致。
+2. 「今日」每小时一根柱子,现在这个小时颜色最深;「7 天」「30 天」每天一根,最右边是今天。点一根:标题变成那天的日期(或那个小时),数字与 `$A tokens --days 30` 里那一天一致;再点一下或点 × 回到整个范围。
+3. 合计下面那行:「…/day · +…% vs prior 7 days · … requests」;「30 天」如果最早的记录不到 60 天前,就没有对比。
+4. 「主机」分组:daemon 启动、服务器连上并扫描过一次后,几分钟内 `--print-events` 打印 `{"tokens_hosts": "home:…", "added": 80}` 左右,`gpu7·gpu8·gpu3` 那一行缩到只剩 Codex 和少数找不到的 Claude 会话(约 Claude 的 5%)。`$A tokens --by host` 一样。
+5. 「项目」分组:最耗 token 的几个项目和「其他」。
+6. 看一眼浅色主题和中文界面;再在本机跑一轮 Claude,几秒后这个小时的柱子和数字变大。
 
 ---
 

@@ -25,12 +25,15 @@ off.
 from __future__ import annotations
 
 import asyncio
+import bisect
 import contextlib
+import datetime as dt
 import importlib.util
 import json
 import logging
 import re
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -58,6 +61,20 @@ PAGE_BUDGET_S = 20.0
 MAX_PAGES = 20  # per scan; a longer backfill goes on with the next one
 REMOTE_TIMEOUT_S = 60.0  # one page over ssh, start-up included
 MAX_ANSWER = 16 * 1024 * 1024
+DAYS_SHOWN = 30  # the panel's longest chart
+BUCKET_S = 900  # local days begin on a quarter hour of UTC in every time zone
+MODELS_SHOWN = 8  # in each list; the rest are added up under null
+HOSTS_SHOWN = 8
+PROJECTS_SHOWN = 5
+TMP_POLL_S = 3600.0  # each server of a shared $HOME is asked for its Claude temp folders hourly
+TMP_TIMEOUT_S = 30.0
+# Claude Code keeps a folder per session under ${TMPDIR:-/tmp}/claude-<uid>/<project>/, on each
+# machine's own disk: where a session's id is found tells where it ran, also for sessions
+# from before 0.0.7 or from while the daemon was not running. Not documented by Anthropic:
+# TODO(M0) seen with the Claude Code of 2026-10 (gpu7, gpu8, gpu3: 80 of 94 sessions found, none
+# on two servers, the 3 a hook had placed all agreed). Codex leaves nothing of the kind.
+_TMP_SCRIPT = 'find "${TMPDIR:-/tmp}/claude-$(id -u)" -maxdepth 3 2>/dev/null; exit 0'
+_SESSION_ID_RE = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 READ_CHUNK = 256 * 1024
 _HOME_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}$")
 _TURN_ENDS = (EventKind.STOP, EventKind.SESSION_END)
@@ -149,6 +166,10 @@ class TokenStats:
         self._local_task: asyncio.Task[None] | None = None
         self._groups: dict[str, _Group] = {}
         self._store_of: dict[str, str] = {}
+        self._session_hosts: dict[tuple[str, str, str], str] = {}  # written to the store
+        self._tmp_ids: dict[str, set[str]] = {}  # alias -> session ids in its Claude temp folder
+        self._tmp_due: dict[str, float] = {}  # alias -> when to look again (monotonic)
+        self._tmp_task: asyncio.Task[None] | None = None
         self._dirty = True
         # What the panel was last told; _UNSET until the first tick, whose summary every client
         # already has from its snapshot.
@@ -236,9 +257,14 @@ class TokenStats:
 
     # -- triggers -----------------------------------------------------------------------
 
-    def on_event(self, source: str, agent: str, kind: EventKind) -> None:
-        """A decoded hook event: a turn that ended means new counts in that agent's files."""
-        if agent not in AGENTS or kind not in _TURN_ENDS or not self.switches.enabled:
+    def on_event(self, source: str, agent: str, kind: EventKind, session_id: str = "") -> None:
+        """A decoded hook event: a turn that ended means new counts in that agent's files.
+        Every event from a server also says which server the session runs on."""
+        if agent not in AGENTS or not self.switches.enabled:
+            return
+        if source != LOCAL_SOURCE and session_id:
+            self._note_host(source, agent, session_id)
+        if kind not in _TURN_ENDS:
             return
         now = time.monotonic()
         if source == LOCAL_SOURCE:
@@ -248,6 +274,20 @@ class TokenStats:
         group = self._group_of(source)
         if group is not None and agent in group.agents:
             group.sched.record_stop(now)
+
+    def _note_host(self, alias: str, agent: str, session_id: str) -> None:
+        """Remember the server of a session, so that servers sharing a $HOME (and so its
+        session files) can be told apart; written once per session and server."""
+        store = self._store_of.get(alias)
+        key = (store, agent, session_id)
+        if store is None or self.db is None or self._session_hosts.get(key) == alias:
+            return
+        try:
+            if self.db.set_session_host(store, agent, session_id, alias, time.time()):
+                self._session_hosts[key] = alias
+                self._dirty = True
+        except Exception:
+            log.exception("noting the server of a session failed")
 
     def panel_opened(self) -> None:
         if not self.switches.enabled:
@@ -292,6 +332,7 @@ class TokenStats:
                 due = group.sched.next_due()
                 if due is not None and now >= due:
                     self._start_remote(store, group, now)
+            self._start_tmp_check(now)
         wall = time.time()
         today = tokens.day_start(wall)
         if today != self._day:  # midnight: "today" and maybe "this week" start over
@@ -352,6 +393,54 @@ class TokenStats:
             return  # ssh would fail too; the schedule keeps it due
         group.sched.record_start(now)
         group.task = asyncio.get_running_loop().create_task(self._scan_remote(store, alias))
+
+    def _start_tmp_check(self, now: float) -> None:
+        """Ask one connected server of a shared $HOME, once it has been scanned, which Claude
+        sessions ran on it (see _TMP_SCRIPT); one at a time, each server hourly."""
+        if _running(self._tmp_task):
+            return
+        for store, group in self._groups.items():
+            if len(group.aliases) < 2 or "claude" not in group.agents or store not in self._ok_ts:
+                continue
+            for alias in group.aliases:
+                if self._host_state(alias) == "connected" and now >= self._tmp_due.get(alias, 0.0):
+                    self._tmp_due[alias] = now + TMP_POLL_S
+                    loop = asyncio.get_running_loop()
+                    self._tmp_task = loop.create_task(self._check_tmp(store, alias))
+                    return
+
+    async def _check_tmp(self, store: str, alias: str) -> None:
+        try:
+            argv = ssh_argv(self.ssh, alias, ["sh", "-c", _TMP_SCRIPT])
+            raw = await _run(argv, b"", TMP_TIMEOUT_S)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            log.exception("listing Claude's temp folders on %s failed", alias)
+            return
+        group = self._groups.get(store)
+        if raw is None or group is None or self.db is None:
+            return
+        self._tmp_ids[alias] = {m.decode() for m in _SESSION_ID_RE.findall(raw)}
+        # Only once every server of the store has been asked: a session found on two of them
+        # (resumed on another) is left alone, and a server not asked yet might be the other.
+        if any(a not in self._tmp_ids for a in group.aliases):
+            return
+        where: dict[str, str | None] = {}
+        for a in group.aliases:
+            for sid in self._tmp_ids.get(a, ()):
+                where[sid] = None if sid in where else a
+        found = {sid: a for sid, a in where.items() if a is not None}
+        try:
+            added = self.db.add_session_hosts(store, "claude", found, time.time())
+        except Exception:
+            log.exception("noting the servers of sessions failed")
+            return
+        if added:
+            self._dirty = True
+            log.info("%s: %d Claude session(s) placed on their server", store, added)
+            if self.print_events:
+                print(json.dumps({"tokens_hosts": store, "added": added}), flush=True)
 
     async def _scan_remote(self, store: str, alias: str) -> None:
         ok = False
@@ -422,19 +511,60 @@ class TokenStats:
             return None
         wall = time.time()
         day, week = tokens.day_start(wall), tokens.week_start(wall)
+        today = tokens.local_day(wall)
+        ago = [tokens.midnight(today - dt.timedelta(days=n)) for n in range(2 * DAYS_SHOWN)]
+        starts = ago[:DAYS_SHOWN][::-1]  # the chart's days, today last
+        hours = list(range(day, tokens.next_day_start(wall), 3600))
         stores = None if self.switches.servers else [LOCAL_STORE]
+        labels = {
+            LOCAL_STORE: "local",
+            **{store: "·".join(g.aliases) for store, g in self._groups.items()},
+        }
+        days = [_Slice() for _ in starts]
+        by_hour = [_Slice() for _ in hours]
+        ranges = {k: _Slice() for k in ("today", "last7", "last30", "total")}
+
+        def total(since: int, until: float) -> int:
+            got = self.db.totals(since, int(until), stores=stores)
+            return sum(c.total for c in got.values())
+
         try:
-            today = self.db.totals(day, stores=stores)
-            this_week = self.db.totals(week, stores=stores)
-            total = self.db.totals(0, stores=stores)
+            for t, *key in self.db.grouped(starts[0], stores=stores, bucket=BUCKET_S):
+                days[bisect.bisect_right(starts, t) - 1].add(*key)
+                ranges["last30"].add(*key)
+                if t >= starts[-7]:
+                    ranges["last7"].add(*key)
+                if t >= day:
+                    ranges["today"].add(*key)
+                    by_hour[max(0, bisect.bisect_right(hours, t) - 1)].add(*key)
+            for _, *key in self.db.grouped(0, stores=stores):
+                ranges["total"].add(*key)
+            # The same stretch of time just before each range, up to the same time of day.
+            previous = {
+                "today": total(ago[1], wall - 86400),
+                "last7": total(ago[13], wall - 7 * 86400),
+                "last30": total(ago[59], wall - 30 * 86400),
+            }
+            old = {k: self.db.totals(t, stores=stores) for k, t in (("today", day), ("week", week))}
             since = self.db.first_ts(stores=stores)
         except Exception:
             log.exception("reading token counts failed")
             return None
         return {
-            "today": _rows(today),
-            "week": _rows(this_week),
-            "total": _rows(total),
+            # for the 0.0.6 panel
+            "today": _agent_rows(old["today"]),
+            "week": _agent_rows(old["week"]),
+            "total": [
+                {"agent": a, "counts": ranges["total"].per_agent[a].to_dict()}
+                for a in AGENTS
+                if ranges["total"].per_agent.get(a)
+            ],
+            "ranges": {k: r.to_dict(labels) for k, r in ranges.items()},
+            "days": [{"start": t, **d.to_dict(labels)} for t, d in zip(starts, days, strict=True)],
+            "hours": [
+                {"start": t, **h.to_dict(labels)} for t, h in zip(hours, by_hour, strict=True)
+            ],
+            "previous": previous,
             "day_start": day,
             "week_start": week,
             "since": since,
@@ -484,6 +614,8 @@ class TokenStats:
         for group in self._groups.values():
             if group.task is not None:
                 group.task.cancel()
+        if self._tmp_task is not None:
+            self._tmp_task.cancel()
 
     def _cancel_all(self) -> None:
         if self._local_task is not None:
@@ -491,7 +623,8 @@ class TokenStats:
         self._cancel_remote()
 
     async def close(self) -> None:
-        tasks = [t for t in (self._local_task, *(g.task for g in self._groups.values())) if t]
+        groups = (g.task for g in self._groups.values())
+        tasks = [t for t in (self._local_task, self._tmp_task, *groups) if t]
         self._cancel_all()
         for task in tasks:
             with contextlib.suppress(BaseException):
@@ -501,8 +634,68 @@ class TokenStats:
             self.db = None
 
 
-def _rows(totals: dict[str, Counts]) -> list[dict[str, Any]]:
+def _agent_rows(totals: dict[str, Counts]) -> list[dict[str, Any]]:
     return [{"agent": a, "counts": totals[a].to_dict()} for a in AGENTS if totals.get(a)]
+
+
+class _Slice:
+    """The responses of one range, day or hour, added up for the panel: their counts, how
+    many there were, and the totals per agent, model, host and project (a SLICE)."""
+
+    def __init__(self) -> None:
+        self.counts = Counts()
+        self.requests = 0
+        self.per_agent: dict[str, Counts] = {}
+        self.by: dict[str, Counter[Any]] = {k: Counter() for k in ("model", "host", "project")}
+
+    def add(
+        self,
+        store: str,
+        host: str | None,
+        agent: str,
+        model: str | None,
+        project: str | None,
+        n: int,
+        c: Counts,
+    ) -> None:
+        self.counts += c
+        self.requests += n
+        self.per_agent[agent] = self.per_agent.get(agent, Counts()) + c
+        self.by["model"][(agent, model)] += c.total
+        self.by["host"][(store, host)] += c.total
+        self.by["project"][project] += c.total
+
+    def to_dict(self, labels: dict[str, str]) -> dict[str, Any]:
+        hosts: Counter[str | None] = Counter()
+        for (store, host), n in self.by["host"].items():
+            # The server its hook events came from; else every server of the store ("gpu7·gpu8"),
+            # or null for one no longer added.
+            hosts[host or labels.get(store)] += n
+        agents = Counter({a: c.total for a, c in self.per_agent.items()})
+        return {
+            "counts": self.counts.to_dict(),
+            "requests": self.requests,
+            "agent": [[a, n] for a, n in _top(agents, len(agents), None)],
+            "model": [[*k, n] for k, n in _top(self.by["model"], MODELS_SHOWN, (None, None))],
+            "host": [[h, n] for h, n in _top(hosts, HOSTS_SHOWN, None)],
+            "project": [[p, n] for p, n in _top(self.by["project"], PROJECTS_SHOWN, None)],
+        }
+
+
+def _top(totals: Counter[Any], shown: int, other: Any) -> list[tuple[Any, int]]:
+    """The ``shown`` largest of ``totals``, largest first, the rest added to ``other``
+    (which goes last, or stays where it was)."""
+    ranked = sorted(
+        ((k, n) for k, n in totals.items() if n > 0), key=lambda kn: (-kn[1], str(kn[0]))
+    )
+    top, rest = ranked[:shown], sum(n for _, n in ranked[shown:])
+    if rest:
+        i = next((i for i, (k, _) in enumerate(top) if k == other), None)
+        if i is None:
+            top.append((other, rest))
+        else:
+            top[i] = (other, top[i][1] + rest)
+    return top
 
 
 def _running(task: asyncio.Task[None] | None) -> bool:

@@ -139,7 +139,7 @@ ChatGPT / Codex 设置里的个人资料页(Lifetime tokens、Peak tokens、Long
 
 ## 6. 决定(2026-10-23)
 
-第一版本机和服务器一起做,只显示分类 token,不算费用。「不存 token 计数」的原则改为「只存在本机」。设计见 [token-stats-design.md](token-stats-design.md),默认值(默认开启、自动回填、周一开始、保留 400 天)见该文 §1。
+第一版本机和服务器一起做,只显示分类 token,不算费用(2026-10-31 你重新确认仍然不做价格表;当时没有记下理由)。「不存 token 计数」的原则改为「只存在本机」。设计见 [token-stats-design.md](token-stats-design.md),默认值(默认开启、自动回填、周一开始、保留 400 天)见该文 §1。
 
 ## 7. 待核实
 

@@ -696,6 +696,38 @@ const TOKENS = {
     day_start: 0, week_start: 0, since: Math.floor(new Date(2026, 9, 5, 12).getTime() / 1000), updated_ts: null,
 };
 
+// A 0.0.7 daemon: four ranges, each added up four ways; 30 days and today's hours for the
+// chart; the same stretch of time before each range. "Now" is 2026-10-31 14:30.
+const NOW_T = Math.floor(new Date(2026, 9, 31, 14, 30).getTime() / 1000);
+const slice = (c, requests, agent, more = {}) => ({counts: c, requests, agent, model: [], host: [], project: [], ...more});
+const one = (agent, n) => slice(counts(0, 0, n, 0), 1, [[agent, n]]);
+const day = i => Math.floor(new Date(2026, 9, 2 + i).getTime() / 1000);
+const DAYS = Array.from({length: 30}, (_, i) => ({start: day(i), ...slice(counts(0, 0, 0, 0), 0, [])}));
+Object.assign(DAYS[10], one('claude', 2000));
+Object.assign(DAYS[28], slice(counts(0, 0, 1000, 0), 2, [['codex', 500], ['claude', 500]]));
+Object.assign(DAYS[29], one('claude', 1000));
+const hour = i => Math.floor(new Date(2026, 9, 31, i).getTime() / 1000);
+const HOURS = Array.from({length: 24}, (_, i) => ({start: hour(i), ...slice(counts(0, 0, 0, 0), 0, [])}));
+Object.assign(HOURS[9], one('claude', 300));
+Object.assign(HOURS[14], {...one('codex', 600), requests: 3});
+const TOKENS7 = {
+    ...TOKENS,
+    ranges: {
+        today: slice(counts(100, 200, 9000, 700), 50, [['claude', 9000], ['codex', 1000]], {
+            model: [['claude', 'claude-opus-5-5', 8000], ['claude', null, 1000], ['codex', 'gpt-6-astra', 1000], ['x', 7]],
+            host: [['local', 6000], ['gpu7·gpu8', 4000]],
+            project: [['agentail', 9960], [null, 40]],
+        }),
+        last7: slice(counts(0, 0, 70000, 0), 350, [['claude', 70000]]),
+        last30: slice(counts(0, 0, 0, 0), 0, []),
+        total: slice(counts(0, 0, 2700000, 0), 9000, [['claude', 2700000]], {model: [], host: [['local', 1], ['gpu7', 1]], project: []}),
+    },
+    days: DAYS,
+    hours: HOURS,
+    previous: {today: 8000, last7: 100000, last30: 5},
+    day_start: day(29),
+};
+
 test('token counts: the same numbers as agentail tokens', () => {
     const cases = [[0, '0'], [999, '999'], [1000, '1.00k'], [1234, '1.23k'], [12345, '12.3k'],
         [123456, '123k'], [999499, '999k'], [999600, '1.00M'], [360461887, '360M'],
@@ -707,46 +739,120 @@ test('token counts: the same numbers as agentail tokens', () => {
 
 test('token counts: the Tokens page', () => {
     const st = make([]);
-    eq([M.tokensAvailable(st), M.tokenTotals(st, 'today')], [false, null]);  // off, or an older daemon
-    st.apply({type: 'tokens_update', tokens: TOKENS});
+    const page = (range, group = 'agent', pick = null) => M.tokenPage(st, range, group, pick, NOW_T);
+    eq([M.tokensAvailable(st), page('today')], [false, null]);  // off, or an older daemon
+    st.apply({type: 'tokens_update', tokens: TOKENS7});
     ok(M.tokensAvailable(st), 'available');
-    const t = M.tokenTotals(st, 'today');
-    eq(t.ranges.map(r => [r.id, r.text, r.on]), [['today', 'Daily', true], ['week', 'Weekly', false], ['total', 'Lifetime', false]]);
-    // One block per agent (known agents in order; a malformed row is dropped): its total, the
-    // four kinds that add up to it (thinking is part of the output, not shown apart).
-    eq(t.agents.map(a => [a.agent, a.name, a.total]), [['claude', 'Claude Code', '373M'], ['codex', 'Codex', '65.6k']]);
-    eq(t.agents[0].parts, [
-        {label: 'Input', value: '3.39k'},
-        {label: 'Cache write', value: '10.4M'},
-        {label: 'Cache read', value: '360M'},
-        {label: 'Output', value: '2.57M'},
+    const t = page('today');
+    eq(t.ranges.map(r => [r.id, r.text, r.on]),
+        [['today', 'Today', true], ['last7', '7 days', false], ['last30', '30 days', false], ['total', 'Lifetime', false]]);
+    eq(t.groups.map(g => [g.id, g.text, g.on]),
+        [['agent', 'Agent', true], ['model', 'Model', false], ['host', 'Host', false], ['project', 'Project', false]]);
+    // The total of every agent and its four kinds; today compares with this time yesterday.
+    eq([t.title, t.total, t.picked, t.empty, t.since], ['All agents', '10.0k', false, '', '']);
+    eq(t.parts, [
+        {label: 'Input', value: '100'},
+        {label: 'Cache write', value: '200'},
+        {label: 'Cache read', value: '9.00k'},
+        {label: 'Output', value: '700'},
     ]);
-    eq(t.agents[1].parts.map(p => p.value), ['13.5k', '0', '52.0k', '175']);
-    // Several agents: the total of all on top. 373417184 + 65610.
-    eq(t.all, {label: 'All agents', total: '373M'});
-    eq([t.empty, t.since], ['', '']);
-    const w = M.tokenTotals(st, 'week');
-    eq([w.range, w.agents.length, w.agents[0].total, w.all], ['week', 1, '483M', null]);  // one agent: no line for all
-    const all = M.tokenTotals(st, 'total');
-    eq([all.range, all.since, all.agents[0].total], ['total', 'Since 2026-10-05', '925M']);
-    eq(M.tokenTotals(st, 'nonsense').range, 'today');
-    st.apply({type: 'tokens_update', tokens: {...TOKENS, today: [], since: -5}});
-    const none = M.tokenTotals(st, 'today');
-    eq([none.agents, none.all, none.empty], [[], null, 'Nothing yet today.']);
-    eq(M.tokenTotals(st, 'total').since, '');  // a bad time stamp shows no date
+    eq(t.summary, '+25% vs this time yesterday · 50 requests');
+    // The list, largest first, with each one's share.
+    eq(t.rows.map(r => [r.name, r.agent, r.icon, r.total, r.percent, r.share]),
+        [['Claude Code', 'claude', null, '9.00k', '90%', 0.9], ['Codex', 'codex', null, '1.00k', '10%', 0.1]]);
+    eq(page('today', 'model').rows.map(r => [r.name, r.agent, r.percent]),
+        [['Opus 5.5', 'claude', '80%'], ['Other', 'claude', '10%'], ['gpt-6-astra', 'codex', '10%']]);
+    eq(page('today', 'host').rows.map(r => [r.name, r.agent, r.icon]),
+        [['This computer', null, 'computer-symbolic'], ['gpu7·gpu8', null, 'network-server-symbolic']]);
+    eq(page('today', 'project').rows.map(r => [r.name, r.icon, r.percent]),
+        [['agentail', 'folder-symbolic', '100%'], ['Other', 'folder-symbolic', '<1%']]);
+    eq(page('today', 'nonsense').groups[0].on, true);
+    // Today's chart: a column per hour; the current one in full colour.
+    const c = t.chart;
+    eq([c.bars.length, c.axis], [24, ['00:00', '12:00', '24:00']]);
+    eq(c.bars.map(b => b.on).indexOf(true), 14);
+    eq(c.bars[14], {start: hour(14), label: '14:00–15:00', on: true, picked: false,
+        segments: [{agent: 'codex', fraction: 1}], title: '14:00–15:00 · 600'});
+    eq(c.bars[9].segments, [{agent: 'claude', fraction: 0.5}]);
+    eq(c.bars[23].label, '23:00–24:00');
+    // An hour picked: everything but the chart is that hour's.
+    const h = page('today', 'agent', hour(14));
+    eq([h.picked, h.title, h.total, h.summary], [true, '14:00–15:00', '600', '3 requests']);
+    eq(h.rows.map(r => [r.name, r.percent]), [['Codex', '100%']]);
+    eq([h.chart.bars[14].picked, h.chart.bars[14].on, h.chart.bars.filter(b => b.on).length], [true, true, 1]);
+    eq(page('today', 'agent', hour(14) + 1).picked, false);  // not a column: nothing picked
+    // The last 7 days: a day's average, the 7 days before.
+    const w = page('last7');
+    eq([w.total, w.summary], ['70.0k', '10.0k/day · −30% vs prior 7 days · 350 requests']);
+    eq(w.chart.axis, ['10/25', '10/26', '10/27', '10/28', '10/29', '10/30', 'Today']);
+    eq(w.chart.bars[6].on, true);
+    eq(w.chart.bars[5].segments, [{agent: 'claude', fraction: 0.5}, {agent: 'codex', fraction: 0.5}]);
+    eq(w.chart.bars[0].segments, []);
+    const d = page('last7', 'agent', day(28));
+    eq([d.title, d.total, d.summary, d.chart.bars[6].on], ['10/30', '1.00k', '2 requests', false]);
+    // Nothing in the last 30 days: no total, no chart.
+    const m = page('last30');
+    eq([m.rows, m.chart, m.empty], [[], null, 'Nothing in the last 30 days.']);
+    st.apply({type: 'tokens_update', tokens: {...TOKENS7, ranges: {...TOKENS7.ranges, last30: TOKENS7.ranges.last7}}});
+    // The 30 days before the last 30 begin on Sep 2, before the first count (Oct 5): too
+    // little to compare with.
+    eq(page('last30').summary, '2.33k/day · 350 requests');
+    const c30 = page('last30').chart;
+    eq([c30.bars.length, c30.axis], [30, ['10/02', '10/17', 'Today']]);
+    eq(c30.bars[10].segments, [{agent: 'claude', fraction: 1}]);  // the busiest of the 30
+    // Lifetime: no chart; a day's average since the first day (Oct 5 to Oct 31: 27 days).
+    const all = page('total');
+    eq([all.since, all.chart, all.summary], ['Since 2026-10-05', null, '100k/day · 9000 requests']);
+    eq(page('nonsense').range, 'today');
+    // One host only: no Host list.
+    st.apply({type: 'tokens_update', tokens: {...TOKENS7, ranges: {...TOKENS7.ranges,
+        total: {...TOKENS7.ranges.total, host: [['local', 1]]}}}});
+    eq(page('today', 'host').groups.map(g => g.id), ['agent', 'model', 'project']);
+    eq(page('today', 'host').rows[0].name, 'Claude Code');
+    st.apply({type: 'tokens_update', tokens: {...TOKENS7, since: -5, hours: [HOURS[1], HOURS[0]]}});
+    eq([page('total').since, page('today').chart], ['', null]);  // a bad time stamp; hours out of order
     I.setLanguage('zh');
     try {
-        const zh = M.tokenTotals(st, 'total');
-        eq(zh.ranges.map(r => r.text), ['今日', '本周', '累计']);
-        eq(zh.agents[0].parts.map(p => p.label), ['输入', '缓存写', '缓存读', '输出']);
+        st.apply({type: 'tokens_update', tokens: TOKENS7});
+        const zh = page('last7');
+        eq(zh.ranges.map(r => r.text), ['今日', '7 天', '30 天', '累计']);
+        eq(zh.groups.map(g => g.text), ['Agent', '模型', '主机', '项目']);
+        eq(zh.summary, '日均 10.0k · 较前 7 天 −30% · 350 次请求');
+        eq(page('today').summary, '较昨日同时段 +25% · 50 次请求');
+        eq(page('total').summary, '日均 100k · 9000 次请求');
+        eq([zh.title, zh.parts.map(p => p.label)], ['全部 agent', ['输入', '缓存写', '缓存读', '输出']]);
+        eq([zh.chart.axis[6], page('today', 'host').rows[0].name], ['今日', '本机']);
     } finally {
         I.setLanguage('en');
     }
     st.apply({type: 'tokens_update', tokens: null});  // switched off
     eq([st.tokens, M.tokensAvailable(st)], [null, false]);
-    st.apply({type: 'tokens_update', tokens: TOKENS});
+    st.apply({type: 'tokens_update', tokens: TOKENS7});
     st.disconnect();
     eq([st.tokens, st.settings.tokens], [null, null]);
+});
+
+test('token counts: many requests', () => {
+    const st = make([]);
+    st.apply({type: 'tokens_update', tokens: {...TOKENS7, ranges: {...TOKENS7.ranges,
+        today: {...TOKENS7.ranges.today, requests: 26213}}}});
+    eq(M.tokenPage(st, 'today', 'agent', null, NOW_T).summary, '+25% vs this time yesterday · 26.2k requests');
+    I.setLanguage('zh');
+    try {
+        eq(M.tokenPage(st, 'today', 'agent', null, NOW_T).summary, '较昨日同时段 +25% · 2.62 万次请求');
+    } finally {
+        I.setLanguage('en');
+    }
+});
+
+test('token counts: a 0.0.6 daemon', () => {
+    // Today and lifetime by agent only: no other lists, chart, responses or comparison.
+    const st = make([]);
+    st.apply({type: 'tokens_update', tokens: TOKENS});
+    const t = M.tokenPage(st, 'last7', 'model', null, NOW_T);
+    eq([t.range, t.ranges.map(r => r.id), t.groups, t.chart, t.summary], ['today', ['today', 'total'], [], null, '']);
+    eq(t.rows.map(r => [r.name, r.total]), [['Claude Code', '373M'], ['Codex', '65.6k']]);
+    eq([t.total, t.parts[2].value], ['373M', '361M']);
 });
 
 test('token counts: nothing on the session cards', () => {

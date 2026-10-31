@@ -3,7 +3,8 @@
 Each host alias is a directory ``<root>/<alias>/`` with a ``home/`` that acts as the
 remote $HOME (symlink two of them to model a shared NFS home, or link it to the test's
 own HOME to model a desktop that is also a server). Remote commands run locally
-through ``sh -c`` in that home, like sshd does; ``<root>/<alias>/bin`` comes first on
+through ``sh -c`` in that home, like sshd does, with ``TMPDIR`` set to ``<root>/<alias>/tmp``
+(each machine's own /tmp, never shared); ``<root>/<alias>/bin`` comes first on
 their PATH (``add_host(uid=...)`` puts an ``id`` there that reports another uid).
 ``-N -R remote:local`` binds ``remote`` and relays every connection to ``local``; like a
 real sshd it refuses to bind over an existing file and never removes the socket on exit.
@@ -60,7 +61,7 @@ if scenario == "auth_fail":
 home = os.path.realpath(os.path.join(hostdir, "home"))  # shared NFS homes: same $HOME
 
 if not no_cmd:
-    env = dict(os.environ, HOME=home)
+    env = dict(os.environ, HOME=home, TMPDIR=os.path.join(hostdir, "tmp"))
     if os.path.isdir(os.path.join(hostdir, "bin")):
         env["PATH"] = os.path.join(hostdir, "bin") + os.pathsep + env.get("PATH", "")
     sys.exit(subprocess.run(["sh", "-c", cmd], cwd=home, env=env).returncode)
@@ -132,6 +133,7 @@ class FakeSsh:
     ) -> Path:
         d = self.root / alias
         d.mkdir()
+        (d / "tmp").mkdir()
         if share_home_with:
             (d / "home").symlink_to(self.home(share_home_with))
         elif home is not None:
@@ -150,6 +152,9 @@ class FakeSsh:
 
     def home(self, alias: str) -> Path:
         return self.root / alias / "home"
+
+    def tmp(self, alias: str) -> Path:
+        return self.root / alias / "tmp"
 
     def set_scenario(self, alias: str, scenario: str) -> None:
         (self.root / alias / "scenario").write_text(scenario)

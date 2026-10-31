@@ -5,8 +5,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 import time
+from collections import Counter
 
 import pytest
 from test_tokens_scanner import claude_line, codex_meta, codex_record, codex_turn, jl
@@ -16,7 +18,7 @@ from agentail.config import Host, TokenSwitches, save_host
 from agentail.daemon import token_stats
 from agentail.daemon.main import Daemon
 from agentail.daemon.schedule import RemoteSchedule
-from agentail.daemon.tokens import TokenStore
+from agentail.daemon.tokens import Counts, TokenStore
 from agentail.protocol import HookMessage
 
 
@@ -53,6 +55,46 @@ def test_parse_answer():
         json.dumps({**ok, "records": {}}).encode(),
     ):
         assert token_stats.parse_answer(bad) is None
+
+
+def test_slices_keep_the_largest_and_add_up_the_rest():
+    sl = token_stats._Slice()
+    for i in range(token_stats.PROJECTS_SHOWN + 2):
+        sl.add("local", None, "claude", "claude-opus-5-5", f"p{i}", 1, Counts(output=100 - i))
+    sl.add("home:x", None, "codex", None, None, 1, Counts(output=99))  # no model or project
+    sl.add("home:gone", None, "codex", "gpt-6-astra", "p0", 1, Counts(output=1))
+    got = sl.to_dict({"local": "local", "home:x": "gpu7·gpu8"})
+    assert got["requests"] == token_stats.PROJECTS_SHOWN + 4
+    assert got["counts"]["output"] == sum(range(94, 101)) + 100
+    assert got["agent"] == [["claude", 679], ["codex", 100]]
+    assert got["model"] == [
+        ["claude", "claude-opus-5-5", 679],
+        ["codex", None, 99],
+        ["codex", "gpt-6-astra", 1],
+    ]
+    # a server no longer added has no name: null
+    assert got["host"] == [["local", 679], ["gpu7·gpu8", 99], [None, 1]]
+    # the largest projects; the rest added to null, where the unrecorded one already was
+    projects = got["project"]
+    assert len(projects) == token_stats.PROJECTS_SHOWN
+    assert projects[0] == ["p0", 101] and [None, 99 + 96 + 95 + 94] in projects
+    assert token_stats._top(Counter({"a": 0}), 3, None) == []
+
+
+def test_slices_name_the_server_a_session_ran_on():
+    sl = token_stats._Slice()
+    sl.add("home:x", "gpu7", "claude", "m", "p", 1, Counts(output=5))
+    sl.add("home:x", "gpu8", "claude", "m", "p", 1, Counts(output=3))
+    sl.add(
+        "home:x", None, "claude", "m", "p", 1, Counts(output=2)
+    )  # not known: the store's servers
+    sl.add("home:gone", "gpu3", "claude", "m", "p", 1, Counts(output=1))  # removed, but known
+    assert sl.to_dict({"home:x": "gpu7·gpu8"})["host"] == [
+        ["gpu7", 5],
+        ["gpu8", 3],
+        ["gpu7·gpu8", 2],
+        ["gpu3", 1],
+    ]
 
 
 def _msg(event, sid, agent="claude"):
@@ -110,20 +152,29 @@ async def test_this_computer_is_scanned_at_start_and_after_a_turn(runtime_env, i
         tokens = snap["tokens"]
         if not tokens["today"]:  # the first scan may finish after the snapshot
             tokens = (await _until(r, lambda m: m["type"] == "tokens_update"))["tokens"]
-        assert tokens["today"] == [
-            {
-                "agent": "claude",
-                "counts": {
-                    "input": 3,
-                    "cache_write": 100,
-                    "cache_read": 1000,
-                    "output": 10,
-                    "reasoning": 4,
-                },
-            }
-        ]
+        counts = {"input": 3, "cache_write": 100, "cache_read": 1000, "output": 10, "reasoning": 4}
+        # for the 0.0.6 panel
+        assert tokens["today"] == [{"agent": "claude", "counts": counts}]
         assert tokens["week"] == tokens["today"] == tokens["total"]
         assert tokens["since"] > 0 and "sessions" not in tokens
+        # Each range added up four ways; the project is the folder's name, never its path.
+        one = {
+            "counts": counts,
+            "requests": 1,
+            "agent": [["claude", 1113]],
+            "model": [["claude", "claude-opus-5-5", 1113]],
+            "host": [["local", 1113]],
+            "project": [["proj-a", 1113]],
+        }
+        assert tokens["ranges"] == {k: one for k in ("today", "last7", "last30", "total")}
+        # The chart's days, oldest first, today last; today's hours.
+        days, hours = tokens["days"], tokens["hours"]
+        assert len(days) == 30 and days[-1] == {"start": tokens["day_start"], **one}
+        assert all(d["requests"] == 0 and d["agent"] == [] for d in days[:-1])
+        assert all(a["start"] < b["start"] for a, b in zip(days, days[1:], strict=False))
+        assert 23 <= len(hours) <= 25 and hours[0]["start"] == tokens["day_start"]
+        assert sum(h["requests"] for h in hours) == 1
+        assert tokens["previous"] == {"today": 0, "last7": 0, "last30": 0}
 
         # The turn ends with one more response in the file.
         jl(proj / "s1.jsonl", claude_line("msg_2", sid="s1", out=90, ts=_now_iso()))
@@ -166,6 +217,9 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         save_host(Host(alias, agents=("claude", "codex"), python=sys.executable, home_id="h0me"))
     save_host(Host("gpu9", agents=(), python=sys.executable))
 
+    def scans(alias=None):  # not the hourly look at Claude's temp folders
+        return [c for c in fake_ssh.calls(alias) if "claude-$(id -u)" not in c[-1]]
+
     d, task = await _start(ssh=str(fake_ssh.path))
     try:
         r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
@@ -176,8 +230,8 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         msg = await _until(r, lambda m: m["type"] == "tokens_update" and m["tokens"]["today"])
         agents = {row["agent"] for row in msg["tokens"]["today"]}
         assert agents == {"claude", "codex"}
-        assert len(fake_ssh.calls("gpu8")) == 1 and fake_ssh.calls("gpu7") == []
-        argv = fake_ssh.calls("gpu8")[0]
+        assert len(scans("gpu8")) == 1 and scans("gpu7") == []
+        argv = scans("gpu8")[0]
         assert str(home) not in argv[-1]  # only the constant program is on the command line
 
         # gpu7 shares gpu8's store; a turn there brings the new response.
@@ -188,7 +242,7 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
         d._set_host("gpu7", "connected", "")
         await asyncio.sleep(0.25)  # past the minimum interval
         await d.handle("gpu7", _msg("Stop", "s9"))
-        await _until(
+        msg = await _until(
             r,
             lambda m: (
                 m["type"] == "tokens_update"
@@ -198,7 +252,11 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
                 == 15
             ),
         )
-        assert len(fake_ssh.calls("gpu7")) + len(fake_ssh.calls("gpu8")) == 2
+        assert len(scans("gpu7")) + len(scans("gpu8")) == 2
+        # The Stop came in on gpu7's socket, so s9 ran there; nothing says where c9 ran.
+        hosts = dict(map(tuple, msg["tokens"]["ranges"]["today"]["host"]))
+        assert hosts == {"gpu7": 1113 + 1113 + 5 - 10, "gpu7·gpu8": hosts["gpu7·gpu8"]}
+        assert d.tokens.db.rows(0)[0][7] in ("gpu7", None)
         assert fake_ssh.calls("gpu9") == []
         assert d.tokens.db.cursor("home:h0me") is not None
 
@@ -225,6 +283,54 @@ async def test_servers_are_scanned_over_ssh_once_per_home(runtime_env, fake_ssh,
             await asyncio.sleep(0.05)
         assert d.tokens.db.cursor("home:h0me") is None
         assert d.tokens.db.totals(0, stores=["home:h0me"])["claude"].output == 15
+        w.close()
+    finally:
+        d.stop()
+        await asyncio.wait_for(task, 5)
+
+
+async def test_servers_sharing_a_home_are_told_apart_by_claudes_temp_folders(
+    runtime_env, fake_ssh, fast
+):
+    home = fake_ssh.add_host("gpu7")
+    fake_ssh.add_host("gpu8", share_home_with="gpu7")
+    fake_ssh.add_host("gpu3", share_home_with="gpu7")
+    sids = ["1" * 8 + "-1111-1111-1111-" + "1" * 12, "2" * 8 + "-2222-2222-2222-" + "2" * 12]
+    sids += ["3" * 8 + "-3333-3333-3333-" + "3" * 12, "4" * 8 + "-4444-4444-4444-" + "4" * 12]
+    proj = home / ".claude" / "projects" / "p"
+    for i, sid in enumerate(sids):
+        jl(proj / f"{sid}.jsonl", claude_line(f"msg_{i}", sid=sid, ts=_now_iso()))
+    # Claude's folders on each machine's own disk: s1 on gpu7, s2 on gpu8, s3 on gpu7 and gpu3
+    # (resumed on another: not known), s4 nowhere. A hook from gpu8 already placed s1 there.
+    uid = os.getuid()
+    for alias, found in (("gpu7", [0, 2]), ("gpu8", [1]), ("gpu3", [2])):
+        for i in found:
+            (fake_ssh.tmp(alias) / f"claude-{uid}" / "-data-p" / sids[i] / "tasks").mkdir(
+                parents=True
+            )
+    for alias in ("gpu7", "gpu8", "gpu3"):
+        save_host(Host(alias, agents=("claude",), python=sys.executable, home_id="h0me"))
+    d, task = await _start(ssh=str(fake_ssh.path))
+    try:
+        r, w = await asyncio.open_unix_connection(str(paths.ui_sock()))
+        await r.readline()  # snapshot
+        for alias in ("gpu7", "gpu8", "gpu3"):
+            d._set_host(alias, "connected", "")
+        await d.handle("gpu8", _msg("UserPromptSubmit", sids[0]))
+
+        def hosts(m):
+            if m["type"] != "tokens_update" or not m["tokens"]:
+                return {}
+            return dict(map(tuple, m["tokens"]["ranges"]["today"]["host"]))
+
+        msg = await _until(r, lambda m: hosts(m).get("gpu8") == 2 * 1113)
+        assert set(d.tokens._tmp_ids) == {"gpu7", "gpu8", "gpu3"}
+        # s1 stays where its hook put it; s2 is gpu8's; s3 (two servers) and s4 stay together.
+        assert hosts(msg) == {
+            "gpu8": 2 * 1113,
+            "gpu7·gpu8·gpu3": 2 * 1113,
+        }
+        assert fake_ssh.calls("gpu3")  # every server was asked
         w.close()
     finally:
         d.stop()

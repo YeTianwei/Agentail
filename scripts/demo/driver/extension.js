@@ -131,7 +131,9 @@ export default class DemoDriver extends Extension {
         await state(1300, 'capsule');
         await state(2800, ['Yes']);
         await state(1500, ['Token counts']);
-        await state(1700, ['Weekly']);
+        await state(1700, ['7 days']);
+        await state(1700, ['Model']);
+        await state(1400, ['30 days']);
         await state(1400, ['Lifetime']);
         await state(1900, ['Back']);
         await state(900, ['Use light colours']);

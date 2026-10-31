@@ -33,6 +33,10 @@ const AGENT_ICON_SIZE = 16;
 const ADD_HOST_TIMEOUT_S = 150;
 const MAX_CHIPS = 40;
 const USAGE_BAR_WIDTH = 120;
+// The Tokens page's sizes, as in stylesheet.css: set through CSS so that St scales them on a
+// HiDPI screen (an actor's width or height is in physical pixels).
+const TOKEN_BAR_WIDTH = 346;  // the card's 370, less the icon column
+const TOKEN_CHART_HEIGHT = 48;
 // Replaced by packaging/build-deb.sh with the same stamp it writes into metadata.json's
 // "version-name". GNOME Shell keeps an extension's code in memory until it restarts, so
 // after an upgrade the disk stamp differs from this one and the panel says so.
@@ -59,11 +63,11 @@ function uiSocketPath() {
     return GLib.build_filenamev([base, 'agentail', 'ui.sock']);
 }
 
-// Panel preferences (theme, language, Usage expanded, the Tokens page's range), kept in
-// ~/.config/agentail/panel.json.
+// Panel preferences (theme, language, Usage expanded, the Tokens page's range and list), kept
+// in ~/.config/agentail/panel.json.
 // Only this extension writes the file; anything unreadable falls back to the defaults. A null
 // theme or language follows the desktop.
-const PREFS_DEFAULT = {theme: null, language: null, usage_open: true, tokens_range: 'today'};
+const PREFS_DEFAULT = {theme: null, language: null, usage_open: true, tokens_range: 'today', tokens_group: 'agent'};
 
 function prefsPath() {
     return GLib.build_filenamev([GLib.get_user_config_dir(), 'agentail', 'panel.json']);
@@ -77,11 +81,19 @@ function loadPrefs() {
             theme: data.theme === 'light' || data.theme === 'dark' ? data.theme : null,
             language: LANGUAGES.includes(data.language) ? data.language : null,
             usage_open: data.usage_open !== false,
-            tokens_range: M.TOKEN_RANGES.includes(data.tokens_range) ? data.tokens_range : 'today',
+            tokens_range: tokensRange(data.tokens_range),
+            tokens_group: M.TOKEN_GROUPS.includes(data.tokens_group) ? data.tokens_group : 'agent',
         };
     } catch {
         return {...PREFS_DEFAULT};
     }
+}
+
+// The 0.0.6 panel's "week" is the last 7 days now.
+function tokensRange(range) {
+    if (range === 'week')
+        return 'last7';
+    return M.TOKEN_RANGES.includes(range) ? range : 'today';
 }
 
 function savePrefs(prefs) {
@@ -216,6 +228,25 @@ function vbox(styleClass, props = {}) {
     return new St.BoxLayout({style_class: styleClass, ...VERTICAL, ...props});
 }
 
+// The colour class of an agent: its own when the stylesheet has one.
+function agentClass(agent) {
+    return KNOWN_AGENTS.includes(agent) ? agent : 'other';
+}
+
+// A thin bar filled to `share` (0..1) of its width, in the colour of `fillClass`.
+function shareBar(share, fillClass) {
+    const track = hbox('agentail-usage-track agentail-tokens-track', {y_align: Clutter.ActorAlign.CENTER});
+    if (share > 0) {
+        const fill = new St.Widget({
+            style_class: `agentail-usage-fill agentail-tokens-fill ${fillClass}`,
+            y_expand: true,
+        });
+        fill.set_style(`width: ${Math.max(3, Math.round(TOKEN_BAR_WIDTH * share))}px;`);
+        track.add_child(fill);
+    }
+    return track;
+}
+
 const AgentailIndicator = GObject.registerClass(
 class AgentailIndicator extends PanelMenu.Button {
     _init(extension) {
@@ -234,6 +265,7 @@ class AgentailIndicator extends PanelMenu.Button {
         this._addTimer = 0;
         // 'main' or 'settings' (the gear, top right); back to 'main' when the menu closes.
         this._view = 'main';
+        this._tokensPick = null; // the start of the column picked on the Tokens page
         this._settingsError = '';
         // Switches just flipped in the settings that the daemon has not reported yet.
         this._pending = {};
@@ -529,6 +561,7 @@ class AgentailIndicator extends PanelMenu.Button {
         if (M.tokensAvailable(this._state)) {
             box.add_child(this._iconButton(this._gicon('tokens-symbolic.svg'), _('Token counts'), () => {
                 this._view = 'tokens';
+                this._tokensPick = null;
                 this._renderPanel();
             }));
         }
@@ -892,7 +925,9 @@ class AgentailIndicator extends PanelMenu.Button {
         return box;
     }
 
-    // The Tokens page: today, this week or everything kept; one column per agent.
+    // The Tokens page: today, the last 7 or 30 days, or everything kept. On top the total of
+    // every agent and its four kinds, how it compares, and a column per hour or day (click one
+    // to see only that hour or day); below, the totals by agent, model, host or project.
     _tokensPage() {
         const page = vbox('agentail-groups', {x_expand: true});
         const head = hbox('agentail-head', {x_expand: true});
@@ -904,15 +939,77 @@ class AgentailIndicator extends PanelMenu.Button {
         head.add_child(this._themeButton());
         page.add_child(head);
 
-        const t = M.tokenTotals(this._state, this._prefs.tokens_range);
+        const t = M.tokenPage(this._state, this._prefs.tokens_range, this._prefs.tokens_group, this._tokensPick);
         if (!t) {
             const off = label(_('Token counts are off. Turn them on in Settings.'), 'agentail-add-note');
             off.clutter_text.line_wrap = true;
             page.add_child(off);
             return page;
         }
-        const ranges = hbox('agentail-seg-row', {x_align: Clutter.ActorAlign.START});
-        for (const r of t.ranges) {
+        page.add_child(this._segments(t.ranges, '', id => {
+            this._prefs.tokens_range = id;
+            this._tokensPick = null;
+        }));
+
+        const card = vbox('agentail-card agentail-tokens', {x_expand: true});
+        if (t.empty) {
+            card.add_child(label(t.empty, 'agentail-tokens-note'));
+            page.add_child(card);
+            return page;
+        }
+        const top = vbox('agentail-tokens-agent', {x_expand: true});
+        const row = hbox('agentail-tokens-agent-head', {x_expand: true});
+        row.add_child(label(t.title, 'agentail-tokens-agent-name', {ellipsize: true}));
+        if (t.picked) {
+            const clear = this._iconButton('window-close-symbolic', _('Show the whole range'), () => {
+                this._tokensPick = null;
+                this._renderPanel();
+            });
+            clear.add_style_class_name('agentail-tokens-clear');
+            row.add_child(clear);
+        }
+        row.add_child(new St.Widget({x_expand: true}));
+        row.add_child(label(t.total, 'agentail-tokens-agent-total'));
+        top.add_child(row);
+        // The four kinds in two rows of two, under the total.
+        for (const pair of [t.parts.slice(0, 2), t.parts.slice(2)]) {
+            const line = hbox('agentail-tokens-parts', {x_expand: true});
+            for (const p of pair) {
+                const part = hbox('agentail-tokens-part');
+                part.add_child(label(p.label, 'agentail-tokens-part-label', {ellipsize: true, xExpand: true}));
+                part.add_child(label(p.value, 'agentail-tokens-part-value'));
+                line.add_child(part);
+            }
+            top.add_child(line);
+        }
+        card.add_child(top);
+        if (t.summary) {
+            const summary = label(t.summary, 'agentail-tokens-note');
+            summary.clutter_text.line_wrap = true;
+            card.add_child(summary);
+        }
+        if (t.chart)
+            card.add_child(this._tokenChart(t.chart));
+        if (t.rows.length) {
+            card.add_child(new St.Widget({style_class: 'agentail-settings-divider', x_expand: true}));
+            if (t.groups.length) {
+                card.add_child(this._segments(t.groups, 'agentail-seg-small', id => {
+                    this._prefs.tokens_group = id;
+                }));
+            }
+            for (const r of t.rows)
+                card.add_child(this._tokenRow(r));
+        }
+        page.add_child(card);
+        if (t.since)
+            page.add_child(label(t.since, 'agentail-tokens-note agentail-tokens-foot'));
+        return page;
+    }
+
+    // A row of choices (the Tokens page's ranges and lists); `choose` sets the preference.
+    _segments(items, extraClass, choose) {
+        const box = hbox(`agentail-seg-row ${extraClass}`, {x_align: Clutter.ActorAlign.START});
+        for (const r of items) {
             const b = new St.Button({
                 style_class: `agentail-btn agentail-seg${r.on ? ' agentail-seg-on' : ''}`,
                 reactive: true,
@@ -922,58 +1019,100 @@ class AgentailIndicator extends PanelMenu.Button {
                 child: label(r.text, ''),
             });
             b.connect('clicked', () => {
-                this._prefs.tokens_range = r.id;
+                choose(r.id);
                 savePrefs(this._prefs);
                 this._renderPanel();
             });
-            ranges.add_child(b);
+            box.add_child(b);
         }
-        page.add_child(ranges);
+        return box;
+    }
 
-        const card = vbox('agentail-card agentail-tokens', {x_expand: true});
-        if (t.empty)
-            card.add_child(label(t.empty, 'agentail-tokens-note'));
-        const divider = () => new St.Widget({style_class: 'agentail-settings-divider', x_expand: true});
-        if (t.all) {
-            const row = hbox('agentail-tokens-agent-head', {x_expand: true});
-            row.add_child(label(t.all.label, 'agentail-tokens-agent-name', {ellipsize: true, xExpand: true}));
-            row.add_child(label(t.all.total, 'agentail-tokens-agent-total'));
-            card.add_child(row);
-            card.add_child(divider());
+    // One column per hour or day, its agents stacked in their colours: the picked one, or the
+    // current hour or today, in full colour. Clicking a column picks it; again, unpicks it.
+    _tokenChart(chart) {
+        const box = vbox('agentail-tokens-chart', {x_expand: true});
+        const columns = hbox('agentail-tokens-columns', {x_expand: true});
+        columns.layout_manager.homogeneous = true;
+        for (const bar of chart.bars) {
+            const stack = vbox('', {x_expand: true, y_expand: true});
+            stack.add_child(new St.Widget({y_expand: true}));
+            // Top down: the last agent's part first, so that the first sits at the bottom.
+            const parts = [...bar.segments].reverse()
+                .map(seg => ({seg, height: Math.round(TOKEN_CHART_HEIGHT * seg.fraction)}))
+                .filter(x => x.height > 0);
+            parts.forEach(({seg, height}, i) => {
+                const fill = new St.Widget({
+                    style_class: `agentail-tokens-fill agentail-tokens-fill-${agentClass(seg.agent)}${i === 0 ? ' agentail-tokens-fill-top' : ''}`,
+                    x_expand: true,
+                });
+                fill.set_style(`height: ${height}px;`);
+                stack.add_child(fill);
+            });
+            const classes = ['agentail-tokens-column'];
+            if (bar.on)
+                classes.push('agentail-tokens-on');
+            if (bar.picked)
+                classes.push('agentail-tokens-picked');
+            const column = new St.Button({
+                style_class: classes.join(' '),
+                reactive: true,
+                can_focus: false,
+                track_hover: true,
+                x_expand: true,
+                accessible_name: bar.title,
+                child: stack,
+            });
+            column.connect('clicked', () => {
+                this._tokensPick = bar.picked ? null : bar.start;
+                this._renderPanel();
+            });
+            columns.add_child(column);
         }
-        t.agents.forEach((a, i) => {
-            if (i > 0)
-                card.add_child(divider());
-            const block = vbox('agentail-tokens-agent', {x_expand: true});
-            const head = hbox('agentail-tokens-agent-head', {x_expand: true});
-            // Every name starts at the same place: an agent without an icon of ours gets the gap.
-            head.add_child(KNOWN_AGENTS.includes(a.agent)
-                ? new St.Icon({
-                    gicon: this._gicon(`agent-${a.agent}.png`),
-                    icon_size: 16,
-                    y_align: Clutter.ActorAlign.CENTER,
-                })
-                : new St.Widget({width: 16}));
-            head.add_child(label(a.name, 'agentail-tokens-agent-name', {ellipsize: true, xExpand: true}));
-            head.add_child(label(a.total, 'agentail-tokens-agent-total'));
-            block.add_child(head);
-            // The four kinds in two rows of two, under the name.
-            for (const pair of [a.parts.slice(0, 2), a.parts.slice(2)]) {
-                const row = hbox('agentail-tokens-parts', {x_expand: true});
-                for (const p of pair) {
-                    const part = hbox('agentail-tokens-part');
-                    part.add_child(label(p.label, 'agentail-tokens-part-label', {ellipsize: true, xExpand: true}));
-                    part.add_child(label(p.value, 'agentail-tokens-part-value'));
-                    row.add_child(part);
-                }
-                block.add_child(row);
-            }
-            card.add_child(block);
+        box.add_child(columns);
+        box.add_child(new St.Widget({style_class: 'agentail-tokens-baseline', x_expand: true}));
+        const axis = hbox('agentail-tokens-axis', {x_expand: true});
+        axis.layout_manager.homogeneous = true;
+        const last = chart.axis.length - 1;
+        chart.axis.forEach((text, i) => {
+            const l = label(text, 'agentail-tokens-axis-label', {xExpand: true});
+            // Under 7 columns each date is centred on its own; otherwise the ends sit at the ends.
+            l.x_align = chart.axis.length === chart.bars.length || (i > 0 && i < last)
+                ? Clutter.ActorAlign.CENTER
+                : i === 0 ? Clutter.ActorAlign.START : Clutter.ActorAlign.END;
+            axis.add_child(l);
         });
-        page.add_child(card);
-        if (t.since)
-            page.add_child(label(t.since, 'agentail-tokens-note agentail-tokens-foot'));
-        return page;
+        box.add_child(axis);
+        return box;
+    }
+
+    // A row of the list: icon, name, total and share, and under them a bar for the share.
+    _tokenRow(r) {
+        const block = vbox('agentail-tokens-row', {x_expand: true});
+        const line = hbox('agentail-tokens-agent-head', {x_expand: true});
+        // Every name starts at the same place: a row without an icon of ours gets the gap.
+        if (r.agent && KNOWN_AGENTS.includes(r.agent)) {
+            line.add_child(new St.Icon({
+                gicon: this._gicon(`agent-${r.agent}.png`),
+                icon_size: 16,
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        } else if (r.icon) {
+            line.add_child(new St.Icon({
+                icon_name: r.icon,
+                icon_size: 16,
+                style_class: 'agentail-tokens-row-icon',
+                y_align: Clutter.ActorAlign.CENTER,
+            }));
+        } else {
+            line.add_child(new St.Widget({style_class: 'agentail-tokens-icon-gap'}));
+        }
+        line.add_child(label(r.name, 'agentail-tokens-row-name', {ellipsize: true, xExpand: true}));
+        line.add_child(label(r.total, 'agentail-tokens-row-total'));
+        line.add_child(label(r.percent, 'agentail-tokens-row-percent'));
+        block.add_child(line);
+        block.add_child(shareBar(r.share, `agentail-tokens-fill-${r.agent ? agentClass(r.agent) : 'any'}`));
+        return block;
     }
 
     // Count tokens / on the servers too.

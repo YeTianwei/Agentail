@@ -10,7 +10,7 @@
 //
 // Text of our own goes through _() (i18n.js): in the language set with setLanguage().
 
-import {_, N_} from './i18n.js';
+import {_, N_, language} from './i18n.js';
 
 export const STATUS = {
     needs_attention: {label: N_('Needs you'), order: 0, style: 'attention'},
@@ -730,7 +730,8 @@ function countsOf(c) {
     return Object.fromEntries(COUNT_FIELDS.map(f => [f, c[f]]));
 }
 
-function tokenRows(rows) {
+// The agent rows of a 0.0.6 daemon's today and total.
+function agentRows(rows) {
     const out = [];
     for (const r of Array.isArray(rows) ? rows : []) {
         const counts = countsOf(r?.counts);
@@ -740,15 +741,76 @@ function tokenRows(rows) {
     return out;
 }
 
+// A name in a SLICE's list: a string (cut), or null for "the rest"; undefined if neither.
+const nameOf = v => (v === null ? null : typeof v === 'string' && v ? clean(v, 60) : undefined);
+
+// One of a SLICE's lists, as {agent, key, total}; null when the daemon sends none.
+function listOf(rows, parse) {
+    if (!Array.isArray(rows))
+        return null;
+    return rows.slice(0, 20).map(r => (Array.isArray(r) ? parse(r) : null)).filter(r => r);
+}
+
+const LIST_PARSERS = {
+    agent: r => (typeof r[0] === 'string' && countOk(r[1])
+        ? {agent: clean(r[0], 20), key: clean(r[0], 20), total: r[1]} : null),
+    model: r => (nameOf(r[0]) !== undefined && nameOf(r[1]) !== undefined && countOk(r[2])
+        ? {agent: nameOf(r[0]), key: nameOf(r[1]), total: r[2]} : null),
+    host: r => (nameOf(r[0]) !== undefined && countOk(r[1]) ? {agent: null, key: nameOf(r[0]), total: r[1]} : null),
+    project: r => (nameOf(r[0]) !== undefined && countOk(r[1]) ? {agent: null, key: nameOf(r[0]), total: r[1]} : null),
+};
+
+export const TOKEN_GROUPS = ['agent', 'model', 'host', 'project'];
+
+// A SLICE (a range, day or hour): its counts, responses and four lists; null if malformed.
+function sliceOf(x) {
+    const counts = countsOf(x?.counts);
+    if (!counts)
+        return null;
+    const slice = {counts, requests: countOk(x.requests) ? x.requests : null};
+    for (const g of TOKEN_GROUPS)
+        slice[g] = listOf(x[g], LIST_PARSERS[g]);
+    return slice;
+}
+
+// A 0.0.6 daemon's agent rows as a SLICE with only the agent list.
+function sliceOfRows(rows) {
+    const found = agentRows(rows);
+    const slice = {counts: addCounts(found.map(r => r.counts)), requests: null, model: null, host: null, project: null};
+    slice.agent = found.map(r => ({agent: r.agent, key: r.agent, total: totalOf(r.counts)}))
+        .sort((a, b) => b.total - a.total);
+    return slice;
+}
+
+// The chart's days or hours, in order; null when there are none or they are malformed.
+function timeSlices(list, most) {
+    if (!Array.isArray(list) || !list.length || list.length > most)
+        return null;
+    const out = [];
+    for (const x of list) {
+        const slice = sliceOf(x);
+        if (!slice || !countOk(x.start) || (out.length && x.start <= out[out.length - 1].start))
+            return null;
+        out.push({start: x.start, slice});
+    }
+    return out;
+}
+
 // The parts of a TOKENS record the panel uses, checked; null for anything else (the feature
-// is off, or an older daemon).
+// is off). A 0.0.6 daemon has only today and lifetime, by agent, and no days or hours.
 export function tokensOf(t) {
     if (!t || typeof t !== 'object')
         return null;
+    const r = t.ranges && typeof t.ranges === 'object' ? t.ranges : null;
+    const p = t.previous && typeof t.previous === 'object' ? t.previous : {};
     return {
-        today: tokenRows(t.today),
-        week: tokenRows(t.week),
-        total: tokenRows(t.total),
+        ranges: r
+            ? Object.fromEntries(TOKEN_RANGES.map(id => [id, sliceOf(r[id])]))
+            : {today: sliceOfRows(t.today), last7: null, last30: null, total: sliceOfRows(t.total)},
+        days: r ? timeSlices(t.days, 60) : null,
+        hours: r ? timeSlices(t.hours, 25) : null,
+        previous: Object.fromEntries(['today', 'last7', 'last30'].map(id => [id, countOk(p[id]) ? p[id] : null])),
+        dayStart: countOk(t.day_start) && t.day_start > 0 ? t.day_start : null,
         since: countOk(t.since) && t.since > 0 ? t.since : null,
     };
 }
@@ -774,65 +836,241 @@ export function fmtCount(n) {
     return '?';
 }
 
-export const TOKEN_RANGES = ['today', 'week', 'total'];
+// The Tokens page's ranges: today, the last 7 and 30 calendar days, and everything kept.
+export const TOKEN_RANGES = ['today', 'last7', 'last30', 'total'];
 
 // Whether the panel offers its Tokens page: the daemon counts tokens (0.0.6 and later, on).
 export function tokensAvailable(state) {
     return state.tokens !== null;
 }
 
+const pad2 = n => String(n).padStart(2, '0');
+
 // The local date of a time stamp, as 2026-10-05.
 function dateText(ts) {
     const d = new Date(ts * 1000);
-    const pad = n => String(n).padStart(2, '0');
-    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+}
+
+// The chart's short date, as 10/05, and hour, as 14:00.
+function shortDate(ts) {
+    const d = new Date(ts * 1000);
+    return `${pad2(d.getMonth() + 1)}/${pad2(d.getDate())}`;
+}
+
+function hourText(ts) {
+    return `${pad2(new Date(ts * 1000).getHours())}:00`;
 }
 
 // Everything a model read and wrote: the four kinds added up (thinking is part of the output).
 // Codex's own "lifetime tokens" counts the same way, cached input included.
 const totalOf = c => c.input + c.cache_write + c.cache_read + c.output;
 
-// The Tokens page, for today, this week or everything kept: one block per agent, its total
-// and the four kinds below it (so any number of agents fits the panel's width), and above
-// them, when there are several agents, the total of all. Null while the daemon reports none.
-export function tokenTotals(state, range) {
+function addCounts(list) {
+    const sum = Object.fromEntries(COUNT_FIELDS.map(f => [f, 0]));
+    for (const c of list) {
+        for (const f of COUNT_FIELDS)
+            sum[f] += c[f];
+    }
+    return sum;
+}
+
+// 1602 -> "1602 requests", 12345 -> "12.3k requests" (in Chinese "1.23 万次请求"); '' when
+// the daemon does not say.
+function requestsText(n) {
+    if (n === null)
+        return '';
+    if (n < 10000)
+        return _('{count} requests', {count: String(n)});
+    if (language() === 'zh')  // counted in 万 (ten thousands); the English text is never shown
+        return _('{count}×10k requests', {count: String(Number((n / 1e4).toPrecision(3)))});
+    return _('{count} requests', {count: fmtCount(n)});
+}
+
+// claude-opus-5-5 -> "Opus 5.5", claude-3-5-haiku-20241022 -> "Haiku 3.5"; any other name as
+// the agent wrote it; null (not recorded, or the smaller models added up) -> "Other".
+export function modelName(model) {
+    if (model === null)
+        return _('Other');
+    const cap = w => w[0].toUpperCase() + w.slice(1);
+    const version = (major, minor) => (minor ? `${major}.${minor}` : major);
+    let m = /^claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d))?(?:-\d{8})?$/.exec(model);
+    if (m)
+        return `${cap(m[1])} ${version(m[2], m[3])}`;
+    m = /^claude-(\d+)(?:-(\d))?-(opus|sonnet|haiku)(?:-\d{8})?$/.exec(model);
+    if (m)
+        return `${cap(m[3])} ${version(m[1], m[2])}`;
+    return model;
+}
+
+// "+18%" / "−5%": how `now` compares with `before`; '' when there was nothing before.
+function changeText(now, before) {
+    if (!before)
+        return '';
+    const pct = Math.round(100 * (now - before) / before);
+    return pct < 0 ? `−${-pct}%` : `+${pct}%`;
+}
+
+// The chart's columns for a range: today's hours, the last 7 or 30 days; null for lifetime
+// or when the daemon sends none. `label` names a picked column, `current` is where now is.
+function chartColumns(t, which, now) {
+    if (which === 'today') {
+        if (!t.hours)
+            return null;
+        const current = t.hours.filter(h => h.start <= now).pop();
+        return t.hours.map((h, i) => {
+            const next = t.hours[i + 1]?.start ?? h.start + 3600;
+            return {...h, short: hourText(h.start), label: `${hourText(h.start)}–${hourText(next).replace(/^00:/, '24:')}`,
+                current: h === current};
+        });
+    }
+    const n = {last7: 7, last30: 30}[which];
+    if (!n || !t.days)
+        return null;
+    const days = t.days.slice(-n);
+    return days.map((d, i) => {
+        const today = i === days.length - 1;
+        const date = today ? _('Today') : shortDate(d.start);
+        return {...d, short: date, label: date, current: today};
+    });
+}
+
+// The rows of one list: a name, an agent (for its icon and colour) or a symbolic icon, the
+// total, and its share of the slice.
+function listRows(slice, group, all) {
+    return (slice[group] ?? []).map(r => {
+        let name, icon = null;
+        if (group === 'agent') {
+            name = AGENT_NAME[r.key] ?? r.key;
+        } else if (group === 'model') {
+            name = modelName(r.key);
+        } else if (group === 'host') {
+            name = r.key === null ? _('Other') : r.key === 'local' ? _('This computer') : r.key;
+            icon = r.key === 'local' ? 'computer-symbolic' : 'network-server-symbolic';
+        } else {
+            name = r.key ?? _('Other');
+            icon = 'folder-symbolic';
+        }
+        const share = all ? r.total / all : 0;
+        const pct = Math.round(100 * share);
+        return {
+            name,
+            agent: r.agent,
+            icon,
+            total: fmtCount(r.total),
+            percent: r.total && pct < 1 ? '<1%' : `${pct}%`,
+            share,
+        };
+    });
+}
+
+// The Tokens page for a range: the total of every agent and its four kinds, a line of how it
+// compares (a day's average, the same stretch of time before, the responses), a chart of
+// today's hours or of the last 7 or 30 days, and the totals by agent, model, host or project.
+// `pick` is the start of a column clicked in the chart: then everything but the chart is that
+// hour's or day's. Null while the daemon reports nothing.
+export function tokenPage(state, range, group, pick = null, now = Date.now() / 1000) {
     const t = state.tokens;
     if (!t)
         return null;
-    const which = TOKEN_RANGES.includes(range) ? range : 'today';
-    const counts = new Map(t[which].map(r => [r.agent, r.counts]));
-    const agents = sortAgents(counts.keys()).map(agent => {
-        const c = counts.get(agent);
-        return {
-            agent,
-            name: AGENT_NAME[agent] ?? agent,
-            total: fmtCount(totalOf(c)),
-            parts: [
-                {label: _('Input'), value: fmtCount(c.input)},
-                {label: _('Cache write'), value: fmtCount(c.cache_write)},
-                {label: _('Cache read'), value: fmtCount(c.cache_read)},
-                {label: _('Output'), value: fmtCount(c.output)},
-            ],
-        };
-    });
-    const sum = [...counts.values()].reduce((n, c) => n + totalOf(c), 0);
-    const empty = {
-        today: _('Nothing yet today.'),
-        week: _('Nothing yet this week.'),
-        total: _('Nothing counted yet.'),
-    };
-    return {
+    const offered = TOKEN_RANGES.filter(id => t.ranges[id]);
+    const which = offered.includes(range) ? range : 'today';
+    const columns = chartColumns(t, which, now);
+    const picked = columns?.find(c => c.start === pick) ?? null;
+    const slice = picked ? picked.slice : t.ranges[which];
+    const all = totalOf(slice.counts);
+    const lifetime = t.ranges.total;
+    const groups = TOKEN_GROUPS.filter(g => lifetime?.[g] && (g !== 'host' || lifetime.host.length > 1));
+    const by = groups.includes(group) ? group : 'agent';
+    const labels = {today: _('Today'), last7: _('7 days'), last30: _('30 days'), total: _('Lifetime')};
+    const groupLabels = {agent: _('Agent'), model: _('Model'), host: _('Host'), project: _('Project')};
+    const page = {
         range: which,
-        ranges: [
-            {id: 'today', text: _('Daily'), on: which === 'today'},
-            {id: 'week', text: _('Weekly'), on: which === 'week'},
-            {id: 'total', text: _('Lifetime'), on: which === 'total'},
+        ranges: offered.map(id => ({id, text: labels[id], on: id === which})),
+        groups: groups.length > 1 ? groups.map(id => ({id, text: groupLabels[id], on: id === by})) : [],
+        picked: picked !== null,
+        title: picked ? picked.label : _('All agents'),
+        total: fmtCount(all),
+        parts: [
+            {label: _('Input'), value: fmtCount(slice.counts.input)},
+            {label: _('Cache write'), value: fmtCount(slice.counts.cache_write)},
+            {label: _('Cache read'), value: fmtCount(slice.counts.cache_read)},
+            {label: _('Output'), value: fmtCount(slice.counts.output)},
         ],
-        all: agents.length > 1 ? {label: _('All agents'), total: fmtCount(sum)} : null,
-        agents,
-        empty: agents.length ? '' : empty[which],
+        summary: '',
+        chart: null,
+        rows: listRows(slice, by, all),
+        empty: '',
         since: which === 'total' && t.since ? _('Since {date}', {date: dateText(t.since)}) : '',
     };
+    if (!all && !picked) {
+        page.empty = {
+            today: _('Nothing yet today.'),
+            last7: _('Nothing in the last 7 days.'),
+            last30: _('Nothing in the last 30 days.'),
+            total: _('Nothing counted yet.'),
+        }[which];
+        return page;
+    }
+    if (picked) {
+        page.summary = requestsText(slice.requests);
+    } else {
+        let days = {last7: 7, last30: 30}[which] ?? 0;
+        if (which === 'total' && t.since) {
+            const first = new Date(t.since * 1000);
+            first.setHours(0, 0, 0, 0);
+            days = Math.max(1, Math.ceil((now * 1000 - first.getTime()) / 86400000));
+        }
+        // Compared with the same stretch of time before, when the counts go back that far:
+        // Claude deletes its session files after 30 days, so the 30 days before the last 30
+        // are mostly gone after a first backfill.
+        const before = {today: 1, last7: 13, last30: 59}[which];
+        let change = '';
+        if (before && t.dayStart && t.since) {
+            const start = new Date(t.dayStart * 1000);
+            start.setDate(start.getDate() - before);
+            if (t.since * 1000 <= start.getTime())
+                change = changeText(all, t.previous[which]);
+        }
+        const compare = {
+            today: _('{change} vs this time yesterday', {change}),
+            last7: _('{change} vs prior 7 days', {change}),
+            last30: _('{change} vs prior 30 days', {change}),
+        };
+        page.summary = [
+            days ? _('{value}/day', {value: fmtCount(Math.round(all / days))}) : '',
+            change ? compare[which] : '',
+            requestsText(slice.requests),
+        ].filter(x => x).join(' · ');
+    }
+    if (columns) {
+        const totals = columns.map(c => totalOf(c.slice.counts));
+        const most = Math.max(...totals);
+        const on = picked ?? columns.find(c => c.current);
+        const count = columns.length;
+        page.chart = {
+            bars: columns.map((c, i) => {
+                const parts = new Map(c.slice.agent.map(r => [r.key, r.total]));
+                return {
+                    start: c.start,
+                    label: c.label,
+                    on: c === on,
+                    picked: c === picked,
+                    segments: sortAgents(parts.keys()).map(agent => ({
+                        agent,
+                        fraction: most ? parts.get(agent) / most : 0,
+                    })),
+                    title: `${c.label} · ${fmtCount(totals[i])}`,
+                };
+            }),
+            // Under 7 columns, every date; otherwise the ends and the middle.
+            axis: count <= 7
+                ? columns.map(c => c.short)
+                : [columns[0].short, columns[Math.floor(count / 2)].short,
+                    which === 'today' ? '24:00' : columns[count - 1].short],
+        };
+    }
+    return page;
 }
 
 // ---- settings: switches the daemon keeps in config.toml ----------------------------------

@@ -84,6 +84,69 @@ def test_stores_keep_their_rows_apart(store):
         store.add("gpu7; rm -rf", [rec("msg_9")], NOW)
 
 
+def test_grouped(store):
+    store.add(
+        "local",
+        [
+            rec("a1", ts=NOW - 10, counts=(1, 0, 10, 1, 0)),
+            rec("a2", ts=NOW - 5, counts=(1, 0, 10, 1, 0)),
+            rec("b1", ts=NOW - 5, model="claude-sonnet-5-5", project=None),
+            rec("old", ts=NOW - 1000),
+        ],
+        NOW,
+    )
+    store.add("home:h", [rec("c1", agent="codex", model="gpt-6-astra", ts=NOW - 5)], NOW)
+    got = sorted(store.grouped(NOW - 100), key=lambda r: (r[1], r[4] or ""))
+    assert got == [
+        (0, "home:h", None, "codex", "gpt-6-astra", "proj", 1, Counts(3, 100, 1000, 40, 4)),
+        (0, "local", None, "claude", "claude-opus-5-5", "proj", 2, Counts(2, 0, 20, 2, 0)),
+        (0, "local", None, "claude", "claude-sonnet-5-5", None, 1, Counts(3, 100, 1000, 40, 4)),
+    ]
+    # the old one has the same keys as a1 and a2
+    assert sorted(r[6] for r in store.grouped(0, stores=["local"])) == [1, 3]
+    # by 15 minutes of UTC time: NOW is on a boundary, so NOW - 1000 is two buckets back
+    times = sorted({r[0] for r in store.grouped(0, stores=["local"], bucket=900)})
+    assert times == [NOW - 1800, NOW - 900]
+
+
+def test_the_server_of_a_session(store, tmp_path):
+    store.add("home:h", [rec("r1", sid="s1"), rec("r2", sid="s2"), rec("r3", sid="s3")], NOW)
+    assert store.set_session_host("home:h", "claude", "s1", "gpu7", NOW)
+    assert store.set_session_host("home:h", "claude", "s2", "gpu8", NOW)
+    assert store.set_session_host(
+        "home:h", "claude", "s2", "gpu7", NOW
+    )  # resumed elsewhere: the last
+    assert not store.set_session_host("home:h", "claude", "s3", "gpu7; rm -rf /", NOW)
+    assert not store.set_session_host("home:h", "qoder", "s3", "gpu7", NOW)
+    assert not store.set_session_host("bad store", "claude", "s3", "gpu7", NOW)
+    got = {r[2]: r[6] for r in store.grouped(0)}
+    assert got == {"gpu7": 2, None: 1}
+    # Guesses fill only sessions with responses and no server yet: never a hook's.
+    added = store.add_session_hosts(
+        "home:h", "claude", {"s1": "gpu8", "s3": "gpu3", "s9": "gpu3", "s3x": "bad host"}, NOW
+    )
+    assert added == 1
+    assert {r[2]: r[6] for r in store.grouped(0)} == {"gpu7": 2, "gpu3": 1}
+    assert store.add_session_hosts("bad store", "claude", {"s3": "gpu3"}, NOW) == 0
+    assert sorted(r[7] or "" for r in store.rows(0)) == ["gpu3", "gpu7", "gpu7"]
+    # dropped with the old days, and by forget
+    assert store.prune(NOW + 10 * 86400, keep_days=1) == 3
+    assert store.db.execute("SELECT count(*) FROM session_hosts").fetchone()[0] == 0
+    # A file the 0.0.7 daemon has not opened yet has no such table: hosts are not known.
+    old = tmp_path / "old.sqlite"
+    db = sqlite3.connect(old)
+    db.executescript(tokens._SCHEMA.split("CREATE TABLE IF NOT EXISTS session_hosts")[0])
+    db.execute(
+        "INSERT INTO responses VALUES ('local', 'claude', 'r', 's', ?, NULL, NULL, 1, 0, 0, 0, 0)",
+        (NOW,),
+    )
+    db.commit()
+    db.close()
+    ro = TokenStore(old, readonly=True)
+    assert [r[2] for r in ro.grouped(0)] == [None] and ro.rows(0)[0][7] is None
+    ro.close()
+
+
 def test_first_ts(store):
     assert store.first_ts() is None
     store.add("local", [rec("msg_1", ts=NOW - 50), rec("msg_2")], NOW)

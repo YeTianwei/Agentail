@@ -49,6 +49,7 @@ _ID_RE = re.compile(r"^[A-Za-z0-9._:#@-]{1,128}$")
 _MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/+\[\]-]{0,63}$")
 # local; home:<home_id> for a server (add-host); alias:<alias> for one without a home_id.
 _STORE_RE = re.compile(r"^(local|home:[A-Za-z0-9._-]{1,64}|alias:[A-Za-z0-9._@-]{1,64})$")
+_ALIAS_RE = re.compile(r"^[A-Za-z0-9._@-]{1,64}$")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS responses (
@@ -69,7 +70,22 @@ CREATE TABLE IF NOT EXISTS responses (
 CREATE INDEX IF NOT EXISTS responses_ts ON responses (ts);
 CREATE INDEX IF NOT EXISTS responses_session ON responses (store, agent, session_id);
 CREATE TABLE IF NOT EXISTS cursors (store TEXT PRIMARY KEY, state TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS session_hosts (
+    store TEXT NOT NULL,
+    agent TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    host TEXT NOT NULL,
+    ts INTEGER NOT NULL,
+    PRIMARY KEY (store, agent, session_id)
+);
 """
+# The server a session ran on, as its hook events said (0.0.7): servers sharing a $HOME share
+# its session files, which do not say which of them wrote a line. A file from before 0.0.7
+# gets the table the next time the daemon opens it.
+_JOIN = (
+    " LEFT JOIN session_hosts h"
+    " ON h.store = r.store AND h.agent = r.agent AND h.session_id = r.session_id"
+)
 
 # A row changes only when a count grows or an empty field gets a value, so the number of
 # changed rows tells whether the totals moved.
@@ -111,6 +127,11 @@ class Counts:
 
     def __bool__(self) -> bool:
         return any(getattr(self, f.name) for f in fields(self))
+
+    @property
+    def total(self) -> int:
+        """Everything read and written: the four categories (thinking is in ``output``)."""
+        return self.input + self.cache_write + self.cache_read + self.output
 
     def to_dict(self) -> dict[str, int]:
         return {f.name: getattr(self, f.name) for f in fields(self)}
@@ -222,6 +243,7 @@ class TokenStore:
             self.db = sqlite3.connect(f"file:{urllib.parse.quote(str(path))}?mode=ro", uri=True)
         else:
             self.db = _open_writable(path)
+        self._hosts: bool | None = None  # whether the file has session_hosts yet
 
     def close(self) -> None:
         self.db.close()
@@ -251,6 +273,73 @@ class TokenStore:
             self.db.executemany(_UPSERT, rows)
         return self.db.total_changes - before
 
+    def set_session_host(
+        self, store: str, agent: str, session_id: str, host: str, ts: float
+    ) -> bool:
+        """Note that ``session_id`` of ``store`` ran on server ``host`` (from the socket its
+        hook event came in on, never from a payload); False if anything is not usable."""
+        sid = clean_id(session_id)
+        if (
+            not valid_store(store)
+            or agent not in AGENTS
+            or sid is None
+            or not _ALIAS_RE.match(host)
+        ):
+            return False
+        with self.db:
+            self.db.execute(
+                "INSERT OR REPLACE INTO session_hosts VALUES (?, ?, ?, ?, ?)",
+                (store, agent, sid, host, int(ts)),
+            )
+        return True
+
+    def add_session_hosts(self, store: str, agent: str, hosts: dict[str, str], ts: float) -> int:
+        """Like ``set_session_host`` for many sessions at once, but only for sessions of
+        ``store`` that have responses and no server yet: a guess (``TokenStats``) never
+        replaces what a hook event said. The number added."""
+        if not valid_store(store) or agent not in AGENTS:
+            return 0
+        rows = [
+            (store, agent, sid, host, int(ts), store, agent, sid)
+            for sid, host in hosts.items()
+            if clean_id(sid) == sid and _ALIAS_RE.match(host)
+        ]
+        before = self.db.total_changes
+        with self.db:
+            self.db.executemany(
+                "INSERT OR IGNORE INTO session_hosts SELECT ?, ?, ?, ?, ? WHERE EXISTS"
+                " (SELECT 1 FROM responses WHERE store = ? AND agent = ? AND session_id = ?)",
+                rows,
+            )
+        return self.db.total_changes - before
+
+    def unplaced(self, store: str) -> tuple[int, int]:
+        """``(sessions, total)`` of ``store`` that no server is known for."""
+        row = self.db.execute(
+            "SELECT count(DISTINCT r.agent || ' ' || r.session_id),"
+            " coalesce(sum(r.input + r.cache_write + r.cache_read + r.output), 0)"
+            f" FROM responses r{_JOIN} WHERE r.store = ? AND r.session_id IS NOT NULL"
+            " AND h.host IS NULL",
+            (store,),
+        ).fetchone()
+        return row[0], row[1]
+
+    def place_unplaced(self, store: str, host: str, ts: float) -> int:
+        """Put every session of ``store`` that no server is known for on ``host``
+        (``agentail tokens assign``); a hook event later still says where one really ran.
+        The number placed."""
+        if not valid_store(store) or not _ALIAS_RE.match(host):
+            raise ValueError(f"bad store or host: {store!r} {host!r}")
+        before = self.db.total_changes
+        with self.db:
+            self.db.execute(
+                "INSERT OR IGNORE INTO session_hosts"
+                " SELECT DISTINCT store, agent, session_id, ?, ? FROM responses"
+                " WHERE store = ? AND session_id IS NOT NULL",
+                (host, int(ts), store),
+            )
+        return self.db.total_changes - before
+
     def cursor(self, store: str) -> Any:
         """The scanner cursor last saved for ``store`` (None: scan everything)."""
         row = self.db.execute("SELECT state FROM cursors WHERE store = ?", (store,)).fetchone()
@@ -276,6 +365,7 @@ class TokenStore:
         """Drop the rows of days older than ``keep_days``; the number dropped."""
         cutoff = day_start(now) - keep_days * 86400
         with self.db:
+            self.db.execute("DELETE FROM session_hosts WHERE ts < ?", (cutoff,))
             return self.db.execute("DELETE FROM responses WHERE ts < ?", (cutoff,)).rowcount
 
     def forget_all(self, keep_cursors: bool = False) -> None:
@@ -284,6 +374,7 @@ class TokenStore:
         files."""
         with self.db:
             self.db.execute("DELETE FROM responses")
+            self.db.execute("DELETE FROM session_hosts")
             if not keep_cursors:
                 self.db.execute("DELETE FROM cursors")
         with contextlib.suppress(sqlite3.OperationalError):  # busy: the space is reused anyway
@@ -304,35 +395,72 @@ class TokenStore:
         )
         return {agent: Counts(*nums) for agent, *nums in rows}
 
+    def grouped(
+        self,
+        since: int,
+        until: int | None = None,
+        stores: Iterable[str] | None = None,
+        bucket: int = 0,
+    ) -> list[tuple[int, str, str | None, str, str | None, str | None, int, Counts]]:
+        """``(time, store, host, agent, model, project, responses, counts)`` of the responses
+        in ``[since, until)``, added up per store, server (None: not known), agent, model and
+        project, and per ``bucket`` seconds of UTC time (``time`` is where the bucket begins;
+        0 when ``bucket`` is 0)."""
+        where, args = _range(since, until, stores, "r.")
+        when = f"r.ts - r.ts % {int(bucket)}" if bucket > 0 else "0"
+        host, join = self._host_join()
+        rows = self.db.execute(
+            f"SELECT {when} AS t, r.store, {host} AS hst, r.agent, r.model, r.project, count(*),"
+            f" {_SUMS} FROM responses r{join} WHERE {where}"
+            " GROUP BY t, r.store, hst, r.agent, r.model, r.project",
+            args,
+        )
+        return [(*r[:7], Counts(*r[7:])) for r in rows]
+
+    def _host_join(self) -> tuple[str, str]:
+        """The host column and the join that gives it; NULL on a file without the table (a
+        read-only open of a file the 0.0.7 daemon has not opened yet)."""
+        if self._hosts is None:
+            self._hosts = bool(
+                self.db.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'session_hosts'"
+                ).fetchone()
+            )
+        return ("h.host", _JOIN) if self._hosts else ("NULL", "")
+
     def first_ts(self, stores: Iterable[str] | None = None) -> int | None:
         """When the oldest response kept was written (None: nothing kept)."""
         where, args = _range(0, None, stores)
         return self.db.execute(f"SELECT min(ts) FROM responses WHERE {where}", args).fetchone()[0]
 
     def rows(self, since: int, until: int | None = None) -> list[tuple]:
-        """``(store, agent, session_id, ts, model, project, Counts)`` of every response in
-        ``[since, until)``, oldest first: for the CLI's groupings."""
-        where, args = _range(since, until, None)
+        """``(store, agent, session_id, ts, model, project, Counts, host)`` of every response
+        in ``[since, until)``, oldest first: for the CLI's groupings (host: the server, when
+        known)."""
+        where, args = _range(since, until, None, "r.")
+        host, join = self._host_join()
         cur = self.db.execute(
-            "SELECT store, agent, session_id, ts, model, project,"
-            " input, cache_write, cache_read, output, reasoning"
-            f" FROM responses WHERE {where} ORDER BY ts",
+            "SELECT r.store, r.agent, r.session_id, r.ts, r.model, r.project,"
+            f" r.input, r.cache_write, r.cache_read, r.output, r.reasoning, {host}"
+            f" FROM responses r{join} WHERE {where} ORDER BY r.ts",
             args,
         )
-        return [(*r[:6], Counts(*r[6:])) for r in cur]
+        return [(*r[:6], Counts(*r[6:11]), r[11]) for r in cur]
 
     def count(self) -> int:
         return self.db.execute("SELECT count(*) FROM responses").fetchone()[0]
 
 
-def _range(since: int, until: int | None, stores: Iterable[str] | None) -> tuple[str, list]:
-    where, args = ["ts >= ?"], [since]
+def _range(
+    since: int, until: int | None, stores: Iterable[str] | None, table: str = ""
+) -> tuple[str, list]:
+    where, args = [f"{table}ts >= ?"], [since]
     if until is not None:
-        where.append("ts < ?")
+        where.append(f"{table}ts < ?")
         args.append(until)
     if stores is not None:
         names = list(stores)
-        where.append(f"store IN ({', '.join('?' * len(names))})")
+        where.append(f"{table}store IN ({', '.join('?' * len(names))})")
         args.extend(names)
     return " AND ".join(where), args
 

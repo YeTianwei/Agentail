@@ -288,19 +288,45 @@ this computer and (over ssh) on each server, and keeps one row per response in
 
 ```
 TOKENS = {"today": [ROW...], "week": [ROW...], "total": [ROW...],
+          "ranges": {"today": SLICE, "last7": SLICE, "last30": SLICE, "total": SLICE},  # 0.0.7
+          "days": [{"start": 1792684800, ...SLICE}...],                           # 0.0.7
+          "hours": [{"start": 1792684800, ...SLICE}...],                          # 0.0.7
+          "previous": {"today": 51200000, "last7": 498000000, "last30": 2310000000},  # 0.0.7
           "day_start": 1792684800, "week_start": 1792339200, "since": 1786896000 | null,
           "updated_ts": 1792742400.5 | null}
 ROW    = {"agent": "claude" | "codex", "counts": COUNTS}
+SLICE  = {"counts": COUNTS, "requests": 7756,
+          "agent": [["claude", 1767618309]...],
+          "model": [["claude", "claude-opus-5-5", 1767618309]...],
+          "host": [["local", 312710656], ["gpu7·gpu8", 1498705897]...],
+          "project": [["agentail", 120602080]...]}
 COUNTS = {"input", "cache_write", "cache_read", "output", "reasoning"}   # integers
 ```
 
 - The four categories do not overlap: `input` is input that was not read from or written to the
-  cache. `reasoning` is the part of `output` spent thinking; it is not to be added again.
+  cache. `reasoning` is the part of `output` spent thinking; it is not to be added again. A
+  "total" below is the four categories added up (`reasoning` not again).
 - `today` and `week` are calendar days and ISO weeks (from Monday) in the daemon's time zone;
   `day_start` / `week_start` say where they begin (UTC seconds). `total` is everything kept
   (`[tokens] keep_days`, 400 by default); `since` is when its oldest response was written (null:
-  nothing kept). Agents without counts are left out. All three add up every host, or only this
-  computer while `servers` is off.
+  nothing kept). Agents without counts are left out. Everything adds up every host, or only this
+  computer while `servers` is off. `today`, `week` and `total` as ROWs stay for the 0.0.6 panel.
+- `ranges` (since 0.0.7) are today, the last 7 and 30 calendar days (today included) and
+  everything kept, each a SLICE: its counts, how many responses there were (`requests`), and its
+  total added up four ways, largest first: per agent; per model (with its agent); per host
+  (`local` is this computer; a server by its alias. Servers that share a `$HOME` share its
+  session files, which do not say where a line was written: a session is put on the server its
+  hook events came from (or, for Claude Code, the one whose temp folder holds the session), and
+  one not known is named by all of them, `gpu7·gpu8`; null for a server no longer added); per
+  project (the last part of the working directory). At most 8 models, 8 hosts and 5 projects are listed; the rest are added up under
+  null, which also holds responses whose model or project was not recorded. Names come from the
+  agents' files: plain text only.
+- `days` are the 30 calendar days that end with today, oldest first, and `hours` today's hours
+  (23 to 25 of them), each a SLICE with `start`, the local time it begins: for a chart, and for
+  showing one day or hour on its own.
+- `previous` is the total of the same stretch of time just before each range, up to the same time
+  of day: yesterday until this time, the 7 days before the last 7 until this time 7 days ago, and
+  so on; for "+18% vs the 7 days before".
 - `updated_ts` is when the counts last changed (null: not since the daemon started).
 - `tokens_update` carries the whole record, at most every 5 seconds and only when it changed.
   `TOKENS` is `null` while `[tokens] enabled = false` (or when the daemon cannot use its file):

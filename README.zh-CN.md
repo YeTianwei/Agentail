@@ -14,7 +14,7 @@
 ![Linux](https://img.shields.io/badge/Linux-GNOME%2045%E2%80%9349-orange?logo=linux&logoColor=white)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04-E95420?logo=ubuntu&logoColor=white)
 
-<img src="docs/images/demo.gif" alt="Agentail 面板：点「Yes」批准一条授权请求，查看按今日、本周、累计的 Token 统计，再切换到浅色和中文" width="452">
+<img src="docs/images/demo.gif" alt="Agentail 面板：点「Yes」批准一条授权请求，查看今日、7 天、30 天和累计的 Token 统计，再切换到浅色和中文" width="452">
 
 </div>
 
@@ -41,7 +41,7 @@
   只有你同意后才会用到你的 Claude 登录。
 - ✅ **在面板里处理授权请求。** 卡片上列出完整命令，点「是」或「否」即可。默认关闭；面板处理不了的时候，
   agent 照旧在终端里询问。
-- 🧮 **Token 统计。** 你的 agent 用了多少 token，按天、按周和累计，本机和服务器都算。
+- 🧮 **Token 统计。** 你的 agent 今天、最近 7 天或 30 天以及累计用了多少 token，可按 agent、模型、主机或项目查看，本机和服务器都算，还有柱状图。
 - 🔒 **本地运行，保护隐私。** 各台机器通过 SSH 和 Unix socket 与桌面通信。不用注册账号，没有云服务，也没有遥测。
   Agentail 不会主动连接任何在线服务，唯一的例外是你手动开启的 Claude 用量查询（Codex 的额度由 Codex 自己去查）。
 - 🌗 **浅色和深色。** 面板右上角一键切换。
@@ -101,10 +101,12 @@ Claude Code。Anthropic 怎么对待第三方工具发来的这类请求，由 A
 
 ## 🧮 Token 统计
 
-面板右上角、设置按钮旁边的柱状图按钮打开 **Token 消耗**页：Claude Code 和 Codex 用了多少 token，可以按今日、
-本周或累计查看。每个 agent 有一个合计，下面分成互不重叠的四类：输入、缓存写、缓存读、输出（思考算在输出里）。
-合计包括 agent 读写的全部 token，算法和 Codex 自己的 "lifetime tokens" 一样。其中大部分是每一轮从缓存里
-读回的对话内容，所以缓存读远远多于其他几类。
+面板右上角、设置按钮旁边的柱状图按钮打开 **Token 消耗**页：Claude Code 和 Codex 用了多少 token，可以看今日、
+最近 7 天、最近 30 天或累计。最上面是合计和互不重叠的四类（输入、缓存写、缓存读、输出，思考算在输出里），
+下面一行是日均、和之前同样长的一段相比的变化、请求次数。柱状图里今日按小时、7 天和 30 天按天，点一根柱子
+只看那个小时或那一天。再往下可以按 agent、模型、主机或项目查看各占多少。合计包括 agent 读写的全部 token，
+算法和 Codex 自己的 "lifetime tokens" 一样。其中大部分是每一轮从缓存里读回的对话内容，所以缓存读远远多于
+其他几类。这里不显示价格：数字是 token，不是账单。
 
 `agentail tokens` 在终端里按天、周、对话、模型或服务器显示同样的数字。
 
@@ -112,7 +114,7 @@ Claude Code。Anthropic 怎么对待第三方工具发来的这类请求，由 A
 用的那些文件。daemon 只读上次之后新增的部分：一轮对话结束几秒后、你打开面板时，以及每分钟一次。
 服务器上的会话在那边一轮结束后和你打开面板时读取（最多每分钟一次），通过 ssh 运行一小段 Python 脚本。
 服务器上什么都不装，传回来的只有数字、id、模型名和项目文件夹名，不会有你的 prompt 或代码。
-共用 `$HOME` 的几台服务器只读一次。
+共用 `$HOME` 的几台服务器只读一次；每个会话算在发出它的 hook 事件的那台服务器上；Claude Code 的会话也可以按它在哪台服务器的 `/tmp` 里留有会话目录来判断（其余的显示为几台合在一起，如 `gpu7·gpu8`）。
 
 统计结果保存在 `~/.local/state/agentail/tokens.sqlite`，保留 400 天。这比 agent 保留自己文件的时间更长
 （Claude Code 默认 30 天后删除），所以一个月之后，Agentail 里会有别处已经找不到的历史。第一次启动时会把
@@ -125,6 +127,7 @@ agentail tokens --by session --days 7  # 最大的 20 个对话
 agentail tokens --by model             # 或 --by host；--agent codex；--json
 agentail tokens off                    # 或 `off --servers`；面板设置里也能改
 agentail tokens forget                 # 删除所有统计，从现在重新开始
+agentail tokens assign gpu8            # 和 gpu8 共用 $HOME、分不出主机的会话，都算到 gpu8
 ```
 
 这些是 agent 自己记下的数字，不是账单。Agentail 不会把它们换算成钱。

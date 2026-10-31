@@ -2,7 +2,8 @@
 
 Reports read ``tokens.sqlite`` directly, read-only, so they work while the daemon runs and
 when it does not. ``on`` / ``off`` / ``status`` change or show ``[tokens]`` in config.toml (the
-daemon follows within seconds); ``forget`` drops every count kept so far.
+daemon follows within seconds); ``forget`` drops every count kept so far; ``assign HOST``
+counts on HOST the sessions of its shared $HOME that no server is known for.
 
 Formatting is kept in pure functions; strings from the store (project, model) were cleaned when
 they were written and are cleaned again before printing.
@@ -13,6 +14,7 @@ from __future__ import annotations
 import datetime as dt
 import json
 import sys
+import time
 from collections.abc import Callable
 from typing import Any, TextIO
 
@@ -52,7 +54,7 @@ def counts_cells(c: Counts) -> list[str]:
 
 
 def total(c: Counts) -> int:
-    return c.input + c.cache_write + c.cache_read + c.output
+    return c.total
 
 
 def store_labels(hosts: list[config.Host]) -> dict[str, str]:
@@ -87,10 +89,10 @@ def group(
     ``host`` and ``project`` for sessions. Days and weeks oldest first; sessions, models and
     hosts by total, largest first."""
     out: dict[tuple, dict[str, Any]] = {}
-    for store, ag, sid, ts, model, project, counts in rows:
+    for store, ag, sid, ts, model, project, counts, server in rows:
         if agent is not None and ag != agent:
             continue
-        host = labels.get(store, store)
+        host = server or labels.get(store, store)
         if by == "day":
             key: tuple = (tokens.local_day(ts, tz).isoformat(),)
         elif by == "week":
@@ -255,6 +257,55 @@ def switches(action: str, servers: bool, out: TextIO | None = None) -> int:
     )
     if not sw.enabled:
         print("The daemon reads no session files; the counts kept so far stay.", file=out)
+    return 0
+
+
+def assign(
+    alias: str, yes: bool = False, ask: Callable[[str], str] = input, out: TextIO | None = None
+) -> int:
+    """``agentail tokens assign HOST``: count on HOST every session of its $HOME that no server
+    is known for. Servers that share a $HOME share its session files; sessions their hook
+    events never placed (Codex's from before 0.0.7, say) otherwise show under all of them."""
+    from agentail.daemon.token_stats import store_of
+
+    out = out or sys.stdout
+    hosts = {h.alias: h for h in config.load_hosts()}
+    host = hosts.get(alias)
+    if host is None:
+        print(f"agentail tokens: {alias!r} is not a server added with add-host", file=sys.stderr)
+        return 2
+    store = store_of(host)
+    label = store_labels(list(hosts.values())).get(store, alias)
+    path = paths.tokens_file()
+    if not path.exists():
+        print("No token counts yet.", file=out)
+        return 0
+    try:
+        db = TokenStore(path)
+        try:
+            sessions, n = db.unplaced(store)
+            if not sessions:
+                print(f"Every session of {label} is already on its server.", file=out)
+                return 0
+            if not yes:
+                answer = ask(
+                    f"Count {sessions} session(s) of {label} ({fmt_count(n)} tokens) that no "
+                    f"server is known for on {alias}? [y/N] "
+                )
+                if answer.strip().lower() not in ("y", "yes"):
+                    print("Nothing changed.", file=out)
+                    return 1
+            placed = db.place_unplaced(store, alias, time.time())
+        finally:
+            db.close()
+    except Exception as exc:
+        print(f"agentail tokens: cannot change {path}: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"Counted {placed} session(s) on {alias}. A session a hook event comes from later "
+        "still counts where it runs.",
+        file=out,
+    )
     return 0
 
 

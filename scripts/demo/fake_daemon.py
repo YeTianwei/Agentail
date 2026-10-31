@@ -127,20 +127,138 @@ def counts(i, cw, cr, o, r=0):
     return {"input": i, "cache_write": cw, "cache_read": cr, "output": o, "reasoning": r}
 
 
-DAY = int(NOW // 86400 * 86400)
+DAY = int(time.mktime(time.localtime(NOW)[:3] + (0, 0, 0, 0, 0, -1)))  # local midnight
+# 30 made-up days, oldest first: Claude busy on weekdays, Codex now and then.
+CLAUDE_M = [
+    3,
+    5,
+    8,
+    6,
+    9,
+    2,
+    1,
+    7,
+    9,
+    10,
+    8,
+    6,
+    2,
+    1,
+    6,
+    8,
+    11,
+    9,
+    7,
+    3,
+    2,
+    9,
+    12,
+    10,
+    8,
+    11,
+    4,
+    2,
+    13,
+    6,
+]
+CODEX_M = [0, 1, 0, 2, 0, 0, 0, 1, 3, 0, 1, 0, 0, 0, 2, 0, 1, 4, 0, 0, 0, 1, 2, 0, 3, 1, 0, 0, 2, 1]
+
+
+def claude_day(m):  # m: tens of millions
+    return counts(m * 1_100, m * 480_000, m * 9_380_000, m * 105_000, m * 41_000)
+
+
+def codex_day(m):
+    return counts(m * 410_000, 0, m * 3_620_000, m * 61_000, m * 27_000)
+
+
+def add(cs):
+    return {k: sum(c[k] for c in cs) for k in cs[0]}
+
+
+DAYS = [
+    {
+        "start": DAY - (29 - i) * 86400,
+        "rows": [
+            r
+            for r in (
+                {"agent": "claude", "counts": claude_day(a)} if a else None,
+                {"agent": "codex", "counts": codex_day(b)} if b else None,
+            )
+            if r
+        ],
+    }
+    for i, (a, b) in enumerate(zip(CLAUDE_M, CODEX_M, strict=True))
+]
+MODELS = {
+    "claude": [("claude-opus-5-5", 0.86), ("claude-sonnet-5-5", 0.14)],
+    "codex": [("gpt-6-astra", 0.7), ("gpt-6-sol", 0.3)],
+}
+HOSTS = [("local", 0.55), ("gpu7", 0.25), ("gpu8", 0.12), ("gpu7·gpu8", 0.08)]
+PROJECTS = [
+    ("web-shop", 0.41),
+    ("agentail", 0.27),
+    ("data-pipeline", 0.19),
+    ("notes", 0.08),
+    (None, 0.05),
+]
+
+
+def total(c):
+    return c["input"] + c["cache_write"] + c["cache_read"] + c["output"]
+
+
+def slice_of(rows, scale=1.0):
+    """A SLICE of made-up agent rows; models, hosts and projects split by fixed shares."""
+    rows = [{**r, "counts": {k: round(v * scale) for k, v in r["counts"].items()}} for r in rows]
+    per = {r["agent"]: total(r["counts"]) for r in rows}
+    allt = sum(per.values())
+    return {
+        "counts": add([r["counts"] for r in rows]) if rows else counts(0, 0, 0, 0),
+        "requests": allt // 140_000,
+        "agent": sorted(([a, n] for a, n in per.items()), key=lambda x: -x[1]),
+        "model": sorted(
+            ([a, m, round(n * f)] for a, n in per.items() for m, f in MODELS[a]),
+            key=lambda x: -x[2],
+        ),
+        "host": [[h, round(allt * f)] for h, f in HOSTS] if allt else [],
+        "project": [[p, round(allt * f)] for p, f in PROJECTS] if allt else [],
+    }
+
+
+def merged(days):
+    out = {}
+    for d in days:
+        for r in d["rows"]:
+            c = out.get(r["agent"])
+            out[r["agent"]] = add([c, r["counts"]]) if c else r["counts"]
+    return [{"agent": a, "counts": c} for a, c in out.items()]
+
+
+# Today, hour by hour: work from 9:00 to the hour of the recording.
+HOUR_SHARE = [0] * 9 + [0.06, 0.11, 0.14, 0.05, 0.08, 0.13, 0.16, 0.12, 0.09, 0.06] + [0] * 5
+start_h = int(time.mktime(time.localtime(NOW)[:3] + (0, 0, 0, 0, 0, -1)))
+now_h = time.localtime(NOW).tm_hour
+HOURS = [
+    {"start": start_h + h * 3600, **slice_of(DAYS[-1]["rows"], HOUR_SHARE[h] if h <= now_h else 0)}
+    for h in range(24)
+]
 TOKENS = {
-    "today": [
-        {"agent": "claude", "counts": counts(48_210, 1_204_500, 18_730_400, 212_600)},
-        {"agent": "codex", "counts": counts(301_400, 0, 2_915_000, 88_300, 41_200)},
-    ],
-    "week": [
-        {"agent": "claude", "counts": counts(260_900, 6_870_200, 104_512_000, 1_163_400)},
-        {"agent": "codex", "counts": counts(1_744_000, 0, 16_380_000, 521_700, 240_100)},
-    ],
+    "today": merged(DAYS[-1:]),
+    "week": merged(DAYS[-4:]),
     "total": [
         {"agent": "claude", "counts": counts(2_918_000, 71_450_000, 1_208_300_000, 12_740_000)},
         {"agent": "codex", "counts": counts(19_260_000, 0, 172_900_000, 5_831_000, 2_604_000)},
     ],
+    "ranges": {
+        "today": slice_of(merged(DAYS[-1:])),
+        "last7": slice_of(merged(DAYS[-7:])),
+        "last30": slice_of(merged(DAYS)),
+        "total": slice_of(merged(DAYS), 212 / 30),
+    },
+    "days": [{"start": d["start"], **slice_of(d["rows"])} for d in DAYS],
+    "hours": HOURS,
+    "previous": {"today": 51_200_000, "last7": 498_000_000, "last30": 2_310_000_000},
     "day_start": DAY,
     "week_start": DAY - 3 * 86400,
     "since": DAY - 212 * 86400,

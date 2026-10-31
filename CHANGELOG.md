@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **The Tokens page has charts.** Its ranges are now Today, 7 days, 30 days and Lifetime (the
+  last 7 and 30 calendar days, today included). Under the total and its four kinds: a day's
+  average, how it compares with the same stretch of time before ("264M/day · +12% vs prior 7
+  days"; today against this time yesterday; left out while the counts do not go back that far) and how many responses there were. A chart shows today hour
+  by hour, or the last 7 or 30 days day by day, each agent in its colour; click a column to see
+  that hour or day on its own. The list below adds up the range by agent, model ("Opus 5.5"),
+  host (this computer and each server) or project, with each one's share. Still tokens only, no
+  prices.
+- **Servers that share a `$HOME` are counted apart.** Their session files are the same files, so
+  the counts used to show as one "gpu7·gpu8". The daemon now notes which server each session's
+  hook events come from and counts it there, in the panel and in `agentail tokens --by host`.
+  Earlier Claude Code sessions are placed too, by the folder Claude keeps for each session in
+  each server's own `/tmp` (looked at hourly; gone after the server restarts). Codex sessions
+  from before still show as one; `agentail tokens assign gpu8` counts all of those on the server
+  you use most (a hook event later still counts a session where it runs).
+- The UI protocol's `TOKENS` gains `ranges`, `days`, `hours` and `previous` (docs/protocol.md).
+  `today`, `week` and `total` stay for the 0.0.6 panel; a 0.0.7 panel talking to a 0.0.6 daemon
+  offers Today and Lifetime by agent only.
+
 ## 0.0.6 — 2026-10-26
 
 Answer permission prompts from the panel, and count your agents' tokens. Checked on the owner's
