@@ -4,7 +4,7 @@
 
 ---
 
-## 0. 当前状态(0.0.6 已发布;下一步:Tokens 页的图表,分支 `tokens-charts`,见 §3「Tokens 页图表」)
+## 0. 当前状态(0.0.7 待发布:Tokens 页图表与按主机分开,见 §3「0.0.7 发布」)
 
 下表是 0.0.1 时的模块清单,之后各版本的改动见 §3 各版本小节和 `CHANGELOG.md`。
 
@@ -498,6 +498,30 @@ $A tokens --days 7 && $A tokens --by model --days 7 && $A tokens --by host --day
 4. 「主机」分组:daemon 启动、服务器连上并扫描过一次后,几分钟内 `--print-events` 打印 `{"tokens_hosts": "home:…", "added": 80}` 左右,`gpu7·gpu8·gpu3` 那一行缩到只剩 Codex 和少数找不到的 Claude 会话(约 Claude 的 5%)。`$A tokens --by host` 一样。
 5. 「项目」分组:最耗 token 的几个项目和「其他」。
 6. 看一眼浅色主题和中文界面;再在本机跑一轮 Claude,几秒后这个小时的柱子和数字变大。
+
+
+### 0.0.7 发布 ☁️ + 👤
+
+☁️ 已完成(2026-10-31,分支 `release-0.0.7`,基于 `tokens-charts` 的两个提交):Tokens 页图表、四种分组、对比、共享 HOME 按主机分开、`tokens assign`、用量条在 HiDPI 下的长度、`record.sh` 收尾。版本号 0.0.7、CHANGELOG(含已知限制)、README 和 README.zh-CN 的安装行、`.github/release-notes/v0.0.7.md`、扩展 `metadata.json` 的 version 升到 5、`dist/agentail_0.0.7.deb`。hook 脚本没变(仍是版本 3),`SETUP_VERSION` 没变:装上不用重新 `add-host`,Codex 也不用重新信任。
+
+👤 你要做的:
+
+```bash
+cd /data2/Personal/Development/Agentail
+# 1. 停掉开发版:在跑 `agentail daemon --print-events` 的终端按 Ctrl+C
+# 2. 去掉开发时链接到仓库的扩展(只删这个符号链接,不要 uninstall-gnome-extension),让包里的扩展生效
+rm ~/.local/share/gnome-shell/extensions/agentail@yetianwei.github.io
+# 3. 装 0.0.7;postinst 会(重新)启动 daemon
+sudo apt install ./dist/agentail_0.0.7.deb
+# 4. X11:Alt+F2,r,回车(或注销再登录);然后检查
+agentail --version && agentail doctor          # 0.0.7,全绿
+# 面板 → 柱状图按钮:四个范围、柱状图、Agent / 模型 / 主机 / 项目
+# 5. 合并到 main 并发布(main 可以快进到 release-0.0.7)
+git switch main && git merge --ff-only release-0.0.7
+git push origin main && git tag v0.0.7 && git push origin v0.0.7
+```
+
+推送标签后 workflow 会核对标签和版本号、构建 `.deb`,并用 `.github/release-notes/v0.0.7.md` 作为发布页说明。
 
 ---
 

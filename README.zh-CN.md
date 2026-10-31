@@ -174,7 +174,7 @@ Codex 会要求你重新信任改过的那条 hook（`/hooks`），本机和每�
 从 [Releases](https://github.com/YeTianwei/Agentail/releases) 下载 `agentail_<版本号>.deb`，然后安装：
 
 ```bash
-sudo apt install ./agentail_0.0.6.deb
+sudo apt install ./agentail_0.0.7.deb
 ```
 
 **注销并重新登录一次**（X11 下按 Alt+F2，输入 `r` 回车也行），顶栏上就会出现胶囊。

@@ -1,15 +1,19 @@
 # Changelog
 
-## Unreleased
+## 0.0.7 — 2026-10-31
+
+A Tokens page with charts, lists by agent, model, host and project, and servers that share a
+`$HOME` counted apart. Checked on the owner's GNOME 46 desktop with its servers; clicking a
+column and the usage bars on a HiDPI screen in a headless GNOME Shell 46 only.
 
 ### Changed
 
 - **The Tokens page has charts.** Its ranges are now Today, 7 days, 30 days and Lifetime (the
   last 7 and 30 calendar days, today included). Under the total and its four kinds: a day's
   average, how it compares with the same stretch of time before ("264M/day · +12% vs prior 7
-  days"; today against this time yesterday; left out while the counts do not go back that far) and how many responses there were. A chart shows today hour
-  by hour, or the last 7 or 30 days day by day, each agent in its colour; click a column to see
-  that hour or day on its own. The list below adds up the range by agent, model ("Opus 5.5"),
+  days"; today against this time yesterday; left out while the counts do not go back that far)
+  and how many responses there were. A chart shows today hour by hour, or the last 7 or 30 days
+  day by day, each agent in its colour; click a column to see that hour or day on its own. The list below adds up the range by agent, model ("Opus 5.5"),
   host (this computer and each server) or project, with each one's share. Still tokens only, no
   prices.
 - **Servers that share a `$HOME` are counted apart.** Their session files are the same files, so
@@ -22,6 +26,17 @@
 - The UI protocol's `TOKENS` gains `ranges`, `days`, `hours` and `previous` (docs/protocol.md).
   `today`, `week` and `total` stay for the 0.0.6 panel; a 0.0.7 panel talking to a 0.0.6 daemon
   offers Today and Lifetime by agent only.
+
+### Fixed
+
+- The usage cards' bars were half as long as meant on a HiDPI (2x) screen.
+
+### Known limitations
+
+- Telling apart servers that share a `$HOME` by Claude Code's temp folders relies on how Claude
+  Code lays them out, which is not documented; a folder is gone once its server restarts.
+- A Codex session that ran while the daemon was not running, on a server sharing a `$HOME`,
+  shows under all of them until `agentail tokens assign` puts it on one.
 
 ## 0.0.6 — 2026-10-26
 

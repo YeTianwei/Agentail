@@ -1,3 +1,3 @@
 """Agentail: watch AI coding agents on your Linux desktop and remote SSH servers."""
 
-__version__ = "0.0.6"
+__version__ = "0.0.7"
