@@ -61,6 +61,8 @@ for _ in $(seq 1 120); do
 done
 kill "$spid" "$dpid" 2>/dev/null || true
 wait "$spid" 2>/dev/null || true
-rm -rf "$XDG_RUNTIME_DIR"
+# Services the session started (the document portal's FUSE mount, gvfs) may still hold parts
+# of the runtime dir for a moment: what is left is removed by the next run.
+rm -rf "$XDG_RUNTIME_DIR" 2>/dev/null || true
 [ -f "$GIF_OUT/steps.json" ] || { echo "no recording; see $DEMO_WORK/shell.log" >&2; exit 1; }
 python3 "$DEMO/make_gif.py" "$GIF_OUT" "${DEMO_GIF:-$REPO/docs/images/demo.gif}"

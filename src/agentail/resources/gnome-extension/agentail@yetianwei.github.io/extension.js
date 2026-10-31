@@ -32,9 +32,9 @@ const KNOWN_AGENTS = Object.keys(M.AGENT_NAME);
 const AGENT_ICON_SIZE = 16;
 const ADD_HOST_TIMEOUT_S = 150;
 const MAX_CHIPS = 40;
+// Bar sizes, as in stylesheet.css: set through CSS so that St scales them on a HiDPI screen
+// (an actor's width or height is in physical pixels).
 const USAGE_BAR_WIDTH = 120;
-// The Tokens page's sizes, as in stylesheet.css: set through CSS so that St scales them on a
-// HiDPI screen (an actor's width or height is in physical pixels).
 const TOKEN_BAR_WIDTH = 346;  // the card's 370, less the icon column
 const TOKEN_CHART_HEIGHT = 48;
 // Replaced by packaging/build-deb.sh with the same stamp it writes into metadata.json's
@@ -1158,14 +1158,14 @@ class AgentailIndicator extends PanelMenu.Button {
             name.set_style(`min-width: ${c.labelWidth}px;`);
             row.add_child(name);
             if (r.bar !== false) {  // a balance has no bar: label, then its text
-                const track = hbox('agentail-usage-track', {y_align: Clutter.ActorAlign.CENTER});
-                track.set_width(USAGE_BAR_WIDTH);
+                const track = hbox('agentail-usage-track agentail-usage-bar', {y_align: Clutter.ActorAlign.CENTER});
                 if (r.fraction > 0) {
-                    track.add_child(new St.Widget({
+                    const fill = new St.Widget({
                         style_class: `agentail-usage-fill agentail-usage-${r.level}`,
-                        width: Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction)),
                         y_expand: true,
-                    }));
+                    });
+                    fill.set_style(`width: ${Math.max(3, Math.round(USAGE_BAR_WIDTH * r.fraction))}px;`);
+                    track.add_child(fill);
                 }
                 row.add_child(track);
             }

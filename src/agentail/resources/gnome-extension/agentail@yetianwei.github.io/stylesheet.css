@@ -238,6 +238,7 @@
 .agentail-usage-row { spacing: 8px; }
 .agentail-usage-label { font-size: 12px; color: #c0c0c6; min-width: 34px; }
 .agentail-usage-track { height: 6px; border-radius: 3px; background-color: rgba(255, 255, 255, 0.12); }
+.agentail-usage-bar { width: 120px; }  /* USAGE_BAR_WIDTH */
 .agentail-usage-fill { border-radius: 3px; }
 .agentail-usage-ok { background-color: #62a0ea; }
 .agentail-usage-warn { background-color: #ffa348; }
